@@ -179,3 +179,29 @@ def test_download_adopts_placed_files_and_checks_pins(tmp_path):
     pinned = replace(spec, sha256="0" * 64)
     with pytest.raises(ValueError, match="does not match"):
         download(pinned, tmp_path / "raw3", log=lambda _: None)
+
+
+def test_certificate_errors_fall_back_to_curl_then_to_instructions(tmp_path, monkeypatch):
+    import ssl
+    import subprocess
+    import urllib.error
+    from dataclasses import replace
+
+    from seqrec.data import download as dl
+    from seqrec.data.registry import DATASETS
+
+    spec = replace(DATASETS["ml-1m"], sha256=None)
+
+    def broken_chain(url, part, log):
+        raise urllib.error.URLError(ssl.SSLCertVerificationError("unable to get local issuer"))
+
+    monkeypatch.setattr(dl, "_fetch", broken_chain)
+    monkeypatch.setattr(dl, "_fetch_with_curl", lambda url, part: part.write_bytes(b"zip"))
+    assert dl.download(spec, tmp_path / "a", log=lambda _: None)["bytes"] == 3
+
+    def curl_fails(url, part):
+        raise subprocess.CalledProcessError(60, "curl")
+
+    monkeypatch.setattr(dl, "_fetch_with_curl", curl_fails)
+    with pytest.raises(RuntimeError, match="by hand"):
+        dl.download(spec, tmp_path / "b", log=lambda _: None)

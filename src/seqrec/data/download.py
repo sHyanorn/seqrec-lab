@@ -5,6 +5,9 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+import shutil
+import ssl
+import subprocess
 import time
 import urllib.error
 import urllib.request
@@ -46,6 +49,21 @@ def _fetch(url: str, part: Path, log) -> None:
                     next_report += REPORT_EVERY
 
 
+def _is_certificate_error(err: Exception) -> bool:
+    return isinstance(getattr(err, "reason", err), ssl.SSLCertVerificationError)
+
+
+def _fetch_with_curl(url: str, part: Path) -> None:
+    """Some servers omit intermediate certificates; curl (shipped with Windows 10 and later)
+    completes the chain from the system store where Python's ssl module cannot."""
+    curl = shutil.which("curl")
+    if curl is None:
+        raise FileNotFoundError("curl not found")
+    subprocess.run(
+        [curl, "-L", "--fail", "--retry", "3", "-C", "-", "-o", str(part), url], check=True
+    )
+
+
 def download(spec: DatasetSpec, raw_dir: Path, log=print, attempts: int = 4) -> dict:
     """Fetch `spec` into raw_dir/<name>/ unless a verified copy is already there.
 
@@ -68,6 +86,17 @@ def download(spec: DatasetSpec, raw_dir: Path, log=print, attempts: int = 4) -> 
                 _fetch(spec.url, part, log)
                 break
             except (urllib.error.URLError, OSError) as err:
+                if _is_certificate_error(err):
+                    log("[data] certificate chain incomplete for Python; retrying with curl")
+                    try:
+                        _fetch_with_curl(spec.url, part)
+                        break
+                    except (OSError, subprocess.CalledProcessError) as curl_err:
+                        raise RuntimeError(
+                            f"Download {spec.url} by hand, for example\n"
+                            f'  curl.exe -L -o "{path}" {spec.url}\n'
+                            f"then rerun: uv run seqrec data prepare --datasets {spec.name}"
+                        ) from curl_err
                 if attempt == attempts:
                     raise
                 log(f"[data] attempt {attempt} failed ({err}); retrying")

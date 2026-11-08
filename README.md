@@ -35,7 +35,7 @@ No dataset is redistributed; each keeps its own terms of use (see [SPEC section 
 uv run seqrec data prepare
 ```
 
-Raw and processed files go to `data/` (not committed). Aggregate statistics go to `results/data/`.
+Raw and processed files go to `data/` (not committed). Aggregate statistics go to `results/data/`. Every raw file is checked against a pinned SHA-256. If Python cannot verify a server's certificate chain (seen with files.grouplens.org on Windows), the download retries with `curl`; failing that, download the file by hand into `data/raw/<dataset>/` and rerun with `--datasets <dataset>`.
 
 ## Runs
 

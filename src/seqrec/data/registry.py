@@ -12,7 +12,7 @@ class DatasetSpec:
     filename: str
     max_len: int  # model input length L (METHODS 2.7)
     time_unit: str  # granularity of source timestamps
-    sha256: str | None = None  # pinned when known; otherwise recorded on first download
+    sha256: str | None = None  # pinned; values match results/data/sources.csv
 
 
 DATASETS: dict[str, DatasetSpec] = {
@@ -24,6 +24,7 @@ DATASETS: dict[str, DatasetSpec] = {
             "ml-1m.zip",
             200,
             "second",
+            "a6898adb50b9ca05aa231689da44c217cb524e7ebd39d264c56e2832f2c54e20",
         ),
         DatasetSpec(
             "ml-20m",
@@ -31,6 +32,7 @@ DATASETS: dict[str, DatasetSpec] = {
             "ml-20m.zip",
             200,
             "second",
+            "96f243c338a8665f6bcc89c53edf6ee39162a846940de6b7c8c48aeada765ff3",
         ),
         DatasetSpec(
             "steam",
