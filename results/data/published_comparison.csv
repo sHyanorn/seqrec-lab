@@ -1,0 +1,16 @@
+dataset,variant,quantity,ours,published,relative_difference,needs_explanation,source
+ml-1m,5-core,users,6040,6040,0.0,False,SASRec [1] Table II
+ml-1m,5-core,items,3416,3416,0.0,False,SASRec [1] Table II
+ml-1m,5-core,interactions,999611,1000000,-0.0004,False,SASRec [1] Table II (1.0M)
+steam,5-core,users,281210,334730,-0.1599,True,SASRec [1] Table II
+steam,5-core,items,11961,13047,-0.0832,True,SASRec [1] Table II
+steam,5-core,interactions,3484694,3700000,-0.0582,True,SASRec [1] Table II (3.7M)
+steam,user filter,users,281210,281428,-0.0008,False,BERT4Rec [2] Table 1
+steam,user filter,items,11961,13044,-0.083,True,BERT4Rec [2] Table 1
+ml-20m,5-core,users,138493,138493,0.0,False,Time to Split [12] Table 2
+ml-20m,5-core,items,18345,18345,0.0,False,Time to Split [12] Table 2
+ml-20m,user filter,users,138493,138493,0.0,False,BERT4Rec [2] Table 1
+ml-20m,user filter,items,18345,26744,-0.3141,True,BERT4Rec [2] Table 1
+video-games,official 5-core,users,94762,94800,-0.0004,False,Amazon Reviews 2023 5-core table (94.8K)
+video-games,official 5-core,items,25612,25600,0.0005,False,Amazon Reviews 2023 5-core table (25.6K)
+video-games,official 5-core,interactions,814586,814600,-0.0,False,Amazon Reviews 2023 5-core table (814.6K)
