@@ -190,3 +190,9 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
 - Date: 2026-11-08. Status: accepted.
 - Decision: when Python reports a certificate verification error, the downloader retries the same URL with `curl`, which ships with Windows 10 and later; if that also fails, it stops with the exact manual download command and target path. Integrity rests on the pinned SHA-256 of every file.
 - Rationale: on the GPU machine, Python's `ssl` module rejected files.grouplens.org with "unable to get local issuer certificate", which points to a server that omits an intermediate certificate, while `curl.exe` downloaded the file. curl validates against the Windows certificate store, so the fallback adds no trust; it avoids a new dependency such as truststore for one server.
+
+## D024 Methods frozen
+
+- Date: 2026-11-08. Status: accepted.
+- Decision: `docs/METHODS.md` is frozen as committed in b90d6a7b301667e77812ece2868c2c877bfe379b, SHA-256 69be26ad89ec43d964f1d52dd52d79b7830d60a94a6dbf09e83fad203fce08be. No model had been trained on real data at that point; the only real-data outputs were the dataset statistics in `results/data/`.
+- Rationale: D014. Any later edit of the file is a deviation recorded here; `sha256sum docs/METHODS.md` against the value above shows whether the file still matches.
