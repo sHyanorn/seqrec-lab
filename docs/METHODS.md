@@ -1,4 +1,4 @@
-# Methods (pre-registration draft)
+# Methods (pre-registration)
 
 Status: **frozen** at the end of M1, before any model was trained on real data (D014; commit and SHA-256 in D024). Every later change is a deviation: it gets a DECISIONS entry with the date, the reason, and whether any result had been seen when it was made. Reference numbers point to the list in [SPEC.md](SPEC.md#12-references).
 
