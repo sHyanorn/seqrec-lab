@@ -368,8 +368,11 @@ def windows_settings() -> dict:
     import winreg
 
     def reg(path: str, name: str):
-        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, path) as key:
-            return winreg.QueryValueEx(key, name)[0]
+        try:
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, path) as key:
+                return winreg.QueryValueEx(key, name)[0]
+        except FileNotFoundError:
+            return "not set"  # value absent: Windows uses its default
 
     class PowerStatus(ctypes.Structure):
         _fields_ = [
