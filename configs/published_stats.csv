@@ -1,0 +1,16 @@
+dataset,variant,quantity,value,rounded_to,source
+ml-1m,5-core,users,6040,0,SASRec [1] Table II
+ml-1m,5-core,items,3416,0,SASRec [1] Table II
+ml-1m,5-core,interactions,1000000,100000,SASRec [1] Table II (1.0M)
+steam,5-core,users,334730,0,SASRec [1] Table II
+steam,5-core,items,13047,0,SASRec [1] Table II
+steam,5-core,interactions,3700000,100000,SASRec [1] Table II (3.7M)
+steam,user filter,users,281428,0,BERT4Rec [2] Table 1
+steam,user filter,items,13044,0,BERT4Rec [2] Table 1
+ml-20m,5-core,users,138493,0,Time to Split [12] Table 2
+ml-20m,5-core,items,18345,0,Time to Split [12] Table 2
+ml-20m,user filter,users,138493,0,BERT4Rec [2] Table 1
+ml-20m,user filter,items,26744,0,BERT4Rec [2] Table 1
+video-games,official 5-core,users,94800,100,Amazon Reviews 2023 5-core table (94.8K)
+video-games,official 5-core,items,25600,100,Amazon Reviews 2023 5-core table (25.6K)
+video-games,official 5-core,interactions,814600,100,Amazon Reviews 2023 5-core table (814.6K)
