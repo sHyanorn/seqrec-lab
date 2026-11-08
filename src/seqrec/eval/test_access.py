@@ -35,12 +35,23 @@ def read_test(
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with log_path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(record) + "\n")
-    return handle._split
+    return handle.unseal("read")
+
+
+def mark_completed(log_path: Path, run_id: str) -> None:
+    """Record that the scores from the last read were written."""
+    with log_path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps({"run_id": run_id, "event": "completed"}) + "\n")
 
 
 def count_reads(log_path: Path) -> dict[str, int]:
-    counts = {phase: 0 for phase in PHASES}
+    """Reads per phase, and how many of them finished writing their scores."""
+    counts = {phase: 0 for phase in PHASES} | {"completed": 0}
     if log_path.exists():
         for line in log_path.read_text(encoding="utf-8").splitlines():
-            counts[json.loads(line)["phase"]] += 1
+            record = json.loads(line)
+            if record.get("event") == "completed":
+                counts["completed"] += 1
+            else:
+                counts[record["phase"]] += 1
     return counts

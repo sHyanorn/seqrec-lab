@@ -2,6 +2,7 @@
 
 Scores are fp32 with autocast disabled. Every item the user saw before the target is
 excluded, ties count against the model, and each batch checks its own invariants.
+Inputs are gathered from the flat CSR arrays, so no per-user Python loop runs.
 """
 
 from __future__ import annotations
@@ -13,10 +14,14 @@ import numpy as np
 import torch
 
 from seqrec.data.invariants import InvariantError
-from seqrec.data.splits import EvalSplit, Sequences
+from seqrec.data.splits import EvalSplit
 
 Scorer = Callable[[torch.Tensor], torch.Tensor]  # (B, L) left-padded ids -> (B, >= N+1) scores
 KS = (10, 20)
+
+
+class NonFiniteScores(InvariantError):
+    """The model produced NaN or infinite scores, usually after training diverged."""
 
 
 @dataclass(frozen=True)
@@ -27,57 +32,72 @@ class EvalResult:
     ranks: np.ndarray  # kept in memory only; never written to results/
 
 
-def left_padded(seqs: Sequences, rows: np.ndarray, length: int) -> np.ndarray:
-    """The last `length` items of each row, left-padded with 0."""
-    out = np.zeros((len(rows), length), dtype=np.int64)
-    for j, r in enumerate(rows):
-        items = seqs.row(r)[-length:]
-        if len(items):
-            out[j, -len(items) :] = items
-    return out
+@dataclass(frozen=True)
+class DeviceSplit:
+    """An evaluation split's arrays on the scoring device."""
+
+    indptr: torch.Tensor
+    items: torch.Tensor
+    targets: torch.Tensor
+
+    @classmethod
+    def of(cls, split: EvalSplit, device: torch.device) -> DeviceSplit:
+        def put(a):
+            return torch.from_numpy(np.ascontiguousarray(a, dtype=np.int64)).to(device)
+
+        return cls(put(split.inputs.indptr), put(split.inputs.items), put(split.targets))
 
 
-def _check_scores(scores: torch.Tensor, n_items: int) -> None:
-    if scores.dtype != torch.float32:
-        raise InvariantError("evaluation scores must be fp32")
-    if scores.dim() != 2 or scores.shape[1] < n_items + 1:
-        raise InvariantError("scores must cover item ids 0..N")
+def model_inputs(ds: DeviceSplit, a: int, b: int, length: int) -> torch.Tensor:
+    """The last `length` items of rows a..b-1, left-padded with 0."""
+    starts, ends = ds.indptr[a:b], ds.indptr[a + 1 : b + 1]
+    idx = ends[:, None] - length + torch.arange(length, device=ends.device)
+    return torch.where(idx >= starts[:, None], ds.items[idx.clamp(min=0)], 0)
 
 
-def mask_history(scores: torch.Tensor, history: torch.Tensor) -> None:
-    """Set every history item to -inf; history is (B, H) with 0 as padding."""
-    scores.scatter_(1, history, float("-inf"))
+def history_entries(ds: DeviceSplit, a: int, b: int) -> tuple[torch.Tensor, torch.Tensor]:
+    """(row, item) pairs for every item rows a..b-1 saw before their target."""
+    lengths = ds.indptr[a + 1 : b + 1] - ds.indptr[a:b]
+    rows = torch.repeat_interleave(torch.arange(b - a, device=lengths.device), lengths)
+    return rows, ds.items[ds.indptr[a] : ds.indptr[b]]
+
+
+def mask_history(scores: torch.Tensor, rows: torch.Tensor, items: torch.Tensor) -> None:
+    scores.index_put_((rows, items), torch.tensor(float("-inf"), device=scores.device))
+
+
+def eval_autocast(device: torch.device):
+    return torch.autocast(device.type, enabled=False)
 
 
 def rank_targets(
     scores: torch.Tensor,
     targets: torch.Tensor,
-    history: torch.Tensor,
+    history: tuple[torch.Tensor, torch.Tensor],
+    history_sizes: torch.Tensor,
     n_items: int,
-    history_sizes: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Pessimistic 1-based ranks of the targets and whether each target ties with a candidate.
 
-    Out-of-vocabulary targets (id < 1) get rank N+1, a guaranteed miss. `history_sizes`
-    is the number of distinct items each user saw before the target; when given, the
-    candidate count is checked against it rather than against `history` itself.
+    `history` is (row, item) pairs; `history_sizes` is the number of distinct items each row
+    saw before its target. Out-of-vocabulary targets (id < 1) get rank N+1, a guaranteed miss.
     """
-    _check_scores(scores, n_items)
+    if scores.dtype != torch.float32:
+        raise InvariantError("evaluation scores must be fp32")
+    if scores.dim() != 2 or scores.shape[1] < n_items + 1:
+        raise InvariantError("scores must cover item ids 0..N")
     s = scores[:, : n_items + 1].clone()
+    if not torch.isfinite(s[:, 1:]).all():
+        raise NonFiniteScores("scores must be finite")
     s[:, 0] = float("-inf")
-    mask_history(s, history)
+    mask_history(s, *history)
 
     oov = targets < 1
     target_scores = s.gather(1, targets.clamp(min=1)[:, None]).squeeze(1)
     if not (torch.isfinite(target_scores) | oov).all():
         raise InvariantError("target score must stay finite after masking")
-    if history_sizes is None:
-        sorted_hist = history.sort(dim=1).values
-        history_sizes = (sorted_hist[:, :1] > 0).sum(1) + (
-            (sorted_hist[:, 1:] != sorted_hist[:, :-1]) & (sorted_hist[:, 1:] > 0)
-        ).sum(1)
     candidates = torch.isfinite(s[:, 1:]).sum(1)
-    if not torch.equal(candidates, n_items - history_sizes.to(candidates.device)):
+    if not torch.equal(candidates, n_items - history_sizes):
         raise InvariantError("candidate count must equal N minus distinct history items")
 
     at_least = (s >= target_scores[:, None]).sum(1) - 1  # minus the target itself
@@ -95,15 +115,6 @@ def metrics_from_ranks(ranks: np.ndarray, ks=KS) -> dict[str, float]:
     return out
 
 
-def history_matrix(split: EvalSplit, rows: np.ndarray) -> np.ndarray:
-    """Every item each user saw before the target, not only the model's truncated input."""
-    return left_padded(split.inputs, rows, max(int(split.inputs.lengths()[rows].max()), 1))
-
-
-def eval_autocast(device: torch.device):
-    return torch.autocast(device.type, enabled=False)
-
-
 @torch.no_grad()
 def evaluate(
     scorer: Scorer,
@@ -114,20 +125,17 @@ def evaluate(
     ks=KS,
 ) -> EvalResult:
     device = torch.device(device)
+    ds = DeviceSplit.of(split, device)
+    # Inputs hold distinct items (METHODS 2.4, checked by the split invariants),
+    # so each input length is the number of distinct history items.
+    sizes = ds.indptr[1:] - ds.indptr[:-1]
     ranks, ties = [], []
-    for start in range(0, len(split), batch_size):
-        rows = np.arange(start, min(start + batch_size, len(split)))
-        model_in = torch.from_numpy(left_padded(split.inputs, rows, max_len)).to(device)
-        history = history_matrix(split, rows)
+    for a in range(0, len(split), batch_size):
+        b = min(a + batch_size, len(split))
         with eval_autocast(device):
-            scores = scorer(model_in)
+            scores = scorer(model_inputs(ds, a, b, max_len))
         r, t = rank_targets(
-            scores,
-            torch.from_numpy(split.targets[rows]).to(scores.device),
-            torch.from_numpy(history).to(scores.device),
-            split.n_items,
-            # inputs hold distinct items (METHODS 2.4), so their length is the history size
-            torch.from_numpy(split.inputs.lengths()[rows]),
+            scores, ds.targets[a:b], history_entries(ds, a, b), sizes[a:b], split.n_items
         )
         ranks.append(r.cpu().numpy())
         ties.append(t.cpu().numpy())
