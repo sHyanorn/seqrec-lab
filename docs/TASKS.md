@@ -16,7 +16,7 @@ Milestones and checklists. Estimates: development hours / GPU hours / owner time
 Data
 - [x] Download scripts with SHA-256 records for the four datasets
 - [x] Preprocessing (METHODS 2) and statistics table in `results/data/`
-- [ ] Compare statistics with published ones; explain differences above 1% in DECISIONS
+- [x] Compare statistics with published ones; explain differences above 1% in DECISIONS
 - [x] Leave-one-out and temporal splits as typed split objects (METHODS 3)
 - [x] Shuffled-order transform (METHODS 3.3)
 
@@ -37,9 +37,9 @@ Runner
 - [x] NVML sampler shared with `scripts/check_env.py`
 
 Freeze
-- [ ] Close METHODS section 13 open items (only the statistics explanations remain)
-- [ ] Silent-error review (independent, code and data flow only) and whole-diff review; fixes
-- [ ] Freeze METHODS (D014) before any model is trained on real data
+- [x] Close METHODS section 13 open items
+- [x] Silent-error review (independent, code and data flow only) and whole-diff review; fixes
+- [x] Freeze METHODS (D014) before any model is trained on real data
 
 ## M2 Models, objectives and pilot (19 h / 10 h / 30 min)
 

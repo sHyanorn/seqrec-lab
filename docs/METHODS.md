@@ -1,6 +1,6 @@
 # Methods (pre-registration draft)
 
-Status: **draft**. This document is frozen at the end of M1, before any model is trained on real data (D014). After the freeze, every change is a deviation: it gets a DECISIONS entry with the date, the reason, and whether any result had been seen when it was made. Items still open are listed in section 13. Reference numbers point to the list in [SPEC.md](SPEC.md#12-references).
+Status: **frozen** at the end of M1, before any model was trained on real data (D014; commit and SHA-256 in D024). Every later change is a deviation: it gets a DECISIONS entry with the date, the reason, and whether any result had been seen when it was made. Reference numbers point to the list in [SPEC.md](SPEC.md#12-references).
 
 ## 1. Data sources
 
@@ -396,8 +396,6 @@ Before delivering M1, M2, M3 or M5, an independent reviewer that sees only the c
 - One extra leave-one-out seed for every arm on every dataset costs about 7 hours, so the reserve covers one to six extra seeds before RQ4. If the cap binds, datasets late in the priority order of 7.5 keep fewer seeds, and their comparisons are labelled by power as in 7.5.
 - The M2 pilot replaces these estimates with measured epoch times. If the projected core total exceeds the cap, scope is cut in this order: halve MovieLens-20M tuning trials, drop the MovieLens-20M temporal split, drop Steam. Each cut is a DECISIONS entry.
 
-## 13. Open items before the freeze
+## 13. Items resolved before the freeze
 
-- Explanations for dataset statistics that differ from published values by more than 1% (D006), after the data run on the GPU machine.
-
-Resolved: Steam fields (section 1), BERT4Rec masking and training instances (4.2), ranx licence (11.4, D021), validation subsample removed (5.2, D019).
+Steam fields (section 1); BERT4Rec masking and training instances (4.2); ranx licence (11.4, D021); validation subsample removed (5.2, D019); dataset statistics against published values (D022).
