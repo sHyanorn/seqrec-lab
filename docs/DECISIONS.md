@@ -167,7 +167,7 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
 - Date: 2026-11-08. Status: accepted.
 - Decision: the official preprocessing and statistics run once on the GPU machine (`seqrec data prepare`), and only `results/data/` is pushed. The development container prepares Steam and Video_Games for development and checks that their fingerprints match the GPU machine's.
 - Rationale: files.grouplens.org is not reachable from the development container. Matching fingerprints across Linux and Windows also checks that preprocessing is deterministic.
-- Amendment 2026-11-08: the GPU machine's data run (`results/data/stats.csv`) and the development container produce identical fingerprints for all six Steam and Video_Games products (log, leave-one-out and temporal split): 732bccfb2e720391, 80b6e78d66883bf4, cd343c472c0296b2, b6d5f4b89cbad7fc, 75d6517e6d2ea176, 56efeb4714878af5. Preprocessing is deterministic across Windows and Linux.
+- Amendment 2026-11-08: the GPU machine's data run (`results/data/stats.csv`) and the development container produce identical fingerprints for all six Steam and Video_Games products (log, leave-one-out and temporal split): 732bccfb2e720391, 80b6e78d66883bf4, cd343c472c0296b2, b6d5f4b89cbad7fc, 75d6517e6d2ea176, 56efeb4714878af5. For these two datasets, preprocessing is deterministic across Windows and Linux.
 
 ## D021 Third-party metric cross-check
 
@@ -180,19 +180,19 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
 - Date: 2026-11-08. Status: accepted.
 - Decision: the preprocessing of METHODS section 2 stays as specified. Five rows of `results/data/published_comparison.csv` differ by more than 1%; each comes from a different filtering procedure in the source, not from a defect. MovieLens-1M (6,040 users, 3,416 items) and the MovieLens-20M 5-core counts (138,493 users, 18,345 items [12]) match exactly, and Video_Games matches the official 5-core table within its rounding.
 - Explanations:
-  - Steam users 281,210 against 334,730 [1] (−16.0%), items 11,961 against 13,047 [1] (−8.3%), interactions 3,484,694 against 3.7M [1] (−5.8%). The preprocessing script in the SASRec repository filters once on raw counts [31] (the paper does not say whether its Steam data went through that script). A single pass keeps users and items that fall below five once the other side is filtered; the iterative filter used here removes them. Repeated reviews of the same game are also removed first (7,793,069 rows to 6,889,728).
-  - Steam items 11,961 against 13,044 [2] (−8.3%). BERT4Rec keeps users with at least five interactions and does not filter items; the user counts agree within 0.1% (281,210 against 281,428).
+  - Steam users 281,210 against 334,730 [1] (−16.0%), items 11,961 against 13,047 [1] (−8.3%), interactions 3,484,694 against 3.7M [1] (−5.8%). One pass of the 5-core filter on raw counts (repeated reviews included), followed by removal of repeated pairs, reproduces [1] exactly from the raw file: 334,730 users, 13,047 items, 3,686,172 interactions. A single pass keeps users and items that fall below five once the other side is filtered; the iterative filter used here removes them. Repeated reviews are removed here before filtering (7,793,069 rows to 6,889,728).
+  - Steam items 11,961 against 13,044 [2] (−8.3%). Keeping only users with at least five interactions in the single-pass data above reproduces [2] exactly: 281,428 users, 13,044 items, 3,488,885 interactions. The Steam data of [2], also used in [3, 4, 5], therefore differs from ours through the single-pass item filter, not only through its user filter.
   - MovieLens-20M items 18,345 against 26,744 [2] (−31.4%). BERT4Rec does not filter items, and 26,744 is exactly the item count of our deduplicated log before filtering; the item filter removes the 8,399 items with fewer than five ratings.
 - Consequence: published numbers on Steam and MovieLens-20M from [2, 3, 4, 5] come from differently filtered data, which the report states next to every comparison with them.
 
 ## D023 Fallback for incomplete certificate chains
 
 - Date: 2026-11-08. Status: accepted.
-- Decision: when Python reports a certificate verification error, the downloader retries the same URL with `curl`, which ships with Windows 10 and later; if that also fails, it stops with the exact manual download command and target path. Integrity rests on the pinned SHA-256 of every file.
-- Rationale: on the GPU machine, Python's `ssl` module rejected files.grouplens.org with "unable to get local issuer certificate", which points to a server that omits an intermediate certificate, while `curl.exe` downloaded the file. curl validates against the Windows certificate store, so the fallback adds no trust; it avoids a new dependency such as truststore for one server.
+- Decision: when Python reports a certificate verification error, the downloader retries the same URL with `curl`, preferring the `curl.exe` shipped with Windows 10 version 1803 and later; if that also fails, it stops with a manual download command and the target path. Integrity rests on the pinned SHA-256 of every file.
+- Rationale: on the GPU machine, Python's `ssl` module rejected files.grouplens.org with "unable to get local issuer certificate", which points to a server that omits an intermediate certificate, while `curl.exe` downloaded the file. Windows' curl validates through Schannel, which can fetch a missing intermediate certificate from the address in the server certificate (AIA); Python's `ssl` module does not. The certificate is still validated against the Windows trust store, so the fallback adds no trust, and it avoids a new dependency such as truststore for one server.
 
 ## D024 Methods frozen
 
 - Date: 2026-11-08. Status: accepted.
-- Decision: `docs/METHODS.md` is frozen as committed in b90d6a7b301667e77812ece2868c2c877bfe379b, SHA-256 69be26ad89ec43d964f1d52dd52d79b7830d60a94a6dbf09e83fad203fce08be. No model had been trained on real data at that point; the only real-data outputs were the dataset statistics in `results/data/`.
+- Decision: `docs/METHODS.md` is frozen as committed in 569676ffb96a23a7dca0e59207cc4c314651cbb8, SHA-256 b3c26c4f6303b4cd6948ebe7e1bbc25e2e16fbc236b7591c476c47b2a8d0f2b8. It differs from the first freeze commit (b90d6a7) only in its title line. No model had been trained on real data at that point; the only real-data outputs were the dataset statistics in `results/data/`.
 - Rationale: D014. Any later edit of the file is a deviation recorded here; `sha256sum docs/METHODS.md` against the value above shows whether the file still matches.
