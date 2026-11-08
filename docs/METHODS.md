@@ -11,7 +11,7 @@ Status: **draft**. This document is frozen at the end of M1, before any model is
 | Steam | `steam_reviews.json.gz` from mcauleylab.ucsd.edu/public_datasets/data/steam/ | username, product_id, date (day) |
 | Amazon Reviews 2023, Video_Games | 0-core `rating_only` file from the official benchmark release | user_id, parent_asin, timestamp (ms) |
 
-Steam records lack a numeric user id in many lines, so `username` is the user key; records without a username, product or date are dropped and counted. The download script records the SHA-256 of every file. Preprocessing is deterministic given those files. No data file, processed file or per-user output is committed.
+Steam records lack a numeric user id in many lines, so `username` is the user key. Usernames are display names, so distinct accounts with the same name merge; this is a limitation shared with earlier uses of this file. Records without a username, product or date, and malformed lines, are dropped and counted. The download script records the SHA-256 of every file. Preprocessing is deterministic given those files. No data file, processed file or per-user output is committed.
 
 ## 2. Preprocessing
 
@@ -20,7 +20,7 @@ Steam records lack a numeric user id in many lines, so `username` is the user ke
 3. Sort by (user, timestamp, row index). The row index breaks timestamp ties, so order is stable and reproducible. "Before" and "after" within a user always refer to positions in this order.
 4. Remove repeated (user, item) pairs, keeping the earliest. Evaluation masks the user's history (section 6), so a repeated item could never be a valid target.
 5. Iterative 5-core filtering on users and items, repeated until stable. For leave-one-out it runs on the full deduplicated data, which uses information from the evaluation period; this is inherent to the published protocol and is reported as such. [1] describes a 5-core filter; its code applies a single pass on raw counts. For the temporal split it runs on the training period only (section 3.2).
-6. Map items to 1..N in sorted order of their original ids. 0 is padding; N+1 is the BERT4Rec mask token.
+6. Map items to 1..N in lexicographic order of their original id strings. 0 is padding; N+1 is the BERT4Rec mask token.
 7. Maximum input length L: 200 for MovieLens-1M and MovieLens-20M, 50 for Steam and Amazon, as in [1] and [5]. Longer inputs keep the most recent L items.
 
 Dataset statistics (users, items, interactions, sequence length quantiles, density, share of consecutive same-timestamp pairs) are written to `results/data/`. They are compared with published statistics; a difference above 1% in users, items or interactions is explained in DECISIONS before the freeze. For Amazon, our 5-core counts are also checked against the official 5-core table. Expected differences: Steam against [1] (single-pass filter), and Steam and MovieLens-20M against the BERT4Rec-repository versions used in [3, 4, 5] (user filter only).
@@ -49,7 +49,7 @@ Intentional differences from [12]:
 
 ### 3.3 Shuffled-order controls (D017)
 
-- **Train-and-evaluate shuffle (arm C1, confirmatory):** each user's training sequence and every evaluation input are permuted uniformly at random with a fixed per-user seed. Targets are unchanged. Runs use the final SASRec-CE configuration on all four datasets and the final BERT4Rec configuration on MovieLens-1M and MovieLens-20M, leave-one-out, with the same seeds as the unshuffled runs. Expected outcome: a drop larger than SESOI (family F4). Without it on the MovieLens datasets, order handling and evaluation are audited before any other result is reported.
+- **Train-and-evaluate shuffle (arm C1, confirmatory):** each user's training sequence and every evaluation input are permuted uniformly at random. Every position of the full log gets one random key from a generator seeded by the run seed, and each sequence is reordered by its keys, so a training sequence and the validation input built from it are permuted the same way. Targets are unchanged. Runs use the final SASRec-CE configuration on all four datasets and the final BERT4Rec configuration on MovieLens-1M and MovieLens-20M, leave-one-out, with the same seeds as the unshuffled runs. Expected outcome: a drop larger than SESOI (family F4). Without it on the MovieLens datasets, order handling and evaluation are audited before any other result is reported.
 - **Test-only shuffle (descriptive):** as in [11], the trained model is evaluated on shuffled test inputs. This is computed for every neural final run inside its single test read (section 11.6). [11] shuffles test inputs only; the train-and-evaluate variant is our adaptation.
 
 ## 4. Models and objectives
@@ -103,7 +103,7 @@ Both use the same evaluation code, masking and test-access rules as the neural m
 ### 5.2 Early stopping and caps
 
 - Validation NDCG@10 is computed after every epoch. The best checkpoint by validation NDCG@10 is restored at the end.
-- Every validation user is scored after every epoch; full-catalogue scoring costs about 0.2 s for all MovieLens-20M validation users on the target GPU (D019). The trial objective is validation NDCG@10 of the restored checkpoint.
+- Every validation user is scored after every epoch (D019). The trial objective is validation NDCG@10 of the restored checkpoint.
 - Caps leave a margin over published training lengths ([5] uses at most 100 epochs with patience 10 for SASRec and 200 with patience 20 for BERT4Rec):
 
 | Arms | Max epochs | Patience | Wall-clock guard |
@@ -142,7 +142,7 @@ Shared by all neural arms:
 
 ### 5.5 Final runs
 
-The best trial per (arm, dataset) is rerun with seeds 1..n on leave-one-out, where n follows section 7.5, and with seeds 1..5 on the temporal split. Test data of a dataset are read only after n is final and every seed of that dataset has finished training. Floor baselines are deterministic and run once.
+The best trial per (arm, dataset) is rerun with seeds 1..n on leave-one-out, where n follows section 7.5, and with seeds 1..5 on the temporal split. Test data are read by a separate command (`seqrec test`), which refuses to run until every run of its plan has finished training; seeds added by 7.5 go into the plan before that command runs. Floor baselines are deterministic and run once.
 
 The final runs of a dataset are executed in a randomised order that interleaves arms and seeds. Each batch starts with 180 s of continuous GPU load, so runs start in the thermal steady state rather than from a cool GPU (D011).
 
@@ -233,7 +233,7 @@ Per arm, dataset and split: mean and SD of every metric across seeds, CIs for di
 
 ## 8. RQ2: cost of training objectives
 
-- Every run logs per epoch: cumulative training time excluding evaluation, validation NDCG@10, peak allocated memory, and NVML samples at 1 Hz.
+- Every run logs per epoch: cumulative training time excluding evaluation, validation NDCG@10, peak allocated memory during the training epoch (read before evaluation starts), and NVML samples at 1 Hz.
 - Scope: arms A1 to A4, leave-one-out.
 - Target quality per dataset: 0.95 × the highest mean (over seeds) best validation NDCG@10 among A1 to A4.
 - Time to target of a run: the first cumulative training time at which validation NDCG@10 reaches the target. A run that never reaches it is censored at +∞.
@@ -307,10 +307,11 @@ Data move only through typed split objects. The assertions below run after prepr
   - every training interaction has t ≤ T_val, and every validation target t ≤ T;
   - every test target has t > T;
   - every input contains only interactions at earlier positions than its target.
-- **Training-only statistics:** item popularity (MostPop), negative sampling, the transition table and temporal-split filtering accept only the training split type. Each statistic stores a hash of the interactions it was computed from, compared at run time with the training split's hash.
+- **Training-only statistics:** item popularity (MostPop), negative sampling and the transition table accept only the training split type. Each statistic stores a hash of the interactions it was computed from, compared at run time with the training split's hash. Model factories receive the training split only.
+- **Temporal-split construction:** the checks recompute both cutoffs, the training-period 5-core vocabulary and each user's last validation-period item from the source log with their own code and compare them with the split.
 - **Evaluation:**
   - each target equals the item that follows the input in the full sequence, checked by position;
-  - each input is a suffix of a prefix of the user's full sequence;
+  - each input holds exactly the user's in-vocabulary items before the target, each once;
   - the score matrix is fp32 and covers all item ids, with padding and mask ids excluded;
   - after masking, the candidate count is N minus the number of distinct items in the user's full history before the target, and the target's score is finite;
   - the target never appears in that history.
@@ -365,14 +366,15 @@ Rules:
 
 ### 11.6 Test-set isolation
 
-- One function reads test data. It requires a phase, `final` or `anchor`, and appends a record (time, run id, phase, caller, git commit, checkpoint hash) to the run's `test_access.jsonl`.
+- The test split is sealed. Only the logged reader opens it for scores; the invariant checks and the shuffle transform open it for structure, and a static test fails if any other code does. Tuning runs replace it with a stand-in that raises on any access.
+- The reader requires a phase, `final` or `anchor`, and appends a record (time, run id, phase, caller, git commit, checkpoint hash) to the run's `test_access.jsonl`; a second record marks that the scores were written. Anchor reads are counted across all runs before data are returned, and a fourth read for the same arm and dataset is refused.
 - The checkpoint hash is recorded before the test read. Tuning objectives and early stopping use validation data only.
 - The single read of a final run computes every reported test quantity, including the test-only shuffle (3.3).
-- A test runs a full tuning trial with a test reader that raises on any call.
-- The export step checks the counts and the report shows them:
-  - every final run read test data exactly once;
+- A test makes a tuning run try to evaluate on test data and requires it to fail.
+- The export step recounts reads from every `test_access.jsonl`, including runs that failed, and the report shows the counts:
+  - every final run read test data at most once, and every tested run has a completion record for each read;
   - every tuning run read it zero times;
-  - each arm has at most three anchor reads.
+  - each arm has at most three anchor reads per dataset.
 
 ### 11.7 Silent-error review
 

@@ -8,13 +8,20 @@ Each row is a silent bug injected by a test in `tests/test_mutations.py` (METHOD
 | Test item placed in the training sequence | `test_test_item_in_training` | train: no evaluation targets |
 | Targets off by one position | `test_targets_off_by_one` | train: no evaluation targets |
 | Target included in its own input | `test_target_inside_its_input` | train: no evaluation targets |
+| Evaluation input drops an earlier item | `test_evaluation_input_drops_an_item` | input holds every earlier in-vocabulary item; loo: validation input equals training |
 | Popularity computed on all data | `test_statistic_from_all_data` | statistic was not computed from this training split |
 | Temporal cutoff off by one at tied timestamps | `test_temporal_cutoff_off_by_one_at_ties` | gts: validation targets inside validation period |
+| Temporal vocabulary taken from the whole log | `test_temporal_vocabulary_from_whole_log` | gts: vocabulary is the 5-core of the training period |
+| Temporal validation target is the first item of the period | `test_temporal_validation_target_first_not_last` | gts: validation target is the last item up to the cutoff |
 | History masking removed | `test_history_masking_removed` | candidate count must equal N minus distinct history items |
 | History masking limited to the truncated input | `test_history_masking_limited_to_truncated_input` | candidate count must equal N minus distinct history items |
 | History masking applied to the target | `test_history_masking_applied_to_target` | target score must stay finite after masking |
 | Evaluation scores in bf16 | `test_scores_in_bf16` | evaluation scores must be fp32 |
-| Tuning run reads test data | `tests/test_runner.py::test_tuning_run_never_touches_test_data`, `test_test_reader_rejects_other_phases`, export check in `test_batch_and_export_through_cli` | test reader refuses phase `tune`; export flags any tuning run with test reads |
+| Tuning run evaluates on test data | `tests/test_runner.py::test_tuning_run_cannot_reach_test_data` | the sealed stand-in raises in tuning runs |
+| Test data opened outside the approved paths | `tests/test_isolation.py` | static scan of `unseal` calls |
+| Test read in a tuning run, or a final run read twice | `tests/test_runner.py::test_batches_through_cli`, `test_test_reader_rejects_other_phases` | reader refuses phase `tune`; export recounts reads |
+| A fourth anchor read for an arm | `tests/test_runner.py::test_anchor_reads_are_capped` | reader-side anchor count |
+| Last checkpoint scored instead of the best | `tests/test_runner.py::test_best_checkpoint_is_the_one_scored` | validation score of the restored checkpoint |
 
 Added in M2, with the models:
 

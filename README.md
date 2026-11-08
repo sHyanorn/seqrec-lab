@@ -40,11 +40,12 @@ Raw and processed files go to `data/` (not committed). Aggregate statistics go t
 ## Runs
 
 ```
-uv run seqrec run plans/<plan>.toml    # resumable; finished runs are skipped
-uv run seqrec export                   # aggregates to results/runs/
+uv run seqrec run plans/<plan>.toml    # train; resumable, finished runs are skipped
+uv run seqrec test plans/<plan>.toml   # read test data once per run, after all are trained
+uv run seqrec export                   # aggregate to results/runs/
 ```
 
-Test data are read once per final run through a logged reader; `export` refuses batches whose test-access counts break the protocol (METHODS 11.6).
+Test data are read only by `seqrec test`, once per final run, through a logged reader. `export` writes the aggregates, lists any test-access count that breaks the protocol (METHODS 11.6) and then exits with status 1.
 
 ## License
 
