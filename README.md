@@ -14,7 +14,7 @@ Status: milestone M0 (specification and feasibility check).
 Requires [uv](https://docs.astral.sh/uv/). On the GPU machine:
 
 ```
-uv sync --group compile
+uv sync --locked
 uv run python scripts/check_env.py
 ```
 
@@ -23,7 +23,7 @@ The report is written to `results/env/`. `--quick` runs tiny shapes and also wor
 ## Tests
 
 ```
-uv sync
+uv sync --locked
 uv run pytest
 ```
 

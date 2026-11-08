@@ -9,7 +9,7 @@ Milestones and checklists. Estimates: development hours / GPU hours / owner time
 - [x] uv project with locked PyTorch 2.15 (`cu132` on Windows, CPU on Linux)
 - [x] `scripts/check_env.py` with CPU tests
 - [ ] Owner runs `scripts/check_env.py` on the laptop; JSON and summary committed under `results/env/`
-- [ ] Review the check results: SDPA backend availability, `torch.compile`, memory per catalogue size, thermal behaviour; update D002, D003, D011 or the budget if they contradict assumptions
+- [ ] Review the check results: SDPA backend availability and accuracy, `torch.compile`, memory per catalogue size, thermal behaviour; update D002, D003, D011 or the budget if they contradict assumptions
 
 ## M1 Data, evaluation and runner (18 h / 0 h / 30 min)
 
@@ -22,7 +22,7 @@ Data
 
 Evaluation
 - [ ] Vectorised full-ranking evaluator with history masking and pessimistic ties
-- [ ] Single logged test reader (`phase="final"`, `test_access.jsonl`)
+- [ ] Single logged test reader (phases `final` and `anchor`, `test_access.jsonl`)
 
 Correctness (METHODS 11)
 - [ ] Invariant assertions for preprocessing, both splits, training-only statistics and evaluation inputs; results stored in the run manifest
@@ -51,13 +51,13 @@ Freeze
 - [ ] Remaining mutation tests (label shift, causal mask removed, test read during tuning)
 - [ ] Tuning harness: Optuna TPE studies in SQLite, pruning, caps and truncation records
 - [ ] Pilot on the laptop: anchors on MovieLens-1M (METHODS 11.5), 3 seeds per arm for σ (validation only), epoch-time measurements on all datasets
-- [ ] Anchors inside their bands, or gaps explained in DECISIONS
+- [ ] Anchors inside their bands within three anchor reads per arm, or the arm flagged as in METHODS 11.5
 - [ ] Seed count from METHODS 7.5; updated GPU projection; descoping decisions if needed
 - [ ] Silent-error review and whole-diff review; fixes
 
-## M3 RQ1 and RQ2 runs (6 h / 120 to 150 h / about 3 weeks of laptop time)
+## M3 RQ1 and RQ2 runs (6 h / 128 to 163 h plus seed reserve / about 3 weeks of laptop time)
 
-- [ ] Check whether the RecArena negative-sampling study has been published; record in DECISIONS
+- [ ] Check whether the negative-sampling comparison announced in the amazon-science/RecArena repository has been published; record its overlap with RQ2 in DECISIONS
 - [ ] Tuning batches per dataset (leave-one-out)
 - [ ] Truncation check per arm; doubled caps where required (METHODS 5.2)
 - [ ] Final runs on leave-one-out and the temporal split, seeds per METHODS 7.5
