@@ -8,8 +8,8 @@ Milestones and checklists. Estimates: development hours / GPU hours / owner time
 - [x] `docs/SPEC.md`, `docs/METHODS.md` (draft), `docs/TASKS.md`, `docs/DECISIONS.md` (D001 to D018)
 - [x] uv project with locked PyTorch 2.15 (`cu132` on Windows, CPU on Linux)
 - [x] `scripts/check_env.py` with CPU tests
-- [ ] Owner runs `scripts/check_env.py` on the laptop; JSON and summary committed under `results/env/`
-- [ ] Review the check results: SDPA backend availability and accuracy, `torch.compile`, memory per catalogue size, thermal behaviour; update D002, D003, D011 or the budget if they contradict assumptions
+- [x] Owner runs `scripts/check_env.py` on the laptop; JSON and summary committed under `results/env/`
+- [x] Review the check results: SDPA backend availability and accuracy, `torch.compile`, memory per catalogue size, thermal behaviour; update D002, D003, D011 or the budget if they contradict assumptions
 
 ## M1 Data, evaluation and runner (18 h / 0 h / 30 min)
 

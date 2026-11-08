@@ -15,6 +15,7 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
 - Decision: all GPU experiments run on native Windows 11. WSL2 is a fallback only for `torch.compile` or FlexAttention work. Timings from the two systems are never mixed in one comparison.
 - Rationale: PyTorch 2.15 Windows CUDA wheels are built for `sm_120` [30] and, per the release notes, include the FlashAttention backend [22]. NVML in WSL2 does not support all queries [26]. Clock-lock commands have no effect inside WSL2 [27]. Per-submission launch overhead is higher under WSL2 [28], and small models launch many short kernels.
 - Alternatives: WSL2 for everything, which brings official Triton and `torch.compile` but less reliable telemetry and timing.
+- Amendment 2026-11-08: confirmed by the environment check (`results/env/check_env_nvidia-geforce-rtx-5080-laptop-gpu_20261108T221127Z.json`). `torch.compile` works natively with triton-windows (speedup 1.075 on the synthetic train step), so no planned work needs WSL2.
 
 ## D003 Software stack
 
@@ -22,6 +23,12 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
 - Decision: Python 3.12; PyTorch 2.15.x from the `cu132` index on Windows and the CPU index on Linux (development container); NVIDIA driver branch 580 or newer; `triton-windows` 3.9.x as an optional dependency group for `torch.compile`; `nvidia-ml-py` for NVML; uv with a committed `uv.lock`. Later milestones add NumPy, pandas, PyArrow and Optuna; `faiss-cpu` only if RQ4 runs.
 - Rationale: PyTorch 2.15 requires Python 3.11 or newer [21]. Its `cu132` Windows wheels exist for Python 3.11 to 3.15 and are built for `sm_120` [30]; 2.15 ships no `cu126` wheels [22]. Python 3.12 is chosen for broad wheel coverage across later dependencies. Official guidance on `torch.compile` for Windows covers CPU and XPU only [23]; GPU compilation relies on the community Triton build [24], so no conclusion depends on it.
 - Alternatives: conda (slower, no cross-platform lock); `cu134` wheels (no benefit for this GPU found).
+- Amendment 2026-11-08: the environment check confirms Python 3.12.10, torch 2.15.0+cu132 with `sm_120` in its architecture list, cuDNN 9.26, triton-windows 3.9.0.post30, driver 621.01 and bf16 support. On this GPU:
+  - math and memory-efficient attention run for every tested dtype, mask and head dimension;
+  - flash runs for fp16 and bf16 without an explicit mask;
+  - cuDNN runs for fp16 and bf16 up to head dimension 128;
+  - all outputs and gradients match the fp32 math backend within tolerance;
+  - the default dispatch picks memory-efficient attention whenever a padding mask is present.
 
 ## D004 Own implementation of models, losses and evaluation
 
@@ -95,6 +102,11 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
 - Date: 2026-11-08. Status: accepted.
 - Decision: native Windows on AC power with the power mode and vendor profile recorded; at least 30 s warm-up; CUDA-event timing; 5 randomised repeats; cool-down between repeats; NVML at 10 Hz; repeats with thermal slowdown or a clock deviation above 5% are excluded and rerun once. A locked-clock session is added only if locking works when tried by hand at the start of M4. Details: METHODS section 9.
 - Rationale: laptop GPUs change clocks with temperature and power, which would otherwise dominate small timing differences.
+- Amendment 2026-11-08 (from the environment check, before any experiment):
+  - Observed behaviour: under sustained bf16 load the GPU runs at its power cap for about 40 s (SM clock about 2,370 MHz, 170 W). It then reaches 86 to 87 °C and software thermal slowdown takes over. The SM clock settles near 2,055 MHz (137 W) after about 100 s, and throughput drops to 85% of its start.
+  - Consequence: software thermal slowdown and power capping are the normal operating state and cannot be exclusion criteria.
+  - Protocol change: steady-state measurement after at least 180 s of continuous load is primary; short measurements from a cool GPU are secondary. Exclusion and flagging rules use hardware slowdown events and SM clock deviation instead of software thermal events. M3 runs are interleaved across arms after a warm-up so that thermal state does not differ by arm. Details: METHODS sections 8 and 9.2.
+  - Clock locking: application-clock queries are not supported on this GPU, but 389 graphics clock levels are reported. Locking is still tried by hand in M4.
 
 ## D012 GPU budget
 

@@ -144,6 +144,8 @@ Shared by all neural arms:
 
 The best trial per (arm, dataset) is rerun with seeds 1..n on leave-one-out, where n follows section 7.5, and with seeds 1..5 on the temporal split. Test data of a dataset are read only after n is final and every seed of that dataset has finished training. Floor baselines are deterministic and run once.
 
+The final runs of a dataset are executed in a randomised order that interleaves arms and seeds. Each batch starts with 180 s of continuous GPU load, so runs start in the thermal steady state rather than from a cool GPU (D011).
+
 ## 6. Evaluation
 
 - Scores for every item 1..N are computed in fp32 with autocast disabled.
@@ -238,7 +240,7 @@ Per arm, dataset and split: mean and SD of every metric across seeds, CIs for di
 - **H2a:** for each arm X in {A1, A3, A4} and each dataset, a one-sided Mann-Whitney U test that A2's times to target are stochastically smaller than X's (censored values rank last, ties get mid-ranks), in family F6. H2a holds on a dataset when all three tests reject. Medians and the ratio of medians are reported descriptively. With 5 runs per arm the smallest attainable one-sided p is 1/252, so only complete separation passes the strictest Holm step.
 - **H2b** is decided by family F2 and, for BCE, by F1-ME.
 - Peak memory and step time of plain and chunked cross-entropy are reported per dataset; the two compute the same loss, so only cost differs.
-- M3 runs are not timed under the controlled protocol of section 9. A run is flagged when NVML reports software or hardware thermal slowdown in more than 10% of its samples.
+- M3 runs are not timed under the controlled protocol of section 9. Software thermal slowdown and power capping are this GPU's normal state under load (D011), so they do not flag a run. A run is flagged when NVML reports a hardware slowdown, hardware thermal slowdown or power brake event, or when its median SM clock is more than 5% below the median over all M3 runs.
 
 ## 9. RQ3: efficiency measurement protocol
 
@@ -250,16 +252,19 @@ Per arm, dataset and split: mean and SD of every metric across seeds, CIs for di
   - mask form: causal only, or causal plus padding mask;
   - precision: strict fp32 (TF32 off), TF32, bf16 autocast;
   - `torch.compile`: off or on, where it works.
+- Plain full cross-entropy at N = 100,000 with batch 128 and L = 200 needs about 29 GiB for logits alone, so chunked cross-entropy is used wherever plain cross-entropy does not fit.
 
 ### 9.2 Measurements and conditions
 
 - **Measurements:**
-  - median step time over 200 steps after at least 30 s of warm-up, timed with CUDA events;
+  - median step time over 200 steps after the regime's warm-up, timed with CUDA events;
   - peak allocated memory;
   - inference latency at batch 1 and batch 256 (full scoring plus top-10);
   - per-component time (encoder, output scoring, loss, backward, optimizer step) from CUDA events, and attention kernel share from the profiler.
-- **Conditions:** native Windows, AC power, power mode recorded, vendor performance profile fixed and recorded, other applications closed. Each configuration is repeated 5 times in randomised order. Between repeats the GPU cools to within 5 °C of its idle temperature or for 120 s, whichever is first. NVML samples SM clock, memory clock, temperature, power and clock event reasons at 10 Hz.
-- **Exclusion:** a repeat is excluded and rerun once if any sample shows software or hardware thermal slowdown or power brake, or if its median SM clock deviates more than 5% from the session median. Exclusions are logged.
+- **Conditions:** native Windows, AC power, power mode recorded, vendor performance profile fixed and recorded, other applications closed. NVML samples SM clock, memory clock, temperature, power and clock event reasons at 10 Hz. Each configuration is repeated 5 times in randomised order, in two regimes:
+  - steady state (primary; all decision rules use it): a session starts with at least 180 s of continuous load, and configurations then run back to back without cooling. On this GPU the clock settles about 100 s into sustained load (D011);
+  - cool start (secondary, descriptive): before each repeat the GPU cools to within 5 °C of its idle temperature, then 5 s of warm-up and a measurement of at most 25 s follow, which stays inside the roughly 40 s before thermal slowdown begins.
+- **Exclusion:** a repeat is excluded and rerun once if any sample shows a hardware slowdown, hardware thermal slowdown or power brake event, or if its median SM clock deviates more than 5% from the median of its regime in that session. In the cool-start regime, a repeat is also excluded if software thermal slowdown appears. Exclusions are logged.
 - **Clock lock:** at the start of M4, locking the SM clock (`nvidia-smi -lgc`, administrator rights) is tried by hand. If it works, a second session runs with a locked clock, and both sessions are reported.
 
 ### 9.3 Decision rules
@@ -271,7 +276,7 @@ All intervals are percentile bootstraps with 10,000 resamples over the 5 repeats
   - For each configuration, R is the ratio of the slowest to the fastest median step time among the available fused backends (memory-efficient, flash, cuDNN). The backends are re-selected inside every resample.
   - H3a holds if the upper bound of R's interval is below 1.10 in all 12 configurations.
 - **H3b:**
-  - Workload: SASRec train step, full cross-entropy, bf16 autocast, default backend, causal plus padding mask, 2 blocks, 1 head, d = 64, L = 200, batch 128, N ∈ {25,600; 100,000}.
+  - Workload: SASRec train step, full cross-entropy (plain at N = 25,600, chunked at N = 100,000), bf16 autocast, default backend, causal plus padding mask, 2 blocks, 1 head, d = 64, L = 200, batch 128.
   - Share = (T_full − T_proxy)/T_full. T_proxy is the same step with output scoring and loss replaced by the sum of the final hidden states times a fixed random vector.
   - H3b holds if the interval's lower bound exceeds 0.5 for both N.
 - **H3c:**
