@@ -1,27 +1,56 @@
-"""Download raw files with resume support and record their SHA-256."""
+"""Download raw files with resume and retry, and verify or record their SHA-256."""
 
 from __future__ import annotations
 
 import datetime as dt
 import hashlib
 import json
-import shutil
+import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
 from seqrec.data.registry import DatasetSpec
 
+CHUNK = 1 << 20
+REPORT_EVERY = 100 << 20
+
 
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as f:
-        for block in iter(lambda: f.read(1 << 20), b""):
+        for block in iter(lambda: f.read(CHUNK), b""):
             digest.update(block)
     return digest.hexdigest()
 
 
-def download(spec: DatasetSpec, raw_dir: Path, log=print) -> dict:
-    """Fetch `spec` into raw_dir/<name>/ unless a verified copy is already there."""
+def _fetch(url: str, part: Path, log) -> None:
+    start = part.stat().st_size if part.exists() else 0
+    headers = {"Range": f"bytes={start}-"} if start else {}
+    try:
+        response = urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=60)
+    except urllib.error.HTTPError as err:
+        if err.code == 416 and start:  # the partial file is already complete
+            return
+        raise
+    with response:
+        resumed = start and getattr(response, "status", 200) == 206
+        written = start if resumed else 0
+        with part.open("ab" if resumed else "wb") as f:
+            next_report = written + REPORT_EVERY
+            while block := response.read(CHUNK):
+                f.write(block)
+                written += len(block)
+                if written >= next_report:
+                    log(f"[data] {part.name}: {written >> 20} MiB")
+                    next_report += REPORT_EVERY
+
+
+def download(spec: DatasetSpec, raw_dir: Path, log=print, attempts: int = 4) -> dict:
+    """Fetch `spec` into raw_dir/<name>/ unless a verified copy is already there.
+
+    A file placed there by hand (for example when a proxy blocks downloads) is adopted.
+    """
     target_dir = raw_dir / spec.name
     target_dir.mkdir(parents=True, exist_ok=True)
     path = target_dir / spec.filename
@@ -31,23 +60,32 @@ def download(spec: DatasetSpec, raw_dir: Path, log=print) -> dict:
         if meta["bytes"] == path.stat().st_size:
             return meta
 
-    part = path.with_name(path.name + ".part")
-    start = part.stat().st_size if part.exists() else 0
-    headers = {"Range": f"bytes={start}-"} if start else {}
-    log(f"[data] downloading {spec.url}" + (f" (resuming at {start} bytes)" if start else ""))
-    with urllib.request.urlopen(urllib.request.Request(spec.url, headers=headers), timeout=60) as r:
-        mode = "ab" if start and r.status == 206 else "wb"
-        with part.open(mode) as f:
-            shutil.copyfileobj(r, f, 1 << 20)
-    part.replace(path)
+    if not path.exists():
+        part = path.with_name(path.name + ".part")
+        log(f"[data] downloading {spec.url}")
+        for attempt in range(1, attempts + 1):
+            try:
+                _fetch(spec.url, part, log)
+                break
+            except (urllib.error.URLError, OSError) as err:
+                if attempt == attempts:
+                    raise
+                log(f"[data] attempt {attempt} failed ({err}); retrying")
+                time.sleep(2**attempt)
+        part.replace(path)
 
+    digest = sha256_file(path)
+    if spec.sha256 and digest != spec.sha256:
+        bad = path.with_name(path.name + ".bad")
+        path.replace(bad)
+        raise ValueError(f"{spec.filename}: SHA-256 {digest} does not match the pinned value")
     meta = {
         "dataset": spec.name,
         "url": spec.url,
         "file": spec.filename,
         "bytes": path.stat().st_size,
-        "sha256": sha256_file(path),
-        "downloaded_utc": dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "sha256": digest,
+        "recorded_utc": dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
     meta_path.write_text(json.dumps(meta, indent=1), encoding="utf-8")
     return meta

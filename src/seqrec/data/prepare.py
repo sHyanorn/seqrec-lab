@@ -16,25 +16,28 @@ PUBLISHED = Path(__file__).resolve().parents[3] / "configs" / "published_stats.c
 
 
 def prepare(datasets: list[str], data_dir: Path, results_dir: Path, log=print) -> None:
-    sources, stats = [], []
+    """Results are written after each dataset, so an interrupted run keeps finished ones."""
     for name in datasets:
         spec = DATASETS[name]
         t0 = time.perf_counter()
         meta = download(spec, data_dir / "raw", log)
-        sources.append({k: meta[k] for k in ("dataset", "url", "file", "bytes", "sha256")})
+        source = {k: meta[k] for k in ("dataset", "url", "file", "bytes", "sha256")}
         log(f"[data] reading {name}")
         df, read_info = READERS[name](data_dir / "raw" / name / spec.filename)
         events = build_log(df)
         del df
         events.save(log_path(data_dir, name))
-        stats.append(log_stats(name, events, read_info))
+        stats = [log_stats(name, events, read_info)]
         for kind in ("loo", "gts"):
             splits, checks = build_splits(events, kind)
             stats.append(split_stats(name, splits) | {"invariants_passed": len(checks)})
+        _write_results(results_dir, name, source, stats)
         log(f"[data] {name} done in {time.perf_counter() - t0:.0f} s")
 
-    done = set(datasets)
-    write_csv(results_dir / "sources.csv", merge_rows(results_dir / "sources.csv", sources, done))
+
+def _write_results(results_dir: Path, name: str, source: dict, stats: list[dict]) -> None:
+    done = {name}
+    write_csv(results_dir / "sources.csv", merge_rows(results_dir / "sources.csv", [source], done))
     all_stats = merge_rows(results_dir / "stats.csv", stats, done)
     write_csv(results_dir / "stats.csv", all_stats)
     write_csv(results_dir / "published_comparison.csv", compare_published(all_stats, PUBLISHED))

@@ -12,6 +12,7 @@ class DatasetSpec:
     filename: str
     max_len: int  # model input length L (METHODS 2.7)
     time_unit: str  # granularity of source timestamps
+    sha256: str | None = None  # pinned when known; otherwise recorded on first download
 
 
 DATASETS: dict[str, DatasetSpec] = {
@@ -37,6 +38,7 @@ DATASETS: dict[str, DatasetSpec] = {
             "steam_reviews.json.gz",
             50,
             "day",
+            "2a2166b28961889276b167780ca9fa3361022f9ea6fefcf51d34957395266316",
         ),
         DatasetSpec(
             "video-games",
@@ -45,6 +47,7 @@ DATASETS: dict[str, DatasetSpec] = {
             "Video_Games.csv.gz",
             50,
             "millisecond",
+            "30692f9806e33a7b5d8b599b73d7ca33dbfefb0abdfc1578052a101f2e64b3cd",
         ),
     )
 }

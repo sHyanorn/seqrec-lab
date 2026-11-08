@@ -36,7 +36,7 @@ def test_leave_one_out_passes_invariants(toy_frame):
     splits, checks = build_splits(build_log(toy_frame), "loo")
     assert "loo: test input equals training sequence plus validation item" in checks
     full = splits.full
-    assert len(splits.validation) == len(splits.test._split) == full.n_users
+    assert len(splits.validation) == len(splits.test.unseal("check")) == full.n_users
     assert splits.train.seqs.lengths().sum() == len(full.items) - 2 * full.n_users
 
 
@@ -48,7 +48,7 @@ def test_global_temporal_split_handles_ties_and_new_users():
     log = build_log(frame(rows))
     splits, checks = build_splits(log, "gts")
     cutoff = splits.meta["cutoff"]
-    test = splits.test._split
+    test = splits.test.unseal("check")
     assert (test.target_ts > cutoff).all()
     assert "gts: test targets after cutoff" in checks
     late = int(np.flatnonzero(log.user_keys == "late")[0])
@@ -64,8 +64,9 @@ def test_shuffled_splits_keep_contents_and_pass_invariants(toy_frame):
     from seqrec.data.invariants import check_split
 
     assert check_split(mixed)
-    only_test = shuffle_eval_inputs(splits.test._split, 3, len(splits.full.items))
-    assert np.array_equal(np.sort(only_test.inputs.pos), np.sort(splits.test._split.inputs.pos))
+    test = splits.test.unseal("check")
+    only_test = shuffle_eval_inputs(test, 3, len(splits.full.items))
+    assert np.array_equal(np.sort(only_test.inputs.pos), np.sort(test.inputs.pos))
 
 
 def test_popularity_only_from_training_split(toy_frame):
@@ -137,3 +138,44 @@ def test_readers_and_prepare_end_to_end(tmp_path, monkeypatch):
     assert {r["split"] for r in stats} == {"log", "loo", "gts"}
     with (results / "published_comparison.csv").open() as f:
         assert list(csv.DictReader(f))
+
+
+def test_prepare_twice_with_different_datasets(tmp_path, monkeypatch):
+    raw = tmp_path / "data" / "raw"
+    _write_raw_files(raw)
+
+    def offline(spec, raw_dir, log):
+        return {"dataset": spec.name, "url": spec.url, "file": spec.filename, "bytes": 1,
+                "sha256": "test"}  # fmt: skip
+
+    monkeypatch.setattr(prepare_mod, "download", offline)
+    results = tmp_path / "results"
+    quiet = {"log": lambda _: None}
+    prepare_mod.prepare(["ml-1m", "steam"], tmp_path / "data", results, **quiet)
+    prepare_mod.prepare(["video-games"], tmp_path / "data", results, **quiet)
+    with (results / "stats.csv").open() as f:
+        assert {r["dataset"] for r in csv.DictReader(f)} == {"ml-1m", "steam", "video-games"}
+    with (results / "published_comparison.csv").open() as f:
+        assert {r["dataset"] for r in csv.DictReader(f)} >= {"ml-1m", "video-games"}
+
+
+def test_download_adopts_placed_files_and_checks_pins(tmp_path):
+    from dataclasses import replace
+
+    from seqrec.data.download import download, sha256_file
+    from seqrec.data.registry import DATASETS
+
+    source = tmp_path / "remote.bin"
+    source.write_bytes(b"payload" * 1000)
+    spec = replace(DATASETS["ml-1m"], url=source.as_uri(), sha256=None)
+    meta = download(spec, tmp_path / "raw", log=lambda _: None)
+    assert meta["sha256"] == sha256_file(source)
+
+    placed = tmp_path / "raw2" / spec.name / spec.filename
+    placed.parent.mkdir(parents=True)
+    placed.write_bytes(b"by hand")
+    assert download(spec, tmp_path / "raw2", log=lambda _: None)["bytes"] == 7
+
+    pinned = replace(spec, sha256="0" * 64)
+    with pytest.raises(ValueError, match="does not match"):
+        download(pinned, tmp_path / "raw3", log=lambda _: None)

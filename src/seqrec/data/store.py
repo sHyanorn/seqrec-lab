@@ -22,12 +22,11 @@ def log_path(data_dir: Path, dataset: str) -> Path:
     return data_dir / "processed" / dataset / "log.npz"
 
 
-@lru_cache(maxsize=4)
 def load_log(data_dir: Path, dataset: str) -> Log:
     path = log_path(data_dir, dataset)
     if not path.exists():
         raise FileNotFoundError(f"{dataset} is not prepared; run `seqrec data prepare`")
-    return Log.load(path)
+    return Log.load(path, keys=False)
 
 
 def build_splits(log: Log, kind: str) -> tuple[SplitSet, list[str]]:
@@ -41,8 +40,10 @@ def build_splits(log: Log, kind: str) -> tuple[SplitSet, list[str]]:
         checks = check_interactions(splits.full, 0)
     else:
         raise ValueError(f"unknown split kind {kind!r}")
-    return splits, checks + check_split(splits)
+    return splits, checks + check_split(splits, log, K_CORE)
 
 
+@lru_cache(maxsize=1)
 def load_splits(data_dir: Path, dataset: str, kind: str) -> tuple[SplitSet, list[str]]:
+    """Cached for the most recent (dataset, split): consecutive runs reuse it."""
     return build_splits(load_log(data_dir, dataset), kind)

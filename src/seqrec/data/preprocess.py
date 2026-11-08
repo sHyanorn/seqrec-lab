@@ -49,9 +49,13 @@ class Log:
         )
 
     @classmethod
-    def load(cls, path: Path) -> Log:
+    def load(cls, path: Path, keys: bool = True) -> Log:
+        """Load a saved log; runs skip the string keys, which only traceability needs."""
         with np.load(path, allow_pickle=False) as z:
-            return cls(**{k: z[k] for k in z.files})
+            arrays = {k: z[k] for k in ("user", "item", "ts")}
+            for k in ("user_keys", "item_keys"):
+                arrays[k] = z[k] if keys else np.empty(0, dtype=str)
+        return cls(**arrays)
 
 
 def build_log(df: pd.DataFrame) -> Log:
@@ -60,6 +64,8 @@ def build_log(df: pd.DataFrame) -> Log:
     df = df.drop_duplicates(["user", "item"], keep="first")
     user_codes, user_keys = pd.factorize(df["user"], sort=True)
     item_codes, item_keys = pd.factorize(df["item"], sort=True)
+    if (user_codes < 0).any() or (item_codes < 0).any() or (np.diff(user_codes) < 0).any():
+        raise ValueError("empty user or item keys, or rows not grouped by user")
     return Log(
         user=user_codes.astype(np.int64),
         item=item_codes.astype(np.int64),

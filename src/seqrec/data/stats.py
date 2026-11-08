@@ -18,7 +18,7 @@ FORBIDDEN_COLUMNS = {
     "user", "user_id", "username", "item", "item_id", "product_id", "parent_asin", "ts",
     "timestamp", "target", "targets", "history",
 }  # fmt: skip
-MAX_RESULT_ROWS = 500
+MAX_RESULT_ROWS = 5000  # far below any per-user table
 
 
 def log_stats(dataset: str, log: Log, read_info: dict) -> dict:
@@ -68,7 +68,11 @@ def compare_published(stats_rows: list[dict], published_csv: Path) -> list[dict]
             key = (ref["dataset"], ref["quantity"])
             if key not in ours:
                 continue
-            value, published, rounded = ours[key], float(ref["value"]), float(ref["rounded_to"])
+            value, published, rounded = (
+                float(ours[key]),
+                float(ref["value"]),
+                float(ref["rounded_to"]),
+            )
             rel = (value - published) / published
             within_rounding = rounded > 0 and abs(value - published) <= rounded / 2
             out.append(
@@ -76,7 +80,7 @@ def compare_published(stats_rows: list[dict], published_csv: Path) -> list[dict]
                     "dataset": ref["dataset"],
                     "variant": ref["variant"],
                     "quantity": ref["quantity"],
-                    "ours": value,
+                    "ours": int(value),
                     "published": ref["value"],
                     "relative_difference": round(rel, 4),
                     "needs_explanation": abs(rel) > 0.01 and not within_rounding,
@@ -96,25 +100,28 @@ def merge_rows(path: Path, rows: list[dict], datasets: set[str]) -> list[dict]:
 
 
 def write_csv(path: Path, rows: list[dict]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
+    """Write aggregate rows; refuse anything that looks like row-level data first."""
     columns: list[str] = []
     for row in rows:
         columns += [c for c in row if c not in columns]
+    _check_aggregate(path.name, columns, len(rows))
+    path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=columns)
         writer.writeheader()
         writer.writerows(rows)
-    results_are_aggregate(path)
+
+
+def _check_aggregate(name: str, columns: list[str], n_rows: int) -> None:
+    bad = FORBIDDEN_COLUMNS.intersection(c.lower() for c in columns)
+    if bad or n_rows > MAX_RESULT_ROWS:
+        raise ValueError(f"{name} looks like row-level data: columns {sorted(bad)}, rows {n_rows}")
 
 
 def results_are_aggregate(path: Path) -> None:
-    """Refuse files that look like row-level data."""
+    """Check a committed CSV the same way `write_csv` checks before writing."""
     with path.open(encoding="utf-8") as f:
         reader = csv.reader(f)
         header = next(reader, [])
         n_rows = sum(1 for _ in reader)
-    bad = FORBIDDEN_COLUMNS.intersection(c.lower() for c in header)
-    if bad or n_rows > MAX_RESULT_ROWS:
-        raise ValueError(
-            f"{path.name} looks like row-level data: columns {sorted(bad)}, rows {n_rows}"
-        )
+    _check_aggregate(path.name, header, n_rows)

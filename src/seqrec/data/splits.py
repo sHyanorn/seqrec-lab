@@ -67,16 +67,40 @@ class EvalSplit:
         return len(self.targets)
 
 
-class TestHandle:
-    """Sealed container for the test split."""
+UNSEAL_PURPOSES = ("read", "check", "transform")
 
-    __slots__ = ("_split",)
+
+class TestHandle:
+    """Sealed container for the test split.
+
+    `unseal` is called only by the logged reader ("read"), the invariant checks ("check")
+    and the shuffle transform ("transform"); tests/test_isolation.py enforces this.
+    """
+
+    __slots__ = ("__split",)
 
     def __init__(self, split: EvalSplit):
-        self._split = split
+        self.__split = split
+
+    def unseal(self, purpose: str) -> EvalSplit:
+        if purpose not in UNSEAL_PURPOSES:
+            raise PermissionError(f"unknown purpose {purpose!r}")
+        return self.__split
 
     def __repr__(self) -> str:
         return "TestHandle(<sealed>)"
+
+
+class SealedOff(TestHandle):
+    """Replaces the test split in tuning runs: any access raises."""
+
+    __slots__ = ()
+
+    def __init__(self) -> None:
+        pass
+
+    def unseal(self, purpose: str) -> EvalSplit:
+        raise PermissionError("tuning runs cannot access test data")
 
 
 @dataclass(frozen=True)
@@ -164,11 +188,12 @@ def _last_target(
     n_users = full.n_users
     last = np.full(n_users, -1, dtype=np.int64)
     rows = np.flatnonzero(candidate)
-    last[owner[rows]] = rows  # rows are increasing, so the last write per user wins
+    np.maximum.at(last, owner[rows], rows)
     input_rows = (np.arange(len(full.items)) < last[owner]) & (full.items > 0)
     has_input = np.bincount(owner[input_rows], minlength=n_users) > 0
-    users = np.flatnonzero((last >= 0) & has_input)
-    keep_rows = input_rows & np.isin(owner, users)
+    selected = (last >= 0) & has_input
+    users = np.flatnonzero(selected)
+    keep_rows = input_rows & selected[owner]
     dense = np.full(n_users, -1, dtype=np.int64)
     dense[users] = np.arange(len(users))
     inputs = select(full, dense[owner].clip(min=0), keep_rows, len(users))
@@ -178,14 +203,19 @@ def _last_target(
     )
 
 
+def _gts_vocabulary(log: Log, in_train_period: np.ndarray, k: int) -> np.ndarray:
+    """Item codes of the k-core of the training period."""
+    core = kcore_mask(log.user[in_train_period], log.item[in_train_period], k)
+    return np.unique(log.item[in_train_period][core])
+
+
 def global_temporal(log: Log, k: int = 5, q: float = 0.9) -> SplitSet:
     """GTS with last-item targets (METHODS 3.2)."""
     if len(log) == 0:
         raise ValueError("no interactions to split")
     cutoff = time_quantile(log.ts, q)
     in_train_period = _gts_in_period(log.ts, cutoff)
-    core = kcore_mask(log.user[in_train_period], log.item[in_train_period], k)
-    vocab = np.unique(log.item[in_train_period][core])
+    vocab = _gts_vocabulary(log, in_train_period, k)
     items = remap(log.item, vocab, start=1)  # -1 outside the vocabulary
     full = Interactions(
         np.concatenate([[0], np.cumsum(np.bincount(log.user))]).astype(np.int64),
@@ -199,11 +229,12 @@ def global_temporal(log: Log, k: int = 5, q: float = 0.9) -> SplitSet:
 
     fit_rows = in_fit_period & (full.items > 0)
     fit_counts = np.bincount(owner[fit_rows], minlength=full.n_users)
-    train_users = np.flatnonzero(fit_counts >= 2)
+    is_train_user = fit_counts >= 2
+    train_users = np.flatnonzero(is_train_user)
     dense = np.full(full.n_users, -1, dtype=np.int64)
     dense[train_users] = np.arange(len(train_users))
     train = select(
-        full, dense[owner].clip(min=0), fit_rows & np.isin(owner, train_users), len(train_users)
+        full, dense[owner].clip(min=0), fit_rows & is_train_user[owner], len(train_users)
     )
 
     validation = _last_target(full, owner, in_train_period & ~in_fit_period, "validation")
@@ -234,19 +265,20 @@ def _shuffle_rows(seqs: Sequences, keys: np.ndarray) -> Sequences:
 
 
 def shuffle_eval_inputs(split: EvalSplit, seed: int, n_full_rows: int) -> EvalSplit:
-    keys = np.random.default_rng(seed).random(n_full_rows)
+    """Test-only shuffle (METHODS 3.3), with a key stream separate from `shuffle_order`."""
+    keys = np.random.default_rng([seed, 1]).random(n_full_rows)
     return replace(split, inputs=_shuffle_rows(split.inputs, keys), shuffled=True)
 
 
 def shuffle_order(splits: SplitSet, seed: int) -> SplitSet:
     """Train-and-evaluate shuffle (METHODS 3.3): one random key per full-log position, so a
     user's training sequence and validation input are permuted consistently."""
-    keys = np.random.default_rng(seed).random(len(splits.full.items))
+    keys = np.random.default_rng([seed, 0]).random(len(splits.full.items))
     train = TrainSplit(splits.n_items, _shuffle_rows(splits.train.seqs, keys))
     validation = replace(
         splits.validation, inputs=_shuffle_rows(splits.validation.inputs, keys), shuffled=True
     )
-    test_split = splits.test._split
+    test_split = splits.test.unseal("transform")
     test = TestHandle(
         replace(test_split, inputs=_shuffle_rows(test_split.inputs, keys), shuffled=True)
     )
