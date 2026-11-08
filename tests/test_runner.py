@@ -22,8 +22,8 @@ class PopularityModel:
 
     crash_at: int | None = None
 
-    def __init__(self, cfg, splits, device):
-        counts = item_popularity(splits.train).counts.astype(np.float32)
+    def __init__(self, cfg, train, device):
+        counts = item_popularity(train).counts.astype(np.float32)
         noise = np.random.default_rng(cfg.seed).random(len(counts)).astype(np.float32)
         self.scores = torch.from_numpy(counts + 1e-3 * noise)
         self.epochs = 0

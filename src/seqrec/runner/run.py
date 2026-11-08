@@ -46,7 +46,8 @@ class Model(Protocol):
     def load_state_dict(self, state: dict) -> None: ...
 
 
-ARMS: dict[str, Callable[[RunConfig, SplitSet, torch.device], Model]] = {}
+# Factories see only the training split: validation and test data stay with the runner.
+ARMS: dict[str, Callable[[RunConfig, TrainSplit, torch.device], Model]] = {}
 
 
 def register_arm(name: str):
@@ -126,7 +127,7 @@ def execute(
     }
     _write_atomic(run_dir / "manifest.json", json.dumps(manifest, indent=1))
 
-    model = ARMS[cfg.arm](cfg, splits, device)
+    model = ARMS[cfg.arm](cfg, splits.train, device)
     state = {"epoch": 0, "best": -1.0, "best_epoch": -1, "bad": 0, "train_s": 0.0, "wall_s": 0.0}
     last_path, best_path = run_dir / "last.pt", run_dir / "best.pt"
     if last_path.exists():
