@@ -16,9 +16,11 @@ from __future__ import annotations
 import argparse
 import contextlib
 import datetime as dt
+import functools
 import getpass
 import importlib.metadata
 import json
+import math
 import os
 import platform
 import re
@@ -26,6 +28,7 @@ import socket
 import statistics
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import traceback
@@ -46,7 +49,7 @@ FULL = {
     "matmul_reps": 20,
     "sdpa_batch": 128,
     "sdpa_heads": 2,
-    "sdpa_head_dims": [32, 64, 128],
+    "sdpa_head_dims": [32, 64, 128, 256],
     "sdpa_lengths": [50, 200, 800],
     "sdpa_reps": 10,
     "model_batch": 128,
@@ -59,7 +62,7 @@ FULL = {
     "score_chunk": 1024,
     "thermal_seconds": 120.0,
     "thermal_matmul_n": 8192,
-    "compile_timeout_s": 900,
+    "compile_timeout_s": 600,
 }
 QUICK = {
     "quick": True,
@@ -92,14 +95,8 @@ BACKENDS = {
 # none: bidirectional, no mask; causal: is_causal=True; padding: bidirectional with left
 # padding (BERT4Rec); causal_padding: causal plus left padding as a boolean mask (SASRec).
 MASK_MODES = ["none", "causal", "padding", "causal_padding"]
-SDPA_OPS = {  # profiler op name -> backend actually dispatched
-    "aten::_scaled_dot_product_flash_attention_for_cpu": "flash_cpu",
-    "aten::_scaled_dot_product_flash_attention": "flash",
-    "aten::_scaled_dot_product_efficient_attention": "efficient",
-    "aten::_scaled_dot_product_cudnn_attention": "cudnn",
-    "aten::_scaled_dot_product_attention_math": "math",
-}
-REFERENCE_TOL = {torch.float32: 1e-4, torch.bfloat16: 3e-2, torch.float16: 5e-3}
+# Relative max error against the fp32 math backend (outputs and q, k, v gradients).
+REL_TOL = {torch.float32: 1e-3, torch.bfloat16: 5e-2, torch.float16: 1e-2}
 DTYPES = {"fp32": torch.float32, "bf16": torch.bfloat16, "fp16": torch.float16}
 
 
@@ -142,9 +139,10 @@ def summarize(times: list[float]) -> dict:
 
 
 def error_text(exc: BaseException) -> str:
-    lines = [line for line in str(exc).strip().splitlines() if line.strip()]
-    first = lines[0] if lines else ""
-    return f"{type(exc).__name__}: {first}"[:300]
+    """First and last non-empty lines; compiler errors put the cause at the end."""
+    lines = [line.strip() for line in str(exc).splitlines() if line.strip()]
+    detail = " | ".join(dict.fromkeys([lines[0], lines[-1]])) if lines else ""
+    return f"{type(exc).__name__}: {detail}"[:400]
 
 
 def _try(fn):
@@ -188,35 +186,56 @@ def _free(device: torch.device) -> None:
 
 # ------------------------------------------------------------ privacy filter
 
-_PATH_RE = re.compile(
-    r"(?:[A-Za-z]:[\\/]|\\\\|/(?:home|Users|root|tmp|var|usr|opt|mnt|private|etc)/)[^\s'\"<>|,;)]*"
-)
+# Paths run to the next quote or line end, so names with spaces are covered too.
+_PATH_PATTERNS = [
+    re.compile(r"[A-Za-z]:[\\/][^\"'<>|\r\n]*"),
+    re.compile(r"\\\\[^\"'<>|\r\n]*"),
+    re.compile(r"/(?:home|Users|root|tmp|var|usr|opt|mnt|private|etc)/[^\"'<>|\r\n]*"),
+]
+PATH_MARK, NAME_MARK = "<p>", "<u>"  # cannot contain a user or host name
+_ROOT_VARS = ("USERPROFILE", "LOCALAPPDATA", "APPDATA", "TEMP", "TMP")
+_ROOT_VARS += ("ONEDRIVE", "ONEDRIVECOMMERCIAL", "ONEDRIVECONSUMER")
+_NAME_VARS = ("USERNAME", "USER", "LOGNAME", "COMPUTERNAME", "USERDOMAIN")
+
+
+def sensitive_roots() -> list[str]:
+    roots = {str(REPO_ROOT), str(Path.home()), sys.prefix, sys.base_prefix, tempfile.gettempdir()}
+    roots |= {os.environ[k] for k in _ROOT_VARS if os.environ.get(k)}
+    variants = set()
+    for root in roots:
+        if len(root) > 3:
+            variants |= {root, root.replace("\\", "/"), root.replace("/", "\\")}
+    return sorted(variants, key=len, reverse=True)
 
 
 def sensitive_tokens() -> list[str]:
-    candidates = [
-        socket.gethostname(),
-        platform.node(),
-        str(Path.home()),
-        str(REPO_ROOT),
-        *(os.environ.get(k) for k in ("USERNAME", "USER", "COMPUTERNAME", "USERDOMAIN")),
-    ]
+    candidates = [socket.gethostname(), platform.node(), Path.home().name]
+    candidates += [os.environ.get(k) for k in _NAME_VARS]
     with contextlib.suppress(Exception):
         candidates.append(getpass.getuser())
-    tokens = {c for c in candidates if c and len(c) >= 3}
-    return sorted(tokens, key=len, reverse=True)
+    return sorted({c for c in candidates if c and len(c) >= 3}, key=len, reverse=True)
 
 
-def scrub(obj, tokens: list[str]):
+def scrub_text(text: str, roots: list[str], tokens: list[str]) -> str:
+    for root in roots:
+        text = re.sub(re.escape(root), PATH_MARK, text, flags=re.IGNORECASE)
+    for pattern in _PATH_PATTERNS:
+        text = pattern.sub(PATH_MARK, text)
+    for token in tokens:
+        text = re.sub(re.escape(token), NAME_MARK, text, flags=re.IGNORECASE)
+    return text
+
+
+def scrub(obj, roots: list[str], tokens: list[str]):
+    """Scrub string values and drop non-finite floats. Keys are fixed by this script."""
     if isinstance(obj, str):
-        text = _PATH_RE.sub("<path>", obj)
-        for token in tokens:
-            text = re.sub(re.escape(token), "<redacted>", text, flags=re.IGNORECASE)
-        return text
+        return scrub_text(obj, roots, tokens)
     if isinstance(obj, dict):
-        return {scrub(k, tokens): scrub(v, tokens) for k, v in obj.items()}
+        return {k: scrub(v, roots, tokens) for k, v in obj.items()}
     if isinstance(obj, list | tuple):
-        return [scrub(v, tokens) for v in obj]
+        return [scrub(v, roots, tokens) for v in obj]
+    if isinstance(obj, float) and not math.isfinite(obj):
+        return None
     return obj
 
 
@@ -240,7 +259,10 @@ def _event_reasons(nv, handle) -> int:
 
 
 def _temperature(nv, handle) -> int:
-    return nv.nvmlDeviceGetTemperature(handle, nv.NVML_TEMPERATURE_GPU)
+    try:
+        return nv.nvmlDeviceGetTemperatureV(handle, nv.NVML_TEMPERATURE_GPU)
+    except Exception:  # older drivers lack the versioned call
+        return nv.nvmlDeviceGetTemperature(handle, nv.NVML_TEMPERATURE_GPU)
 
 
 REASON_BITS = {
@@ -364,19 +386,32 @@ def windows_settings() -> dict:
         ctypes.windll.kernel32.GetSystemPowerStatus(ctypes.byref(status))
         return {0: False, 1: True}.get(status.ACLineStatus)
 
+    def active_scheme_guid():
+        # Only the GUID: the plan name is localised and can be user-defined.
+        out = subprocess.run(["powercfg", "/getactivescheme"], capture_output=True, timeout=10)
+        match = re.search(
+            r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}",
+            out.stdout.decode(errors="replace"),
+        )
+        return match.group(0).lower() if match else None
+
     schemes = r"SYSTEM\CurrentControlSet\Control\Power\User\PowerSchemes"
     return {
         "on_ac_power": _try(ac_power),
-        "active_power_scheme": _try(
-            lambda: subprocess.run(
-                ["powercfg", "/getactivescheme"], capture_output=True, text=True, timeout=10
-            ).stdout.strip()
-        ),
+        "power_scheme_guid": _try(active_scheme_guid),
         "power_mode_overlay_ac": _try(lambda: reg(schemes, "ActiveOverlayAcPowerScheme")),
         "hw_gpu_scheduling_mode": _try(
             lambda: reg(r"SYSTEM\CurrentControlSet\Control\GraphicsDrivers", "HwSchMode")
         ),
     }
+
+
+def _cuda_init_error() -> str | None:
+    try:
+        torch.cuda.init()
+    except Exception as exc:
+        return error_text(exc)
+    return None
 
 
 def probe_environment(device: torch.device, cfg: dict) -> dict:
@@ -397,11 +432,13 @@ def probe_environment(device: torch.device, cfg: dict) -> dict:
         "torch_cuda": torch.version.cuda,
         "cudnn": torch.backends.cudnn.version() if torch.backends.cudnn.is_available() else None,
         "cuda_available": cuda,
+        "cuda_init_error": None if cuda else _cuda_init_error(),
         "arch_list": torch.cuda.get_arch_list() if cuda else [],
         "flash_sdp_enabled": torch.backends.cuda.flash_sdp_enabled(),
         "mem_efficient_sdp_enabled": torch.backends.cuda.mem_efficient_sdp_enabled(),
         "cudnn_sdp_enabled": torch.backends.cuda.cudnn_sdp_enabled(),
         "windows": windows_settings(),
+        "nvml": nvml_static(),  # also when CUDA is unusable: the driver version explains why
     }
     if device.type == "cuda":
         props = torch.cuda.get_device_properties(device)
@@ -415,7 +452,6 @@ def probe_environment(device: torch.device, cfg: dict) -> dict:
             "multiprocessors": props.multi_processor_count,
             "bf16_supported": torch.cuda.is_bf16_supported(),
         }
-        info["nvml"] = nvml_static()
     return info
 
 
@@ -457,11 +493,24 @@ def attention_mask(mode: str, batch: int, length: int, device: torch.device):
     return allowed, False
 
 
-def dispatched_backend(fn) -> str:
-    with torch.profiler.profile(activities=[torch.profiler.ProfilerActivity.CPU]) as prof:
-        fn()
-    names = {event.key for event in prof.key_averages()}
-    return next((label for op, label in SDPA_OPS.items() if op in names), "unknown")
+def dispatched_backend(q, k, v, mask, causal) -> str:
+    """Backend that SDPA picks by default, from the dispatcher PyTorch itself uses."""
+    choice = torch._fused_sdp_choice(q, k, v, mask, 0.0, causal)
+    return SDPBackend(choice).name.lower()
+
+
+def _rel_err(value: torch.Tensor, reference: torch.Tensor) -> float:
+    scale = reference.abs().max().item() or 1.0
+    return (value.float() - reference).abs().max().item() / scale
+
+
+def _reference(base, grad, mask, causal):
+    """fp32 math-backend output and q, k, v gradients for one shape and mask."""
+    q, k, v = (t.clone().requires_grad_() for t in base)
+    with sdpa_kernel([SDPBackend.MATH]):
+        out = F.scaled_dot_product_attention(q, k, v, attn_mask=mask, is_causal=causal)
+    out.backward(grad)
+    return out.detach(), [t.grad for t in (q, k, v)]
 
 
 def probe_sdpa(device: torch.device, cfg: dict) -> list[dict]:
@@ -470,16 +519,15 @@ def probe_sdpa(device: torch.device, cfg: dict) -> list[dict]:
     for length in cfg["sdpa_lengths"]:
         for head_dim in cfg["sdpa_head_dims"]:
             base = torch.randn(3, batch, heads, length, head_dim, device=device)
+            grad = torch.randn(batch, heads, length, head_dim, device=device)
             for mode in MASK_MODES:
                 mask, causal = attention_mask(mode, batch, length, device)
-                with sdpa_kernel([SDPBackend.MATH]):
-                    reference = F.scaled_dot_product_attention(
-                        base[0], base[1], base[2], attn_mask=mask, is_causal=causal
-                    )
+                ref_out, ref_grads = _reference(base, grad, mask, causal)
                 for dtype_name, dtype in DTYPES.items():
                     if device.type == "cpu" and dtype is torch.float16:
                         continue
                     q, k, v = (t.to(dtype).requires_grad_() for t in base)
+                    g = grad.to(dtype)
                     common = {"length": length, "head_dim": head_dim, "mask": mode}
                     common["dtype"] = dtype_name
 
@@ -488,27 +536,29 @@ def probe_sdpa(device: torch.device, cfg: dict) -> list[dict]:
                             q, k, v, attn_mask=m, is_causal=causal
                         )
 
-                    default = _try(lambda call=call: dispatched_backend(call))
+                    default = _try(functools.partial(dispatched_backend, q, k, v, mask, causal))
                     for backend_name, backend in BACKENDS.items():
                         row = dict(common, backend=backend_name, default_choice=default)
                         try:
                             with sdpa_kernel([backend]):
                                 out = call()
-                                grad = torch.randn_like(out)
-                                out.backward(grad)
-                                err = (out.float() - reference).abs().max().item()
-                                finite = all(torch.isfinite(t.grad).all().item() for t in (q, k, v))
+                                out.backward(g)
+                                out_err = _rel_err(out, ref_out)
+                                grad_err = max(
+                                    _rel_err(t.grad, r)
+                                    for t, r in zip((q, k, v), ref_grads, strict=True)
+                                )
                                 times = time_ms(
-                                    lambda call=call, grad=grad: call().backward(grad),
+                                    lambda call=call, g=g: call().backward(g),
                                     device,
                                     2,
                                     cfg["sdpa_reps"],
                                 )
                             row |= {
                                 "ok": True,
-                                "max_abs_err": round(err, 6),
-                                "matches_reference": err <= REFERENCE_TOL[dtype],
-                                "finite_grads": finite,
+                                "out_rel_err": round(out_err, 6),
+                                "grad_rel_err": round(grad_err, 6),
+                                "matches_reference": max(out_err, grad_err) <= REL_TOL[dtype],
                                 "fwd_bwd": summarize(times),
                             }
                         except Exception as exc:
@@ -592,6 +642,20 @@ def train_step_fn(model, loss_name, seq, targets, negatives, precision, device):
     return step
 
 
+def _exceeds_free_memory(loss_name: str, logit_elements: int, device: torch.device) -> str | None:
+    """Skip full cross-entropy when its logits alone cannot fit in free VRAM.
+
+    Rough cost per logit: fp32 logits, fp32 log-softmax saved for backward, fp32 gradient.
+    """
+    if loss_name != "full_ce" or device.type != "cuda":
+        return None
+    needed = logit_elements * 12
+    free, _ = torch.cuda.mem_get_info(device)
+    if needed <= 0.9 * free:
+        return None
+    return f"estimated {needed / 2**30:.1f} GiB for logits exceeds {free / 2**30:.1f} GiB free"
+
+
 def probe_model(device: torch.device, cfg: dict) -> dict:
     batch, length, dim = cfg["model_batch"], cfg["model_len"], cfg["model_dim"]
     precisions = ["fp32", "tf32", "bf16"] if device.type == "cuda" else ["fp32", "bf16"]
@@ -603,6 +667,10 @@ def probe_model(device: torch.device, cfg: dict) -> dict:
             for precision in precisions:
                 row = {"items": num_items, "loss": loss_name, "precision": precision}
                 row |= {"batch": batch, "length": length, "dim": dim}
+                too_big = _exceeds_free_memory(loss_name, batch * length * (num_items + 1), device)
+                if too_big:
+                    train_rows.append(row | {"ok": False, "skipped": too_big})
+                    continue
                 model = None
                 try:
                     torch.manual_seed(0)
@@ -624,7 +692,10 @@ def probe_model(device: torch.device, cfg: dict) -> dict:
                     row["tokens_per_s"] = round(batch * length / (stats["median_ms"] / 1e3))
                     if device.type == "cuda":
                         peak = torch.cuda.max_memory_allocated(device)
+                        total = torch.cuda.get_device_properties(device).total_memory
                         row["peak_memory_gib"] = round(peak / 2**30, 3)
+                        # Windows may page into shared system memory instead of raising OOM.
+                        row["spilled_to_system_memory"] = peak > total
                 except torch.OutOfMemoryError:
                     row |= {"ok": False, "error": "out of memory"}
                 except Exception as exc:
@@ -665,27 +736,34 @@ def probe_thermal(device: torch.device, cfg: dict) -> dict:
     dtype = torch.bfloat16
     a = torch.randn(n, n, device=device, dtype=dtype)
     b = torch.randn(n, n, device=device, dtype=dtype)
+    for _ in range(10):  # library handles and kernel loading stay out of the first window
+        a @ b
+    _sync(device)
     sampler = NvmlSampler()
     if sampler.available:
         sampler.start()
     window_s = max(seconds / 24, 0.25)
     windows, t_end = [], time.perf_counter() + seconds
-    while time.perf_counter() < t_end:
-        t0, count = time.perf_counter(), 0
-        while time.perf_counter() - t0 < window_s:
-            a @ b
-            count += 1
-            if count % 8 == 0:
-                _sync(device)
-        _sync(device)
-        elapsed = time.perf_counter() - t0
-        windows.append(round(2 * n**3 * count / elapsed / 1e12, 3))
-    samples = sampler.stop() if sampler.available else []
+    try:
+        while time.perf_counter() < t_end:
+            t0, count = time.perf_counter(), 0
+            while time.perf_counter() - t0 < window_s:
+                a @ b
+                count += 1
+                if count % 8 == 0:
+                    _sync(device)
+            _sync(device)
+            elapsed = time.perf_counter() - t0
+            windows.append(round(2 * n**3 * count / elapsed / 1e12, 3))
+    finally:
+        samples = sampler.stop() if sampler.available else []
+    early = statistics.median(windows[1:4] or windows)
     result = {
         "seconds": seconds,
         "matmul_n": n,
         "tflops_per_window": windows,
-        "last_over_first_window": round(windows[-1] / windows[0], 3) if windows[0] else None,
+        "last_over_max_window": round(windows[-1] / max(windows), 3),
+        "last_over_early_windows": round(windows[-1] / early, 3) if early else None,
         "nvml_available": sampler.available,
     }
     if samples:
@@ -738,17 +816,33 @@ def probe_compile(device: torch.device, cfg: dict) -> dict:
     ]
     if cfg["quick"]:
         cmd.append("--quick")
-    try:
-        proc = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=cfg["compile_timeout_s"], cwd=REPO_ROOT
-        )
-    except subprocess.TimeoutExpired:
-        return {"ok": False, "error": f"timeout after {cfg['compile_timeout_s']} s"}
-    for line in proc.stdout.splitlines():
+    timeout = cfg["compile_timeout_s"]
+    # Output goes to files: pipes can block when a timed-out process tree is killed.
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        out_path, err_path = Path(tmp, "stdout.txt"), Path(tmp, "stderr.txt")
+        with out_path.open("wb") as out, err_path.open("wb") as err:
+            proc = subprocess.Popen(cmd, stdout=out, stderr=err, cwd=REPO_ROOT)
+            try:
+                returncode = proc.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                _kill_tree(proc)
+                return {"ok": False, "error": f"timeout after {timeout} s"}
+        stdout = out_path.read_text(encoding="utf-8", errors="replace")
+        stderr = err_path.read_text(encoding="utf-8", errors="replace")
+    for line in stdout.splitlines():
         if line.startswith("COMPILE_RESULT "):
             return json.loads(line.removeprefix("COMPILE_RESULT "))
-    tail = [line for line in proc.stderr.strip().splitlines() if line.strip()][-15:]
-    return {"ok": False, "returncode": proc.returncode, "stderr_tail": tail}
+    tail = [line for line in stderr.strip().splitlines() if line.strip()][-15:]
+    return {"ok": False, "returncode": returncode, "stderr_tail": tail}
+
+
+def _kill_tree(proc: subprocess.Popen) -> None:
+    if platform.system() == "Windows":
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True)
+    else:
+        proc.kill()
+    with contextlib.suppress(Exception):
+        proc.wait(timeout=30)
 
 
 def compile_worker(device: torch.device, cfg: dict) -> int:
@@ -787,65 +881,72 @@ def compile_worker(device: torch.device, cfg: dict) -> int:
 # ------------------------------------------------------------------ report
 
 
+def _section(report: dict, name: str, kind: type):
+    value = report.get(name)
+    return value if isinstance(value, kind) else None
+
+
 def build_summary(report: dict) -> str:
-    env = report["environment"]
+    env = _section(report, "environment", dict) or {}
+    nvml = env.get("nvml") or {}
     lines = [
         f"seqrec-lab environment check ({report['mode']}, {report['created_utc']})",
-        f"python {env.get('python')} | torch {env.get('packages', {}).get('torch')}"
-        f" | cuda {env.get('torch_cuda')} | cudnn {env.get('cudnn')}",
+        f"python {env.get('python')} | torch {(env.get('packages') or {}).get('torch')}"
+        f" | cuda {env.get('torch_cuda')} | cudnn {env.get('cudnn')}"
+        f" | driver {nvml.get('driver_version')}",
     ]
     gpu = env.get("gpu")
     if gpu:
-        nvml = env.get("nvml", {})
         lines.append(
             f"gpu {gpu['name']} | capability {gpu['capability']}"
             f" | in wheel arch list: {gpu['arch_in_wheel']} | {gpu['total_memory_gib']} GiB"
-            f" | bf16 {gpu['bf16_supported']} | driver {nvml.get('driver_version')}"
+            f" | bf16 {gpu['bf16_supported']}"
         )
     else:
-        lines.append(f"device {report['device']} (no CUDA GPU in use)")
+        lines.append(f"device {report['device']}; CUDA error: {env.get('cuda_init_error')}")
+    if env.get("windows"):
+        lines.append(f"windows settings {env['windows']}")
 
-    lines.append(
-        "\nmatmul TFLOPS: "
-        + ", ".join(f"{r['mode']} {r.get('tflops', 'error')}" for r in report.get("matmul", []))
-    )
+    matmul = _section(report, "matmul", list)
+    if matmul:
+        rates = ", ".join(f"{r['mode']} {r.get('tflops', 'error')}" for r in matmul)
+        lines.append(f"\nmatmul TFLOPS: {rates}")
 
-    sdpa = report.get("sdpa", [])
-    if isinstance(sdpa, list) and sdpa:
-        lines.append("\nSDPA backends (ok / tried, any dtype, mask and shape):")
+    sdpa = _section(report, "sdpa", list)
+    if sdpa:
+        lines.append("\nSDPA backends (ok / tried over dtypes, masks and shapes):")
         for backend in BACKENDS:
             rows = [r for r in sdpa if r["backend"] == backend]
             ok = [r for r in rows if r.get("ok")]
             bad = [r for r in ok if not r.get("matches_reference")]
-            lines.append(f"  {backend:9s} {len(ok)}/{len(rows)}  mismatched outputs: {len(bad)}")
-        lines.append("Default choice by mask and dtype (first length and head dim):")
+            lines.append(f"  {backend:9s} {len(ok)}/{len(rows)}  outside tolerance: {len(bad)}")
         first = (sdpa[0]["length"], sdpa[0]["head_dim"])
+        lines.append(f"Default choice by mask and dtype (length {first[0]}, head dim {first[1]}):")
         for r in sdpa:
             if (r["length"], r["head_dim"]) == first and r["backend"] == "math":
                 lines.append(f"  {r['mask']:15s} {r['dtype']}: {r['default_choice']}")
 
-    model = report.get("model", {})
-    if isinstance(model, dict) and model.get("train_step"):
+    model = _section(report, "model", dict)
+    if model and model.get("train_step"):
         lines.append("\nSynthetic SASRec train step (ms median | tokens/s | peak GiB):")
         for r in model["train_step"]:
             head = f"  items {r['items']:>7} {r['loss']:15s} {r['precision']:4s}"
             if r.get("ok"):
+                spilled = "  SPILLED" if r.get("spilled_to_system_memory") else ""
                 lines.append(
                     f"{head} {r['step']['median_ms']:9.2f} | {r['tokens_per_s']:>9} |"
-                    f" {r.get('peak_memory_gib', '-')}"
+                    f" {r.get('peak_memory_gib', '-')}{spilled}"
                 )
             else:
-                lines.append(f"{head} {r.get('error')}")
-        lines.append(
-            "Full-ranking scoring, ms per 1k users: "
-            + ", ".join(
-                f"{r['items']} items {r.get('per_1k_users_ms', 'error')}"
-                for r in model["full_ranking_scoring"]
-            )
+                lines.append(f"{head} {r.get('skipped') or r.get('error')}")
+        scoring = ", ".join(
+            f"{r['items']} items {r.get('per_1k_users_ms', 'error')}"
+            for r in model["full_ranking_scoring"]
         )
+        lines.append(f"Full-ranking scoring, ms per 1k users: {scoring}")
 
-    comp = report.get("compile", {})
-    if comp.get("ok"):
+    comp = _section(report, "compile", dict)
+    if comp and comp.get("ok"):
         lines.append(
             f"\ntorch.compile: ok, compile {comp['compile_s']} s, speedup {comp['speedup']}x"
         )
@@ -853,11 +954,15 @@ def build_summary(report: dict) -> str:
         detail = comp.get("error") or comp.get("skipped") or (comp.get("stderr_tail") or [""])[-1]
         lines.append(f"\ntorch.compile: not ok ({detail})")
 
-    thermal = report.get("thermal", {})
-    if thermal.get("tflops_per_window"):
+    thermal = _section(report, "thermal", dict)
+    if thermal and thermal.get("tflops_per_window"):
         lines.append(
-            f"\nThermal: {thermal['seconds']} s bf16 load, TFLOPS first/last window"
-            f" {thermal['tflops_per_window'][0]} / {thermal['tflops_per_window'][-1]}"
+            f"\nThermal: {thermal['seconds']} s bf16 load, TFLOPS per window"
+            f" {thermal['tflops_per_window']}"
+        )
+        lines.append(
+            f"  last/max {thermal['last_over_max_window']}"
+            f" | last/early {thermal['last_over_early_windows']}"
         )
         summary = thermal.get("summary")
         if summary:
@@ -869,19 +974,21 @@ def build_summary(report: dict) -> str:
         else:
             lines.append("  NVML not available: no clock or temperature data")
 
+    failed = [
+        k for k in report["durations_s"] if isinstance(report.get(k), dict) and "error" in report[k]
+    ]
+    if failed:
+        lines.append(f"\nProbes that crashed: {failed}")
     lines.append("\nProbe durations (s): " + json.dumps(report["durations_s"]))
     return "\n".join(lines) + "\n"
 
 
 def write_report(report: dict, out_dir: Path) -> tuple[Path, Path]:
-    tokens = sensitive_tokens()
-    report = scrub(report, tokens)
-    summary = build_summary(report)
-    payload = json.dumps(report, indent=1)
-    leaked = [t for t in tokens if t.lower() in (payload + summary).lower()]
-    if leaked:
-        raise RuntimeError("identifying strings survived scrubbing; report not written")
-    gpu = report["environment"].get("gpu", {}).get("name", report["device"])
+    """Scrub, then write JSON and text summary. Nothing unscrubbed reaches disk."""
+    roots, tokens = sensitive_roots(), sensitive_tokens()
+    summary = scrub_text(build_summary(report), roots, tokens)
+    payload = json.dumps(scrub(report, roots, tokens), indent=1, allow_nan=False)
+    gpu = (report["environment"].get("gpu") or {}).get("name", report["device"])
     slug = re.sub(r"[^a-z0-9]+", "-", gpu.lower()).strip("-")
     stamp = report["created_utc"].replace("-", "").replace(":", "")
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -911,6 +1018,8 @@ def main(argv=None) -> int:
         return compile_worker(device, cfg)
     if args.thermal_seconds is not None:
         cfg = dict(cfg, thermal_seconds=args.thermal_seconds)
+    # A full run on CPU would take hours; without a usable GPU only the environment is recorded.
+    gpu_missing = not args.quick and device.type == "cpu" and args.device is None
 
     torch.manual_seed(0)
     report = {
@@ -930,6 +1039,8 @@ def main(argv=None) -> int:
         ("compile", probe_compile),
     ]
     for name, probe in probes:
+        if name != "environment" and gpu_missing:
+            break
         if name == "compile" and args.skip_compile:
             report[name] = {"ok": False, "skipped": "--skip-compile"}
             continue
@@ -950,6 +1061,11 @@ def main(argv=None) -> int:
         except ValueError:
             shown = path.name
         print(f"[check_env] wrote {shown}")
+    if gpu_missing:
+        print(
+            "[check_env] no usable CUDA GPU: only the environment was checked (see cuda_init_error)"
+        )
+        return 1
     return 0
 
 

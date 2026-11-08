@@ -23,6 +23,7 @@ compile = [
 
 [tool.uv]
 package = false
+default-groups = ["dev", "compile"]
 environments = [
     "sys_platform == 'win32'",
     "sys_platform == 'linux'",

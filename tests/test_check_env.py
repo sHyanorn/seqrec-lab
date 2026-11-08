@@ -2,6 +2,7 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
@@ -31,17 +32,46 @@ def test_quick_run_writes_scrubbed_report(tmp_path):
         assert token.lower() not in text.lower()
 
 
-def test_scrub_removes_names_and_paths():
-    tokens = ["LAPTOP-AB12", "alice"]
+def test_scrub_removes_paths_with_spaces_and_names():
+    roots = check_env.sensitive_roots()
+    tokens = ["LAPTOP-AB12", "John Smith"]
     raw = {
-        "error": r"failed in C:\Users\Alice\AppData\Local\Temp\x.py on laptop-ab12",
-        "nested": ["/home/alice/run.log", "alice"],
-        "alice": 1,
+        "error": r"failed: C:\Users\John Smith\OneDrive - Contoso Ltd\seqrec-lab\x.py line 3",
+        "stderr_tail": ["/home/jsmith/My Projects/run.log", "built on laptop-ab12"],
+        "nan": float("nan"),
     }
-    cleaned = json.dumps(check_env.scrub(raw, tokens)).lower()
-    assert "alice" not in cleaned
-    assert "laptop-ab12" not in cleaned
-    assert "<path>" in cleaned
+    cleaned = check_env.scrub(raw, roots, tokens)
+    text = json.dumps(cleaned, allow_nan=False).lower()
+    for fragment in ("smith", "contoso", "onedrive", "projects", "laptop-ab12"):
+        assert fragment not in text
+    assert cleaned["nan"] is None
+
+
+def test_short_user_name_leaves_keys_and_summary_intact(monkeypatch, tmp_path):
+    monkeypatch.setenv("USER", "ian")
+    monkeypatch.setenv("USERNAME", "ian")
+    args = ["--quick", "--skip-compile", "--device", "cpu", "--out", str(tmp_path)]
+    assert check_env.main(args) == 0
+    (json_path,) = tmp_path.glob("check_env_*.json")
+    report = json.loads(json_path.read_text(encoding="utf-8"))
+    assert "median_ms" in report["matmul"][0]
+
+
+def test_summary_survives_crashed_probes():
+    report = {
+        "mode": "full",
+        "created_utc": "2026-01-01T00:00:00Z",
+        "device": "cuda",
+        "durations_s": {"environment": 0.1, "matmul": 0.1, "sdpa": 0.1},
+        "environment": {"error": "Traceback ..."},
+        "matmul": {"error": "Traceback ..."},
+        "sdpa": {"error": "Traceback ..."},
+        "model": {"error": "Traceback ..."},
+        "compile": {"error": "Traceback ..."},
+        "thermal": {"error": "Traceback ..."},
+    }
+    summary = check_env.build_summary(report)
+    assert "Probes that crashed" in summary
 
 
 def test_padding_masks_never_leave_a_query_without_keys():
@@ -54,7 +84,17 @@ def test_padding_masks_never_leave_a_query_without_keys():
     assert not torch.triu(mask[0, 0], diagonal=1).any()
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="CPU inductor needs MSVC on Windows")
 def test_compile_probe_runs_in_child_process():
-    result = check_env.probe_compile(torch.device("cpu"), check_env.QUICK)
+    result = check_env.probe_compile(CPU, check_env.QUICK)
     assert result["ok"], result
     assert result["speedup"] > 0
+
+
+@pytest.mark.skipif(torch.cuda.is_available(), reason="needs a machine without CUDA")
+def test_full_mode_without_gpu_stops_after_environment(tmp_path):
+    assert check_env.main(["--out", str(tmp_path)]) == 1
+    (json_path,) = tmp_path.glob("check_env_*.json")
+    report = json.loads(json_path.read_text(encoding="utf-8"))
+    assert report["environment"]["cuda_init_error"]
+    assert "sdpa" not in report
