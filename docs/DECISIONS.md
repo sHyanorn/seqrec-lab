@@ -155,3 +155,21 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
   - The input σ comes from validation scores of the M2 pilot, then from the first 5 final seeds per dataset, before any test read.
   - Every comparison reports its power; those below 0.8 are labelled underpowered, and their non-rejections are not interpreted.
 - Rationale: with 5 seeds, a 2% margin and plausible seed variance, Welch tests may have too little power. With σ = 0.01, even 10 seeds give 0.78 directional power. A rule fixed before any result avoids choosing the seed count after seeing outcomes.
+
+## D019 Full validation set every epoch
+
+- Date: 2026-11-08. Status: accepted.
+- Decision: every validation user is scored after every epoch; the 10,000-user subsample for early stopping is removed. Time to target (RQ2) uses the same full-validation curve.
+- Rationale: the environment check measured full-catalogue scoring at about 1.5 ms per 1,000 users for 26,000 items, about 0.2 s for all MovieLens-20M validation users. A subsample would add a second validation curve without saving meaningful time.
+
+## D020 Where datasets are prepared
+
+- Date: 2026-11-08. Status: accepted.
+- Decision: the official preprocessing and statistics run once on the GPU machine (`seqrec data prepare`), and only `results/data/` is pushed. The development container prepares Steam and Video_Games for development and checks that their fingerprints match the GPU machine's.
+- Rationale: files.grouplens.org is not reachable from the development container. Matching fingerprints across Linux and Windows also checks that preprocessing is deterministic.
+
+## D021 Third-party metric cross-check
+
+- Date: 2026-11-08. Status: accepted.
+- Decision: ranx (MIT licence per its PyPI classifiers) cross-checks NDCG@10 and HR@10 in the tests. It lives in the optional `crosscheck` dependency group because it pulls in numba and other heavy packages; the naive reference implementation runs in every test session.
+- Rationale: an independent implementation catches errors a self-written reference could share.

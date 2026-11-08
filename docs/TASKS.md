@@ -14,30 +14,30 @@ Milestones and checklists. Estimates: development hours / GPU hours / owner time
 ## M1 Data, evaluation and runner (18 h / 0 h / 30 min)
 
 Data
-- [ ] Download scripts with SHA-256 records for the four datasets
-- [ ] Preprocessing (METHODS 2) and statistics table in `results/data/`
+- [x] Download scripts with SHA-256 records for the four datasets
+- [x] Preprocessing (METHODS 2) and statistics table in `results/data/`
 - [ ] Compare statistics with published ones; explain differences above 1% in DECISIONS
-- [ ] Leave-one-out and temporal splits as typed split objects (METHODS 3)
-- [ ] Shuffled-order transform (METHODS 3.3)
+- [x] Leave-one-out and temporal splits as typed split objects (METHODS 3)
+- [x] Shuffled-order transform (METHODS 3.3)
 
 Evaluation
-- [ ] Vectorised full-ranking evaluator with history masking and pessimistic ties
-- [ ] Single logged test reader (phases `final` and `anchor`, `test_access.jsonl`)
+- [x] Vectorised full-ranking evaluator with history masking and pessimistic ties
+- [x] Single logged test reader (phases `final` and `anchor`, `test_access.jsonl`)
 
 Correctness (METHODS 11)
-- [ ] Invariant assertions for preprocessing, both splits, training-only statistics and evaluation inputs; results stored in the run manifest
-- [ ] Known-answer tests: random scorer expectation, tie handling, hand-computed cases
-- [ ] Naive reference metrics and ranx cross-check (confirm ranx licence first)
-- [ ] Mutation tests for every data and evaluation mutation in 11.3 that does not need a model; mutation-to-detector table
+- [x] Invariant assertions for preprocessing, both splits, training-only statistics and evaluation inputs; results stored in the run manifest
+- [x] Known-answer tests: random scorer expectation, tie handling, hand-computed cases
+- [x] Naive reference metrics and ranx cross-check (confirm ranx licence first)
+- [x] Mutation tests for every data and evaluation mutation in 11.3 that does not need a model; mutation-to-detector table
 
 Runner
-- [ ] Config schema and run directory layout (config, metrics, logs, NVML trace, manifest)
-- [ ] Batch runner: one command per batch, resumable, skips finished runs
-- [ ] Export command: aggregated CSV, test-access counts, truncation and GPU-hour summaries
-- [ ] NVML sampler shared with `scripts/check_env.py`
+- [x] Config schema and run directory layout (config, metrics, logs, NVML trace, manifest)
+- [x] Batch runner: one command per batch, resumable, skips finished runs
+- [x] Export command: aggregated CSV, test-access counts, truncation and GPU-hour summaries
+- [x] NVML sampler shared with `scripts/check_env.py`
 
 Freeze
-- [ ] Close METHODS section 13 open items
+- [ ] Close METHODS section 13 open items (only the statistics explanations remain)
 - [ ] Silent-error review (independent, code and data flow only) and whole-diff review; fixes
 - [ ] Freeze METHODS (D014) before any model is trained on real data
 

@@ -7,7 +7,7 @@ A study of Transformer sequential recommenders (SASRec, BERT4Rec, gSASRec) on on
 - [Decisions](docs/DECISIONS.md)
 - [Tasks](docs/TASKS.md)
 
-Status: milestone M0 (specification and feasibility check).
+Status: milestone M1 (data pipeline, evaluation and runner).
 
 ## Environment check
 
@@ -29,7 +29,22 @@ uv run pytest
 
 ## Data
 
-No dataset is redistributed. Download and preprocessing scripts arrive in M1; each dataset keeps its own terms of use (see [SPEC section 5](docs/SPEC.md#5-datasets)).
+No dataset is redistributed; each keeps its own terms of use (see [SPEC section 5](docs/SPEC.md#5-datasets)). Download, preprocess and summarise all four datasets:
+
+```
+uv run seqrec data prepare
+```
+
+Raw and processed files go to `data/` (not committed). Aggregate statistics go to `results/data/`.
+
+## Runs
+
+```
+uv run seqrec run plans/<plan>.toml    # resumable; finished runs are skipped
+uv run seqrec export                   # aggregates to results/runs/
+```
+
+Test data are read once per final run through a logged reader; `export` refuses batches whose test-access counts break the protocol (METHODS 11.6).
 
 ## License
 

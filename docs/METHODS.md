@@ -8,10 +8,10 @@ Status: **draft**. This document is frozen at the end of M1, before any model is
 |---|---|---|
 | MovieLens-1M | `ml-1m.zip` from files.grouplens.org, `ratings.dat` | user, item, timestamp (s) |
 | MovieLens-20M | `ml-20m.zip` from files.grouplens.org, `ratings.csv` | user, item, timestamp (s) |
-| Steam | `steam_reviews.json.gz` from mcauleylab.ucsd.edu/public_datasets/data/steam/ | user, product, date (day) |
+| Steam | `steam_reviews.json.gz` from mcauleylab.ucsd.edu/public_datasets/data/steam/ | username, product_id, date (day) |
 | Amazon Reviews 2023, Video_Games | 0-core `rating_only` file from the official benchmark release | user_id, parent_asin, timestamp (ms) |
 
-The download script records the SHA-256 of every file. Preprocessing is deterministic given those files. No data file, processed file or per-user output is committed.
+Steam records lack a numeric user id in many lines, so `username` is the user key; records without a username, product or date are dropped and counted. The download script records the SHA-256 of every file. Preprocessing is deterministic given those files. No data file, processed file or per-user output is committed.
 
 ## 2. Preprocessing
 
@@ -71,7 +71,7 @@ Following [2] and its code [32]:
 - bidirectional post-LayerNorm Transformer blocks with GELU and learned position embeddings;
 - an output head of dense, GELU and LayerNorm (the LayerNorm is in the code [32]), followed by a dot product with the shared item embeddings plus an item bias.
 
-Training masks each position with probability ρ, with at least one masked position per sequence, and applies full softmax cross-entropy at masked positions. At inference a mask token is appended after the input and scored. The token replacement scheme and the extra last-item-masked samples of the official code are an open item (section 13).
+Training masks each position with probability ρ, with at least one masked position per sequence, and applies full softmax cross-entropy at masked positions. A masked position is always replaced by the mask token, as with the official default (`mask_prob = 1.0`). Each epoch uses one sequence per user (the most recent L training items) with fresh random masks. The official code instead precomputes ten masked copies and sliding windows; repeated epochs play the same role here. The official code creates last-item-masked instances only for its test file, so training adds none. The official code also appends the validation item to the training data; here it stays held out (3.1). At inference a mask token is appended after the input and scored.
 
 ### 4.3 Objectives
 
@@ -103,7 +103,7 @@ Both use the same evaluation code, masking and test-access rules as the neural m
 ### 5.2 Early stopping and caps
 
 - Validation NDCG@10 is computed after every epoch. The best checkpoint by validation NDCG@10 is restored at the end.
-- On datasets with more than 10,000 users, per-epoch early stopping uses a fixed random subsample of 10,000 validation users. The subsample is drawn once per dataset and split with a fixed seed and is the same for all arms and seeds. The selected checkpoint is then scored on the full validation set, and that value is the trial objective.
+- Every validation user is scored after every epoch; full-catalogue scoring costs about 0.2 s for all MovieLens-20M validation users on the target GPU (D019). The trial objective is validation NDCG@10 of the restored checkpoint.
 - Caps leave a margin over published training lengths ([5] uses at most 100 epochs with patience 10 for SASRec and 200 with patience 20 for BERT4Rec):
 
 | Arms | Max epochs | Patience | Wall-clock guard |
@@ -233,10 +233,10 @@ Per arm, dataset and split: mean and SD of every metric across seeds, CIs for di
 
 ## 8. RQ2: cost of training objectives
 
-- Every run logs per epoch: cumulative training time excluding evaluation, subsample validation NDCG@10 (5.2), peak allocated memory, and NVML samples at 1 Hz.
+- Every run logs per epoch: cumulative training time excluding evaluation, validation NDCG@10, peak allocated memory, and NVML samples at 1 Hz.
 - Scope: arms A1 to A4, leave-one-out.
-- Target quality per dataset: 0.95 × the highest mean (over seeds) best subsample-validation NDCG@10 among A1 to A4.
-- Time to target of a run: the first cumulative training time at which subsample validation NDCG@10 reaches the target. A run that never reaches it is censored at +∞.
+- Target quality per dataset: 0.95 × the highest mean (over seeds) best validation NDCG@10 among A1 to A4.
+- Time to target of a run: the first cumulative training time at which validation NDCG@10 reaches the target. A run that never reaches it is censored at +∞.
 - **H2a:** for each arm X in {A1, A3, A4} and each dataset, a one-sided Mann-Whitney U test that A2's times to target are stochastically smaller than X's (censored values rank last, ties get mid-ranks), in family F6. H2a holds on a dataset when all three tests reject. Medians and the ratio of medians are reported descriptively. With 5 runs per arm the smallest attainable one-sided p is 1/252, so only complete separation passes the strictest Holm step.
 - **H2b** is decided by family F2 and, for BCE, by F1-ME.
 - Peak memory and step time of plain and chunked cross-entropy are reported per dataset; the two compute the same loss, so only cost differs.
@@ -341,7 +341,7 @@ Tests inject each fault below with monkeypatching (no fault switches in producti
 
 ### 11.4 Independent metric implementation
 
-A naive reference (per user, sort all scores, pure Python) and the ranx library (test dependency only) are compared with the vectorised implementation on several thousand random users. Agreement to 1e-6 is required. Inputs for the ranx comparison have no ties, because ranx breaks ties differently.
+A naive reference (per user, sort all scores, pure Python) and the ranx library (MIT licence, optional `crosscheck` dependency group, D021) are compared with the vectorised implementation on several thousand random users. Agreement to 1e-6 is required. Inputs for the ranx comparison have no ties, because ranx breaks ties differently.
 
 ### 11.5 Anchors
 
@@ -396,7 +396,6 @@ Before delivering M1, M2, M3 or M5, an independent reviewer that sees only the c
 
 ## 13. Open items before the freeze
 
-- Steam fields used as user and item keys, and handling of reviews without a date.
-- BERT4Rec details from the official code [32]: token replacement scheme for masked positions and the additional last-item-masked training samples.
-- Licence of ranx, and whether it supports Python 3.12 on Windows.
-- Validation subsample size for early stopping (10,000 users) once evaluation cost is measured.
+- Explanations for dataset statistics that differ from published values by more than 1% (D006), after the data run on the GPU machine.
+
+Resolved: Steam fields (section 1), BERT4Rec masking and training instances (4.2), ranx licence (11.4, D021), validation subsample removed (5.2, D019).
