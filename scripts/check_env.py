@@ -29,7 +29,6 @@ import statistics
 import subprocess
 import sys
 import tempfile
-import threading
 import time
 import traceback
 from pathlib import Path
@@ -38,6 +37,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.attention import SDPBackend, sdpa_kernel
+
+from seqrec.telemetry import NvmlSampler, error_text, nvml_static, summarize_samples, try_call
 
 SCHEMA_VERSION = 1
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -138,21 +139,6 @@ def summarize(times: list[float]) -> dict:
     }
 
 
-def error_text(exc: BaseException) -> str:
-    """First and last non-empty lines; compiler errors put the cause at the end."""
-    lines = [line.strip() for line in str(exc).splitlines() if line.strip()]
-    detail = " | ".join(dict.fromkeys([lines[0], lines[-1]])) if lines else ""
-    return f"{type(exc).__name__}: {detail}"[:400]
-
-
-def _try(fn):
-    try:
-        value = fn()
-    except Exception as exc:  # probes record failures instead of raising
-        return {"error": error_text(exc)}
-    return value.decode() if isinstance(value, bytes) else value
-
-
 def _package_version(name: str) -> str | None:
     try:
         return importlib.metadata.version(name)
@@ -239,117 +225,6 @@ def scrub(obj, roots: list[str], tokens: list[str]):
     return obj
 
 
-# --------------------------------------------------------------------- NVML
-
-
-def _nvml():
-    try:
-        import pynvml
-
-        pynvml.nvmlInit()
-        return pynvml, pynvml.nvmlDeviceGetHandleByIndex(0)
-    except Exception as exc:
-        return None, error_text(exc)
-
-
-def _event_reasons(nv, handle) -> int:
-    if hasattr(nv, "nvmlDeviceGetCurrentClocksEventReasons"):
-        return nv.nvmlDeviceGetCurrentClocksEventReasons(handle)
-    return nv.nvmlDeviceGetCurrentClocksThrottleReasons(handle)
-
-
-def _temperature(nv, handle) -> int:
-    try:
-        return nv.nvmlDeviceGetTemperatureV(handle, nv.NVML_TEMPERATURE_GPU)
-    except Exception:  # older drivers lack the versioned call
-        return nv.nvmlDeviceGetTemperature(handle, nv.NVML_TEMPERATURE_GPU)
-
-
-REASON_BITS = {
-    "sw_power_cap": "nvmlClocksEventReasonSwPowerCap",
-    "hw_slowdown": "nvmlClocksEventReasonHwSlowdown",
-    "sw_thermal": "nvmlClocksEventReasonSwThermalSlowdown",
-    "hw_thermal": "nvmlClocksEventReasonHwThermalSlowdown",
-    "hw_power_brake": "nvmlClocksEventReasonHwPowerBrakeSlowdown",
-}
-
-
-def nvml_static() -> dict:
-    nv, handle = _nvml()
-    if nv is None:
-        return {"available": False, "error": handle}
-    mem_clocks = _try(lambda: nv.nvmlDeviceGetSupportedMemoryClocks(handle))
-    return {
-        "available": True,
-        "driver_version": _try(nv.nvmlSystemGetDriverVersion),
-        "cuda_driver_version": _try(nv.nvmlSystemGetCudaDriverVersion),
-        "name": _try(lambda: nv.nvmlDeviceGetName(handle)),
-        "power_limit_w": _try(lambda: nv.nvmlDeviceGetPowerManagementLimit(handle) / 1000),
-        "power_limit_default_w": _try(
-            lambda: nv.nvmlDeviceGetPowerManagementDefaultLimit(handle) / 1000
-        ),
-        "enforced_power_limit_w": _try(lambda: nv.nvmlDeviceGetEnforcedPowerLimit(handle) / 1000),
-        "max_sm_clock_mhz": _try(lambda: nv.nvmlDeviceGetMaxClockInfo(handle, nv.NVML_CLOCK_SM)),
-        "max_mem_clock_mhz": _try(lambda: nv.nvmlDeviceGetMaxClockInfo(handle, nv.NVML_CLOCK_MEM)),
-        "slowdown_temperature_c": _try(
-            lambda: nv.nvmlDeviceGetTemperatureThreshold(
-                handle, nv.NVML_TEMPERATURE_THRESHOLD_SLOWDOWN
-            )
-        ),
-        "idle_temperature_c": _try(lambda: _temperature(nv, handle)),
-        "idle_pstate": _try(lambda: nv.nvmlDeviceGetPerformanceState(handle)),
-        # Read-only hints on clock control; locking itself is never attempted here.
-        "supported_memory_clocks_mhz": mem_clocks,
-        "supported_graphics_clock_count": _try(
-            lambda: len(nv.nvmlDeviceGetSupportedGraphicsClocks(handle, mem_clocks[0]))
-        ),
-        "app_clock_changes_need_admin": _try(
-            lambda: bool(
-                nv.nvmlDeviceGetAPIRestriction(
-                    handle, nv.NVML_RESTRICTED_API_SET_APPLICATION_CLOCKS
-                )
-            )
-        ),
-    }
-
-
-class NvmlSampler(threading.Thread):
-    """Samples clocks, temperature, power and clock event reasons at a fixed interval."""
-
-    def __init__(self, interval_s: float = 0.1):
-        super().__init__(daemon=True)
-        self.nv, self.handle = _nvml()
-        self.interval_s = interval_s
-        self.samples: list[dict] = []
-        self._stop_event = threading.Event()
-
-    @property
-    def available(self) -> bool:
-        return self.nv is not None
-
-    def run(self) -> None:
-        nv, h = self.nv, self.handle
-        t0 = time.perf_counter()
-        while not self._stop_event.is_set():
-            self.samples.append(
-                {
-                    "t_s": round(time.perf_counter() - t0, 3),
-                    "sm_mhz": _try(lambda: nv.nvmlDeviceGetClockInfo(h, nv.NVML_CLOCK_SM)),
-                    "mem_mhz": _try(lambda: nv.nvmlDeviceGetClockInfo(h, nv.NVML_CLOCK_MEM)),
-                    "temp_c": _try(lambda: _temperature(nv, h)),
-                    "power_w": _try(lambda: round(nv.nvmlDeviceGetPowerUsage(h) / 1000, 2)),
-                    "pstate": _try(lambda: nv.nvmlDeviceGetPerformanceState(h)),
-                    "reasons": _try(lambda: _event_reasons(nv, h)),
-                }
-            )
-            self._stop_event.wait(self.interval_s)
-
-    def stop(self) -> list[dict]:
-        self._stop_event.set()
-        self.join()
-        return self.samples
-
-
 # ------------------------------------------------------------------- probes
 
 
@@ -400,10 +275,10 @@ def windows_settings() -> dict:
 
     schemes = r"SYSTEM\CurrentControlSet\Control\Power\User\PowerSchemes"
     return {
-        "on_ac_power": _try(ac_power),
-        "power_scheme_guid": _try(active_scheme_guid),
-        "power_mode_overlay_ac": _try(lambda: reg(schemes, "ActiveOverlayAcPowerScheme")),
-        "hw_gpu_scheduling_mode": _try(
+        "on_ac_power": try_call(ac_power),
+        "power_scheme_guid": try_call(active_scheme_guid),
+        "power_mode_overlay_ac": try_call(lambda: reg(schemes, "ActiveOverlayAcPowerScheme")),
+        "hw_gpu_scheduling_mode": try_call(
             lambda: reg(r"SYSTEM\CurrentControlSet\Control\GraphicsDrivers", "HwSchMode")
         ),
     }
@@ -539,7 +414,7 @@ def probe_sdpa(device: torch.device, cfg: dict) -> list[dict]:
                             q, k, v, attn_mask=m, is_causal=causal
                         )
 
-                    default = _try(functools.partial(dispatched_backend, q, k, v, mask, causal))
+                    default = try_call(functools.partial(dispatched_backend, q, k, v, mask, causal))
                     for backend_name, backend in BACKENDS.items():
                         row = dict(common, backend=backend_name, default_choice=default)
                         try:
@@ -770,42 +645,9 @@ def probe_thermal(device: torch.device, cfg: dict) -> dict:
         "nvml_available": sampler.available,
     }
     if samples:
-        result["summary"] = _thermal_summary(sampler.nv, samples)
+        result["summary"] = summarize_samples(sampler.nv, samples)
         result["samples"] = samples
     return result
-
-
-def _thermal_summary(nv, samples: list[dict]) -> dict:
-    def series(key):
-        return [s[key] for s in samples if isinstance(s[key], int | float)]
-
-    def describe(values):
-        if not values:
-            return None
-        q = statistics.quantiles(values, n=20) if len(values) >= 2 else [values[0]] * 19
-        return {
-            "min": min(values),
-            "p5": round(q[0], 1),
-            "median": statistics.median(values),
-            "p95": round(q[-1], 1),
-            "max": max(values),
-        }
-
-    reasons = series("reasons")
-    shares = {}
-    for label, attr in REASON_BITS.items():
-        bit = getattr(nv, attr, None)
-        if bit is not None and reasons:
-            shares[label] = round(sum(1 for r in reasons if r & bit) / len(reasons), 3)
-    temps = series("temp_c")
-    return {
-        "samples": len(samples),
-        "sm_mhz": describe(series("sm_mhz")),
-        "mem_mhz": describe(series("mem_mhz")),
-        "temp_c": describe(temps) | {"start": temps[0], "end": temps[-1]} if temps else None,
-        "power_w": describe(series("power_w")),
-        "share_of_samples_with_reason": shares,
-    }
 
 
 def probe_compile(device: torch.device, cfg: dict) -> dict:

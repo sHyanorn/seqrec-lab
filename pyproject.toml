@@ -7,9 +7,20 @@ license = "MIT"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "numpy>=2",
+    "pandas>=2.2",
     "torch==2.15.*",
     "nvidia-ml-py>=13",
 ]
+
+[project.scripts]
+seqrec = "seqrec.cli:main"
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/seqrec"]
 
 [dependency-groups]
 dev = [
@@ -20,9 +31,12 @@ dev = [
 compile = [
     "triton-windows>=3.9,<3.10; sys_platform == 'win32'",
 ]
+# Third-party metric cross-check (MIT); heavy, so not installed by default.
+crosscheck = [
+    "ranx>=0.3.21",
+]
 
 [tool.uv]
-package = false
 default-groups = ["dev", "compile"]
 environments = [
     "sys_platform == 'win32'",
