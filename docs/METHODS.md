@@ -356,7 +356,7 @@ Rules:
 - A result above its band is treated first as leakage: all assertions and mutation tests are rerun and the data flow is inspected by hand. A result below its band is treated as an implementation problem.
 - Any code change made after an anchor read must come with a test that fails before the change, and is logged in DECISIONS.
 - If an arm is still outside its band after three reads, it enters M3 flagged "anchor not reproduced". The gap is recorded in DECISIONS, and the flag is carried into every comparison involving that arm.
-- Anchor reads touch the MovieLens-1M test targets that the main analysis also uses. The report states this.
+- Anchor reads touch the MovieLens-1M test targets that the main analysis also uses. The report states this, and every RQ1 conclusion on MovieLens-1M carries the note.
 
 ### 11.6 Test-set isolation
 
