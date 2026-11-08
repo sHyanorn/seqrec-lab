@@ -1,0 +1,55 @@
+[project]
+name = "seqrec-lab"
+version = "0.1.0"
+description = "Reproducibility, training objectives and efficiency of Transformer sequential recommenders on one consumer GPU"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "numpy>=2",
+    "torch==2.15.*",
+    "nvidia-ml-py>=13",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff>=0.8",
+]
+# torch.compile on the Windows CUDA backend needs the community Triton build.
+compile = [
+    "triton-windows>=3.9,<3.10; sys_platform == 'win32'",
+]
+
+[tool.uv]
+package = false
+environments = [
+    "sys_platform == 'win32'",
+    "sys_platform == 'linux'",
+]
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cu132", marker = "sys_platform == 'win32'" },
+    { index = "pytorch-cpu", marker = "sys_platform == 'linux'" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu132"
+url = "https://download.pytorch.org/whl/cu132"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
