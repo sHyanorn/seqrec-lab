@@ -632,7 +632,7 @@ def probe_thermal(device: torch.device, cfg: dict) -> dict:
                     _sync(device)
             _sync(device)
             elapsed = time.perf_counter() - t0
-            windows.append(round(2 * n**3 * count / elapsed / 1e12, 3))
+            windows.append(round(2 * n**3 * count / elapsed / 1e12, 6))
     finally:
         samples = sampler.stop() if sampler.available else []
     early = statistics.median(windows[1:4] or windows)
@@ -640,7 +640,7 @@ def probe_thermal(device: torch.device, cfg: dict) -> dict:
         "seconds": seconds,
         "matmul_n": n,
         "tflops_per_window": windows,
-        "last_over_max_window": round(windows[-1] / max(windows), 3),
+        "last_over_max_window": round(windows[-1] / max(windows), 3) if max(windows) else None,
         "last_over_early_windows": round(windows[-1] / early, 3) if early else None,
         "nvml_available": sampler.available,
     }

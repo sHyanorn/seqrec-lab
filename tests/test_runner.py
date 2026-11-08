@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -8,51 +9,62 @@ from conftest import random_frame
 from seqrec.cli import main as cli_main
 from seqrec.data.invariants import item_popularity
 from seqrec.data.preprocess import build_log
-from seqrec.data.store import load_log, log_path
+from seqrec.data.store import load_splits, log_path
 from seqrec.eval import test_access
 from seqrec.runner import run as run_mod
 from seqrec.runner.config import RunConfig
 from seqrec.runner.export import export
 
 CPU = torch.device("cpu")
+QUIET = {"log": lambda _: None}
 
 
 class PopularityModel:
-    """Test double: popularity scores plus fixed noise; one 'epoch' changes nothing."""
+    """Test double: popularity plus fixed noise. With `peak` set, only that epoch scores well,
+    so restoring any other checkpoint changes the reported validation score."""
 
-    crash_at: int | None = None
+    peak: int | None = None
+    crash: str | None = None  # "train" raises inside an epoch
 
     def __init__(self, cfg, train, device):
         counts = item_popularity(train).counts.astype(np.float32)
         noise = np.random.default_rng(cfg.seed).random(len(counts)).astype(np.float32)
-        self.scores = torch.from_numpy(counts + 1e-3 * noise)
+        self.good = torch.from_numpy(counts + 1e-3 * noise)
+        self.bad = torch.from_numpy(noise)  # random scores
         self.epochs = 0
 
     def train_epoch(self, train, epoch):
-        if PopularityModel.crash_at == epoch:
-            PopularityModel.crash_at = None
+        if PopularityModel.crash == f"train@{epoch}":
+            PopularityModel.crash = None
             raise RuntimeError("simulated crash")
-        self.epochs += 1
+        self.epochs = epoch + 1
         return {"loss": 0.0}
 
+    def _scores(self):
+        if PopularityModel.peak is None or self.epochs == PopularityModel.peak + 1:
+            return self.good
+        return self.bad
+
     def score(self, inputs):
-        return self.scores.repeat(len(inputs), 1)
+        return self._scores().repeat(len(inputs), 1)
 
     def state_dict(self):
-        return {"scores": self.scores, "epochs": self.epochs}
+        return {"epochs": self.epochs}
 
     def load_state_dict(self, state):
-        self.scores, self.epochs = state["scores"], state["epochs"]
+        self.epochs = state["epochs"]
 
 
 @pytest.fixture
 def workspace(tmp_path, monkeypatch):
     monkeypatch.setitem(run_mod.ARMS, "pop", PopularityModel)
+    monkeypatch.setattr(PopularityModel, "peak", None)
+    monkeypatch.setattr(PopularityModel, "crash", None)
     data_dir = tmp_path / "data"
     build_log(random_frame()).save(log_path(data_dir, "ml-1m"))
-    load_log.cache_clear()
-    yield tmp_path, data_dir
-    load_log.cache_clear()
+    load_splits.cache_clear()
+    yield tmp_path / "runs", data_dir
+    load_splits.cache_clear()
 
 
 def _cfg(phase="final", **kw):
@@ -60,40 +72,75 @@ def _cfg(phase="final", **kw):
     return RunConfig(**(base | {"max_epochs": 50, "patience": 3} | kw))
 
 
-def test_final_run_reads_test_once_and_stops_on_patience(workspace):
-    root, data_dir = workspace
-    summary = run_mod.execute(_cfg(), root / "runs", data_dir, CPU, log=lambda _: None)
+def test_training_reads_no_test_data_and_testing_reads_once(workspace):
+    runs, data = workspace
+    summary = run_mod.execute(_cfg(), runs, data, CPU, **QUIET)
     assert summary["stop_reason"] == "patience" and summary["epochs"] == 4
-    assert summary["test_reads"] == {"final": 1, "anchor": 0}
-    assert 0 <= summary["test"]["ndcg@10"] <= 1
-    assert "ndcg@10" in summary["test_inputs_shuffled"]
-    again = run_mod.execute(_cfg(), root / "runs", data_dir, CPU, log=lambda _: None)
-    assert again == summary  # finished runs are not repeated
+    run_dir = runs / "b" / _cfg().run_id
+    assert not (run_dir / "test_access.jsonl").exists()
+    out = run_mod.test_run(_cfg(), runs, data, CPU, **QUIET)
+    assert 0 <= out["test"]["ndcg@10"] <= 1 and "ndcg@10" in out["test_inputs_shuffled"]
+    assert test_access.count_reads(run_dir / "test_access.jsonl") == {
+        "final": 1, "anchor": 0, "completed": 1,
+    }  # fmt: skip
+    assert run_mod.test_run(_cfg(), runs, data, CPU, **QUIET) == out  # no second read
 
 
-def test_tuning_run_never_touches_test_data(workspace, monkeypatch):
-    root, data_dir = workspace
-
-    def forbidden(*args, **kwargs):
-        raise AssertionError("tuning must not read test data")
-
-    monkeypatch.setattr(run_mod, "read_test", forbidden)
-    summary = run_mod.execute(_cfg("tune"), root / "runs", data_dir, CPU, log=lambda _: None)
-    assert "test" not in summary
-    assert summary["test_reads"] == {"final": 0, "anchor": 0}
+def test_best_checkpoint_is_the_one_scored(workspace):
+    runs, data = workspace
+    PopularityModel.peak = 1
+    summary = run_mod.execute(_cfg(), runs, data, CPU, **QUIET)
+    assert summary["best_epoch"] == 1
+    lines = (runs / "b" / _cfg().run_id / "metrics.jsonl").read_text().splitlines()
+    best = max(json.loads(x)["val_ndcg@10"] for x in lines)
+    assert summary["validation"]["ndcg@10"] == pytest.approx(best)
 
 
-def test_interrupted_run_resumes(workspace):
-    root, data_dir = workspace
-    PopularityModel.crash_at = 2
+def test_tuning_run_cannot_reach_test_data(workspace, monkeypatch):
+    runs, data = workspace
+    original = run_mod.evaluate
+
+    def evaluate_test_instead(scorer, split, max_len, device):  # a bug that tunes on test
+        splits, _ = run_mod._prepare_splits(_cfg("tune"), data)
+        return original(scorer, splits.test.unseal("read"), max_len, device)
+
+    monkeypatch.setattr(run_mod, "evaluate", evaluate_test_instead)
+    with pytest.raises(PermissionError, match="tuning runs cannot access test data"):
+        run_mod.execute(_cfg("tune"), runs, data, CPU, **QUIET)
+    with pytest.raises(PermissionError):
+        run_mod.test_run(_cfg("tune"), runs, data, CPU, **QUIET)
+
+
+def test_interrupted_run_resumes_without_duplicate_epochs(workspace):
+    runs, data = workspace
+    PopularityModel.crash = "train@2"
     with pytest.raises(RuntimeError):
-        run_mod.execute(_cfg(), root / "runs", data_dir, CPU, log=lambda _: None)
+        run_mod.execute(_cfg(), runs, data, CPU, **QUIET)
     messages = []
-    summary = run_mod.execute(_cfg(), root / "runs", data_dir, CPU, log=messages.append)
+    summary = run_mod.execute(_cfg(), runs, data, CPU, log=messages.append)
     assert any("resuming at epoch 2" in m for m in messages)
-    lines = (root / "runs" / "b" / _cfg().run_id / "metrics.jsonl").read_text().splitlines()
+    lines = (runs / "b" / _cfg().run_id / "metrics.jsonl").read_text().splitlines()
     assert [json.loads(x)["epoch"] for x in lines] == [0, 1, 2, 3]
     assert summary["epochs"] == 4
+
+
+def test_changed_configuration_is_refused(workspace):
+    runs, data = workspace
+    run_mod.execute(_cfg(), runs, data, CPU, **QUIET)
+    with pytest.raises(run_mod.RunConflict):
+        run_mod.execute(replace(_cfg(), params={"lr": 0.5}), runs, data, CPU, **QUIET)
+
+
+def test_anchor_reads_are_capped(workspace):
+    runs, data = workspace
+    for tag in "abc":
+        cfg = _cfg("anchor", tag=tag)
+        run_mod.execute(cfg, runs, data, CPU, **QUIET)
+        run_mod.test_run(cfg, runs, data, CPU, **QUIET)
+    fourth = _cfg("anchor", tag="d")
+    run_mod.execute(fourth, runs, data, CPU, **QUIET)
+    with pytest.raises(PermissionError, match="anchor reads"):
+        run_mod.test_run(fourth, runs, data, CPU, **QUIET)
 
 
 def test_test_reader_rejects_other_phases(tmp_path):
@@ -104,28 +151,28 @@ def test_test_reader_rejects_other_phases(tmp_path):
         )  # fmt: skip
 
 
-def test_batch_and_export_through_cli(workspace, monkeypatch):
-    root, data_dir = workspace
-    plan = root / "plan.toml"
+def test_batches_through_cli(workspace):
+    runs, data = workspace
+    plan = runs.parent / "plan.toml"
     plan.write_text(
-        'batch = "b"\norder = "shuffled"\n[defaults]\ndataset = "ml-1m"\nsplit = "loo"\n'
+        '﻿batch = "b"\norder = "shuffled"\n[defaults]\ndataset = "ml-1m"\nsplit = "loo"\n'
         'phase = "final"\nmax_epochs = 10\npatience = 2\n'
         '[[runs]]\narm = "pop"\nseeds = [1, 2]\n'
         '[[runs]]\narm = "pop"\nsplit = "gts"\nseeds = [1]\n'
         '[[runs]]\narm = "pop"\nphase = "tune"\nseeds = [3]\n'
-        '[[runs]]\narm = "pop"\nshuffle = "train_eval"\nseeds = [1]\n'
+        '[[runs]]\narm = "pop"\nshuffle = "train_eval"\nseeds = [1]\n',
+        encoding="utf-8",
     )
-    args = ["--runs-dir", str(root / "runs"), "--data-dir", str(data_dir), "--device", "cpu"]
-    assert cli_main(["run", str(plan), *args]) == 0
-    out = root / "results"
-    assert cli_main(["export", "--runs-dir", str(root / "runs"), "--out-dir", str(out)]) == 0
-    rows = (out / "b.csv").read_text().splitlines()
-    assert len(rows) == 1 + 5
+    args = [str(plan), "--runs-dir", str(runs), "--data-dir", str(data), "--device", "cpu"]
+    with pytest.raises(RuntimeError, match="not trained yet"):
+        cli_main(["test", *args])
+    assert cli_main(["run", *args]) == 0
+    assert cli_main(["test", *args]) == 0
+    out = runs.parent / "results"
+    assert cli_main(["export", "--runs-dir", str(runs), "--out-dir", str(out)]) == 0
+    assert len((out / "b.csv").read_text().splitlines()) == 1 + 5
+    assert (out / "overview.csv").exists()
 
-    tune_dir = next((root / "runs" / "b").glob("*s3*"))
+    tune_dir = next((runs / "b").glob("*s3*"))
     (tune_dir / "test_access.jsonl").write_text(json.dumps({"phase": "final"}) + "\n")
-    summary = json.loads((tune_dir / "summary.json").read_text())
-    summary["test_reads"] = {"final": 1, "anchor": 0}
-    (tune_dir / "summary.json").write_text(json.dumps(summary))
-    problems = export(root / "runs", out)
-    assert any("tuning run read test data" in p for p in problems)
+    assert any("tuning run read test data" in p for p in export(runs, out))

@@ -26,8 +26,18 @@ import tomllib
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from seqrec.data.registry import DATASETS
+
 PHASES = ("tune", "final", "anchor")
 SHUFFLES = ("none", "train_eval")
+SPLITS = ("loo", "gts")
+# Epoch cap and patience per arm family (METHODS 5.2); a plan may override them.
+LIMITS = {"bert4rec": (1000, 100)}
+DEFAULT_LIMITS = (300, 30)
+
+
+def default_limits(arm: str) -> tuple[int, int]:
+    return next((v for prefix, v in LIMITS.items() if arm.startswith(prefix)), DEFAULT_LIMITS)
 
 
 @dataclass(frozen=True)
@@ -40,8 +50,8 @@ class RunConfig:
     phase: str
     shuffle: str = "none"
     params: dict = field(default_factory=dict)
-    max_epochs: int = 300
-    patience: int = 30
+    max_epochs: int | None = None  # None: the arm's default (METHODS 5.2)
+    patience: int | None = None
     guard_hours: float = 8.0
     max_len: int | None = None  # defaults to the dataset's length
     tag: str = ""  # distinguishes runs that share arm and seed, e.g. tuning trials
@@ -51,6 +61,13 @@ class RunConfig:
             raise ValueError(f"phase must be one of {PHASES}")
         if self.shuffle not in SHUFFLES:
             raise ValueError(f"shuffle must be one of {SHUFFLES}")
+        if self.dataset not in DATASETS or self.split not in SPLITS:
+            raise ValueError(f"unknown dataset {self.dataset!r} or split {self.split!r}")
+        epochs, patience = default_limits(self.arm)
+        if self.max_epochs is None:
+            object.__setattr__(self, "max_epochs", epochs)
+        if self.patience is None:
+            object.__setattr__(self, "patience", patience)
 
     @property
     def run_id(self) -> str:
@@ -73,12 +90,13 @@ class Plan:
 
 
 def load_plan(path: Path) -> Plan:
-    raw = tomllib.loads(path.read_text(encoding="utf-8"))
+    raw = tomllib.loads(path.read_text(encoding="utf-8-sig"))  # tolerate a BOM
     batch = raw["batch"]
     defaults = raw.get("defaults", {})
     runs = []
     for entry in raw["runs"]:
-        entry = defaults | entry
+        params = defaults.get("params", {}) | entry.get("params", {})
+        entry = defaults | entry | {"params": params}
         seeds = entry.pop("seeds", [entry.pop("seed", 0)])
         runs += [RunConfig(batch=batch, seed=s, **entry) for s in seeds]
     ids = [r.run_id for r in runs]
