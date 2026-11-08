@@ -1,0 +1,139 @@
+# Decisions
+
+Numbered decision records (range D001 to D099). Reference numbers point to [SPEC.md](SPEC.md#12-references). A decision changed later keeps its entry and gains a dated amendment.
+
+## D001 Research questions
+
+- Date: 2026-11-08. Status: accepted.
+- Decision: RQ1 (robustness of published gaps), RQ2 (cost and quality of training objectives) and RQ3 (where training time goes) are the core questions. RQ4 (approximate nearest-neighbour retrieval on learned item embeddings) is conditional (D015). Hypotheses are in SPEC section 3; decision rules are in METHODS sections 7 to 10.
+- Rationale: the direction of the SASRec and BERT4Rec gap and the quality ordering of losses are already reported [3, 4, 5, 13]. What those studies leave open is effect size with run-to-run uncertainty, wall-clock cost on consumer hardware, and a time breakdown at SASRec scale.
+- Alternatives: a plain reproduction of RQ1 as first drafted (adds little beyond [3, 5]); a new model (outside the project's purpose).
+
+## D002 Native Windows for GPU runs
+
+- Date: 2026-11-08. Status: accepted.
+- Decision: all GPU experiments run on native Windows 11. WSL2 is a fallback only for `torch.compile` or FlexAttention work. Timings from the two systems are never mixed in one comparison.
+- Rationale: PyTorch 2.15 Windows CUDA wheels include `sm_120` and, per the release notes, the FlashAttention backend [22]. NVML in WSL2 does not support all queries [26]. Clock-lock commands have no effect inside WSL2 [27]. Per-submission launch overhead is higher under WSL2 [28], and small models launch many short kernels.
+- Alternatives: WSL2 for everything, which brings official Triton and `torch.compile` but less reliable telemetry and timing.
+
+## D003 Software stack
+
+- Date: 2026-11-08. Status: accepted.
+- Decision: Python 3.12; PyTorch 2.15.x from the `cu132` index on Windows and the CPU index on Linux (development container); NVIDIA driver branch 580 or newer; `triton-windows` 3.9.x as an optional dependency group for `torch.compile`; `nvidia-ml-py` for NVML; uv with a committed `uv.lock`. Later milestones add NumPy, pandas, PyArrow and Optuna; `faiss-cpu` only if RQ4 runs.
+- Rationale: PyTorch 2.15 requires Python 3.11 or newer [21] and its Windows wheels exist for Python 3.11 to 3.14 on `cu132`. `cu126` wheels do not include `sm_120`. Official guidance on `torch.compile` for Windows covers CPU and XPU only [23]; GPU compilation relies on the community Triton build [24], so no conclusion depends on it.
+- Alternatives: conda (slower, no cross-platform lock); `cu134` wheels (no benefit for this GPU found).
+
+## D004 Own implementation of models, losses and evaluation
+
+- Date: 2026-11-08. Status: accepted.
+- Decision: models, objectives, evaluation and data pipeline are implemented here in plain PyTorch. Reference repositories are used for protocols and sanity values only. Code from repositories without a licence or under GPL is never copied. MIT or Apache-2.0 code, if copied, keeps its notice and is listed in `THIRD_PARTY_NOTICES`.
+- Rationale:
+  - RecBole trains SASRec on every prefix, defaults to length 50 and does not mask seen items, and its BERT4Rec reached far lower NDCG@10 than other implementations in [3].
+  - Several PyTorch ports have issues: negatives not masked against the positive (gSASRec PyTorch, RecTools); checkpoints selected on test metrics and no padding mask (SASRec.pytorch).
+  - The code of [3] and [5] carries no licence.
+- Alternatives: depend on RecBole or RecTools (protocol mismatches above, heavier dependencies).
+
+## D005 Datasets
+
+- Date: 2026-11-08. Status: accepted.
+- Decision: MovieLens-1M, Steam, Amazon Reviews 2023 Video_Games and MovieLens-20M. Yelp is excluded. The RQ4 large catalogue is chosen with D015.
+- Rationale:
+  - MovieLens-1M anchors comparisons with all prior work.
+  - Steam is the dataset where BERT4Rec stayed ahead in [5], and it has weak sequential structure [11].
+  - Video_Games adds recent data with short sequences.
+  - MovieLens-20M has strong sequential structure [11] and the largest catalogue in the core set.
+  - Yelp's terms require Yelp to review findings before publication, forbid sharing, and expire after 12 months.
+- Licence notes: MovieLens forbids redistribution and requires citing [18]; Steam and Amazon Reviews 2023 publish no licence and ask for citation [1, 19]. Only download and preprocessing code is committed.
+
+## D006 Preprocessing
+
+- Date: 2026-11-08. Status: accepted.
+- Decision: implicit feedback; stable sort by (user, timestamp, source row); keep the earliest of repeated (user, item) pairs; iterative 5-core for leave-one-out; 5-core on pre-cutoff data for the temporal split. Our statistics are compared with published ones, and any difference above 1% in users, items or interactions is explained in this log before the METHODS freeze. Details: METHODS section 2.
+- Rationale: a single procedure across datasets; stable ordering matters because MovieLens and Steam have many tied timestamps.
+
+## D007 Splits
+
+- Date: 2026-11-08. Status: accepted.
+- Decision: leave-one-out is primary; the global temporal split with last-item target [12] is secondary. Tuning runs on leave-one-out only, and temporal-split final runs reuse those configurations. Details: METHODS section 3.
+- Rationale: leave-one-out keeps comparability with published numbers. Temporal splits are more realistic and change model rankings [7, 8, 12]. Tuning twice would cost about 70 extra GPU hours.
+
+## D008 Evaluation protocol
+
+- Date: 2026-11-08. Status: accepted.
+- Decision: full ranking over all items; the user's history masked; ties counted against the model; primary metric NDCG@10. Checkpoints and hyperparameters are selected on validation data only. Test data are read once per final run through one logged function. Details: METHODS sections 6 and 11.6.
+- Rationale: sampled metrics can reorder models [6, 9, 10]. History masking matches the sources of the anchor values (METHODS 11.5).
+
+## D009 Tuning protocol
+
+- Date: 2026-11-08. Status: accepted.
+- Decision:
+  - One Optuna TPE study per arm and dataset, with the same trial count for every arm within a dataset: 20 trials, 10 on MovieLens-20M. Median pruning.
+  - Early stopping on validation NDCG@10 with patience.
+  - Epoch caps with a margin over published training lengths: 300 epochs and patience 30 for SASRec arms; 1000 and 100 for BERT4Rec.
+  - Every run records epochs trained and whether a cap ended it. Arms with more than 20% truncated trials get doubled caps in final runs, and truncation rates are reported.
+  - Details: METHODS section 5.
+- Rationale: BERT4Rec quality depends strongly on training length [3], so caps must not decide the comparison. A 40-trial budget as in [29] does not fit the GPU cap.
+- Alternatives: equal wall-clock budget per arm (would favour fast arms and confound RQ1 with RQ2).
+
+## D010 Statistical analysis
+
+- Date: 2026-11-08. Status: accepted.
+- Decision:
+  - The unit is the training run.
+  - Welch t-tests on log NDCG@10, with Holm correction within each family.
+  - SESOI is a 2% relative difference.
+  - Equivalence by TOST; non-inferiority and minimum-effect tests for H1a and H1b.
+  - A two-level bootstrap over seeds and users serves as a robustness check.
+  - Details: METHODS section 7.
+- Rationale: user-level paired tests are overconfident for SASRec comparisons, while tests across runs keep their nominal error rate [17]. The same source reports that 1 to 2% differences can change winner with the seed, which motivates the 2% margin.
+
+## D011 Efficiency measurement protocol
+
+- Date: 2026-11-08. Status: accepted.
+- Decision: native Windows on AC power with the power mode and vendor profile recorded; at least 30 s warm-up; CUDA-event timing; 5 randomised repeats; cool-down between repeats; NVML at 10 Hz; repeats with thermal slowdown or a clock deviation above 5% are excluded and rerun once. A locked-clock session is added only if locking works and the owner agrees. Details: METHODS section 9.
+- Rationale: laptop GPUs change clocks with temperature and power, which would otherwise dominate small timing differences.
+
+## D012 GPU budget
+
+- Date: 2026-11-08. Status: accepted.
+- Decision: at most 200 GPU hours in total. Cuts if the projection exceeds the cap, in order: halve MovieLens-20M tuning trials, drop the MovieLens-20M temporal split, drop Steam, drop RQ4.
+- Rationale: the estimate is 160 to 200 hours before measurement (METHODS section 12). About 50 laptop hours per week are available.
+
+## D013 Execution model
+
+- Date: 2026-11-08. Status: accepted.
+- Decision: the owner runs one command per batch of runs on the laptop. The runner resumes after interruption and writes configs, metrics, logs and NVML traces to files. An export command writes aggregated CSV files, which the owner pushes. The environment check report (`results/env/`) is committed. Data, checkpoints and per-user outputs stay local. Reports never contain user names, host names or file paths.
+- Rationale: keeps the owner's time per batch to a few minutes, and makes every number traceable to committed files.
+
+## D014 Pre-registration timing
+
+- Date: 2026-11-08. Status: accepted.
+- Decision: METHODS is frozen at the end of M1, after data preprocessing and before any model is trained on real data. The M2 pilot serves only to verify the implementation (anchors), measure time, and estimate the seed standard deviation for D018 from validation data. Later changes are logged here as deviations.
+- Rationale: the analysis plan must not depend on observed results.
+
+## D015 RQ4 decision point
+
+- Date: 2026-11-08. Status: accepted.
+- Decision: whether RQ4 runs, and on which large catalogue (candidates: Amazon Reviews 2023 Toys_and_Games, Yambda-50M), is decided at the end of M3 from the remaining GPU budget.
+- Rationale: exact search is already cheap for catalogues below about 100k items, so RQ4 needs a larger catalogue to say anything practical, and that costs extra training.
+
+## D016 Correctness safeguards
+
+- Date: 2026-11-08. Status: accepted.
+- Decision: METHODS section 11 is part of the protocol: always-on invariant assertions, known-answer tests on synthetic data, mutation checks, an independent metric implementation, anchors on MovieLens-1M, isolated test access, and a separate silent-error review before every milestone that touches data or evaluation.
+- Rationale: leakage, label misalignment and test-set tuning usually raise metrics instead of failing loudly.
+
+## D017 Shuffled-order control
+
+- Date: 2026-11-08. Status: accepted.
+- Decision: final SASRec-CE runs on all four datasets and final BERT4Rec runs on MovieLens-1M and MovieLens-20M are repeated with item order shuffled within each user's sequence, in training and in evaluation inputs, following the shuffle test of [11]. Without a drop larger than SESOI on the MovieLens datasets, order handling and evaluation are audited before other results are reported.
+- Rationale: a sequential model that does not lose quality without order information is either not using order or not being evaluated correctly.
+
+## D018 Number of seeds
+
+- Date: 2026-11-08. Status: accepted.
+- Decision:
+  - The seed count per arm is set by a fixed power formula (METHODS 7.5): at least 5 and at most 10 seeds, for 80% power at the SESOI.
+  - The input σ comes from validation scores of the M2 pilot, then from the first 5 final seeds per dataset.
+  - Comparisons that would need more than 10 seeds, or cannot get them within the budget, are pre-classified as underpowered.
+- Rationale: with 5 seeds, a 2% margin and plausible seed variance, Welch tests may have too little power. A rule fixed before any result avoids choosing the seed count after seeing outcomes.
