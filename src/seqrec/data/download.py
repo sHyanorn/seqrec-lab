@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+import os
 import shutil
 import ssl
 import subprocess
@@ -53,14 +54,31 @@ def _is_certificate_error(err: Exception) -> bool:
     return isinstance(getattr(err, "reason", err), ssl.SSLCertVerificationError)
 
 
+def _curl() -> str | None:
+    """Windows' own curl.exe validates through Schannel, which can fetch a missing
+    intermediate certificate (AIA); prefer it over an OpenSSL build earlier on PATH."""
+    system_curl = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "curl.exe"
+    if os.name == "nt" and system_curl.exists():
+        return str(system_curl)
+    return shutil.which("curl")
+
+
 def _fetch_with_curl(url: str, part: Path) -> None:
-    """Some servers omit intermediate certificates; curl (shipped with Windows 10 and later)
-    completes the chain from the system store where Python's ssl module cannot."""
-    curl = shutil.which("curl")
+    curl = _curl()
     if curl is None:
         raise FileNotFoundError("curl not found")
+    stall = ["--connect-timeout", "30", "--speed-limit", "1024", "--speed-time", "60"]
     subprocess.run(
-        [curl, "-L", "--fail", "--retry", "3", "-C", "-", "-o", str(part), url], check=True
+        [curl, "-L", "--fail", "--retry", "3", *stall, "-C", "-", "-o", str(part), url], check=True
+    )
+
+
+def _manual_download_hint(url: str, path: Path, name: str) -> str:
+    curl = "curl.exe" if os.name == "nt" else "curl"
+    return (
+        f"Download {url} in a browser and save it as {path}, or run\n"
+        f'  {curl} -L --fail -o "{path}" {url}\n'
+        f"then rerun: uv run seqrec data prepare --datasets {name}"
     )
 
 
@@ -87,16 +105,13 @@ def download(spec: DatasetSpec, raw_dir: Path, log=print, attempts: int = 4) -> 
                 break
             except (urllib.error.URLError, OSError) as err:
                 if _is_certificate_error(err):
-                    log("[data] certificate chain incomplete for Python; retrying with curl")
+                    log("[data] certificate verification failed; retrying with curl")
                     try:
                         _fetch_with_curl(spec.url, part)
                         break
                     except (OSError, subprocess.CalledProcessError) as curl_err:
-                        raise RuntimeError(
-                            f"Download {spec.url} by hand, for example\n"
-                            f'  curl.exe -L -o "{path}" {spec.url}\n'
-                            f"then rerun: uv run seqrec data prepare --datasets {spec.name}"
-                        ) from curl_err
+                        hint = _manual_download_hint(spec.url, path, spec.name)
+                        raise RuntimeError(hint) from curl_err
                 if attempt == attempts:
                     raise
                 log(f"[data] attempt {attempt} failed ({err}); retrying")

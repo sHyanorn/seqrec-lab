@@ -203,5 +203,5 @@ def test_certificate_errors_fall_back_to_curl_then_to_instructions(tmp_path, mon
         raise subprocess.CalledProcessError(60, "curl")
 
     monkeypatch.setattr(dl, "_fetch_with_curl", curl_fails)
-    with pytest.raises(RuntimeError, match="by hand"):
+    with pytest.raises(RuntimeError, match="in a browser"):
         dl.download(spec, tmp_path / "b", log=lambda _: None)
