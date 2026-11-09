@@ -44,3 +44,14 @@ def test_plan_runs_build_their_models(path, train):
 def test_anchor_runs_train_without_the_start_rule():
     """The anchors follow their sources, which have no start rule (D035, D040)."""
     assert {r.start_limit for r in load_plan(PLANS / "m2-anchor.toml").runs} == {0}
+
+
+def test_the_gsasrec_rerun_repeats_the_pilot_runs():
+    """D035: the rerun differs from the pilot's gSASRec seed-variance runs only by its batch."""
+    from dataclasses import replace
+
+    rerun = load_plan(PLANS / "m2-gsasrec.toml").runs
+    pilot = load_plan(PLANS / "m2-pilot.toml").runs
+    assert [replace(r, batch="m2-pilot") for r in rerun] == [
+        r for r in pilot if r.arm == "gsasrec" and r.tag == "sigma"
+    ]

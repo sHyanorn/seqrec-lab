@@ -1,0 +1,16 @@
+# gSASRec seed-variance rerun under the start rule (D035). Same runs as the pilot's gSASRec
+# runs of tag "sigma", which these replace in D033 and D034. No test data are read.
+batch = "m2-gsasrec"
+warmup_s = 180
+order = "listed"
+
+[defaults]
+split = "loo"
+phase = "tune"
+
+[[runs]]
+dataset = "ml-1m"
+arm = "gsasrec"
+seeds = [1, 2, 3]
+tag = "sigma"
+params = { lr = 0.001, dim = 128, blocks = 2, heads = 1, dropout = 0.5, weight_decay = 0.0, shared_output = false, negatives = 256, t = 0.75 }
