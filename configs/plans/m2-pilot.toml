@@ -3,8 +3,8 @@
 #    seeds 1 to 3 (tag "sigma"); A3 uses the A2 configuration with K = 256.
 # 2. Floor baselines on MovieLens-1M, validation only (tag "floor").
 # 3. Epoch time on every dataset: 3 epochs, each with full validation, so the median skips a
-#    slow first epoch; at the anchor size (tag "time-small") and at the largest size of the
-#    search space (tag "time-large").
+#    slow first epoch; at the anchor size (tag "time-small") and at the most expensive point
+#    of the search space (tag "time-large": largest size, K and mask probability).
 batch = "m2-pilot"
 warmup_s = 180
 order = "listed"
@@ -148,7 +148,7 @@ seeds = [0]
 tag = "time-large"
 max_epochs = 3
 patience = 3
-params = { lr = 0.001, dim = 256, blocks = 3, heads = 2, dropout = 0.1, weight_decay = 0.0, mask_prob = 0.2 }
+params = { lr = 0.001, dim = 256, blocks = 3, heads = 2, dropout = 0.1, weight_decay = 0.0, mask_prob = 0.4 }
 
 [[runs]]
 dataset = "video-games"
@@ -238,7 +238,7 @@ seeds = [0]
 tag = "time-large"
 max_epochs = 3
 patience = 3
-params = { lr = 0.001, dim = 256, blocks = 3, heads = 2, dropout = 0.1, weight_decay = 0.0, mask_prob = 0.2 }
+params = { lr = 0.001, dim = 256, blocks = 3, heads = 2, dropout = 0.1, weight_decay = 0.0, mask_prob = 0.4 }
 
 [[runs]]
 dataset = "steam"
@@ -328,7 +328,7 @@ seeds = [0]
 tag = "time-large"
 max_epochs = 3
 patience = 3
-params = { lr = 0.001, dim = 256, blocks = 3, heads = 2, dropout = 0.1, weight_decay = 0.0, mask_prob = 0.2 }
+params = { lr = 0.001, dim = 256, blocks = 3, heads = 2, dropout = 0.1, weight_decay = 0.0, mask_prob = 0.4 }
 
 [[runs]]
 dataset = "ml-20m"
@@ -418,4 +418,4 @@ seeds = [0]
 tag = "time-large"
 max_epochs = 3
 patience = 3
-params = { lr = 0.001, dim = 256, blocks = 3, heads = 2, dropout = 0.1, weight_decay = 0.0, mask_prob = 0.2 }
+params = { lr = 0.001, dim = 256, blocks = 3, heads = 2, dropout = 0.1, weight_decay = 0.0, mask_prob = 0.4 }
