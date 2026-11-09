@@ -196,3 +196,60 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
 - Date: 2026-11-08. Status: accepted.
 - Decision: `docs/METHODS.md` is frozen as committed in 569676ffb96a23a7dca0e59207cc4c314651cbb8, SHA-256 b3c26c4f6303b4cd6948ebe7e1bbc25e2e16fbc236b7591c476c47b2a8d0f2b8. It differs from the first freeze commit (b90d6a7) only in its title line. No model had been trained on real data at that point; the only real-data outputs were the dataset statistics in `results/data/`.
 - Rationale: D014. Any later edit of the file is a deviation recorded here; `sha256sum docs/METHODS.md` against the value above shows whether the file still matches.
+
+## D025 Reference implementations and model details
+
+- Date: 2026-11-09. Status: accepted. Two items deviate from METHODS (marked below). Decided before any model was trained on real data; no result on real data had been seen.
+- Decision:
+  - SASRec block (A1 to A4), as in the SASRec code [31], pmixer/SASRec.pytorch before May 2025, [5] and [33]: only the attention query is layer-normalised, keys and values read the un-normalised stream, the attention residual adds the normalised query and the feed-forward residual adds its normalised input. Feed-forward d → d with ReLU, LayerNorm epsilon 1e-8, item embeddings scaled by √d, final LayerNorm. **Deviation from METHODS 4.1**, whose "pre-LayerNorm ... with residual connections" reads as the standard form with residuals on the raw stream, as in the SASRec paper.
+  - Attention runs through SDPA with input and output projections, equivalent to `nn.MultiheadAttention`. The mask is causal and blocks padded keys; a padded query attends to itself (METHODS 4.1).
+  - Initialisation of every neural arm as in [5]: N(0, 0.02) for linear and embedding weights, zero biases, LayerNorm weight 1 and bias 0, padding rows zero.
+  - BERT4Rec (A5): item plus position embedding, LayerNorm, dropout; post-LN blocks with exact GELU, a 4d feed-forward layer without dropout after the GELU, LayerNorm epsilon 1e-12, as BertLayer; output head of dense, GELU and LayerNorm, then the tied item embeddings plus an item bias ([32], METHODS 4.2). Inference scores a mask token appended after the last L−1 items.
+  - Full cross-entropy and BERT4Rec use a softmax over items 1..N only (METHODS 4.3).
+  - BCE (A1): one negative per position drawn exactly, without rejection, from the items outside the user's whole training sequence; the two terms are summed and averaged over positions, as in [31].
+  - gBCE (A4): K negatives per position, uniform with replacement, as in [33]; negatives equal to the positive are dropped (METHODS 4.3); each position's loss is divided by 1 + K, as in [33]. **Deviation from METHODS 4.3**, which writes the per-position sum. The factor is constant, but it changes how gradient clipping at norm 5 and weight decay act relative to the loss.
+  - Sampled softmax (A3): K negatives shared by the batch, collisions with the positive masked, no log-Q correction (METHODS 4.3).
+  - Chunked cross-entropy recomputes each slice's logits in the backward pass (`torch.utils.checkpoint`); loss and gradients equal plain cross-entropy (tested).
+  - Adam's `weight_decay` (L2) applies to all parameters. TF32 is allowed in training and disabled while scoring, so evaluation scores are strict fp32 (METHODS 5.1, 6).
+- Borrowed: the SASRec block and embedding scaling from [31]; the initialisation from [5]; gBCE sampling and normalisation from [33]; BERT layer details from [32] and HuggingFace BertModel. No third-party code is in the package. A pinned copy of pmixer's model (Apache-2.0, `THIRD_PARTY_NOTICES`) sits under `tests/reference/` to check our SASRec forward pass against it.
+- Intentionally different from the sources: [5] pads on the right and masks no padded keys, and pmixer masks none either; [5]'s softmax includes the padding id; [5] excludes only the user's last 201 items from BCE negatives, while the paper [1] excludes all of the user's items; [33] keeps negatives equal to the positive; [5]'s BERT4Rec has no output transform or bias; [32] trains on sliding windows with ten masked copies (METHODS 4.2).
+- Licences: kang205/SASRec, pmixer/SASRec.pytorch, FeiSun/BERT4Rec and gSASRec-pytorch are Apache-2.0; RecBole is MIT; the repositories of [5] and [3] have no licence file.
+- Rationale: [31], pmixer before 2025, [5] and [33] share the same SASRec block, and the anchors come from [5] and [33]. Matching their block removes one cause of anchor misses. The gBCE normalisation follows [33] for the same reason.
+
+## D026 Anchor runs
+
+- Date: 2026-11-09. Status: accepted. Deviation from METHODS 5.2 for anchor runs only. Decided before any model was trained on real data.
+- Decision:
+  - Anchor runs use the source's training length as well as its other hyperparameters. [5]: SASRec-CE and SASRec-BCE at most 100 epochs with patience 10, BERT4Rec at most 200 with patience 20. [33]: gSASRec patience 200 and at most 10,000 epochs, under the 8-hour guard.
+  - Configurations, all with batch 128, input length 200 and no weight decay:
+    - SASRec-CE and SASRec-BCE [5]: embedding 64, 2 blocks, 1 head, dropout 0.1, learning rate 1e-3, shared output embeddings; BCE with one negative.
+    - BERT4Rec [5]: embedding 64, 2 blocks, 2 heads, feed-forward 256, dropout 0.1, mask probability 0.2, learning rate 1e-3.
+    - gSASRec [33]: embedding 128, 2 blocks, 1 head, dropout 0.5, separate output embeddings, 256 negatives, t = 0.75, learning rate 1e-3.
+  - Bands are those of METHODS 11.5 (±0.01 around the published value), unchanged. Each arm first uses one anchor read (seed 0).
+  - The M2 seed-variance runs use the same configurations under the METHODS 5.2 caps and read no test data; A3, which has no published anchor, uses the A2 configuration with K = 256. Comparing their validation NDCG@10 with the anchor runs' shows what the caps cost.
+- Rationale: METHODS 11.5 asks for "the hyperparameters of one published source". [5] reports BERT4Rec's best epoch as 197 of 200 (Table 2), so the 1000/100 cap could lift it above its band through longer training alone, and a result above a band is first treated as leakage. The checkpoints shipped with [33] come from about epoch 990 (SASRec) and 1,790 (gSASRec), far beyond the 300-epoch cap.
+
+## D027 Planted-rule data for the known-answer tests
+
+- Date: 2026-11-09. Status: accepted. Deviation from METHODS 11.2 (third item). Decided before any model was trained on real data.
+- Decision:
+  - The test that every neural arm reaches test NDCG@10 ≥ 0.95 uses the rule as written: every transition follows one fixed permutation (a single cycle over 200 items; 1,000 users with 30 to 50 items each).
+  - The shuffled-order test uses a second dataset: training transitions follow the permutation with probability 0.2 and otherwise go to a random unseen item, while validation and test targets always follow it. SASRec-CE must reach test NDCG@10 ≥ 0.95 with order and at most 0.10 with training and evaluation order shuffled.
+  - The gSASRec test uses K = 4 and t = 0.5. With K = 16 or more on 200 items, gBCE first settles on a score offset shared by all items and learns the rule only much later; the reference gSASRec code trained on the same data shows the same (validation NDCG@10 about 0.02 after 30 epochs with K = 16, t = 0.75).
+- Results on the test data: with the rule as written, test NDCG@10 is 1.000 (SASRec-CE, SASRec-BCE, gSASRec), 0.994 (SASRec-SS) and 0.985 (BERT4Rec), against 0.049 for MostPop. On the second dataset SASRec-CE scores 0.996 with order and 0.026 shuffled, against 0.028 for MostPop.
+- Rationale: on walks that always follow the rule, the set of input items reveals the target. In a simulation with the same generator, a scorer that sees only item co-occurrence reached NDCG@10 0.77 against 0.04 for MostPop, so "metrics fall to about the popularity baseline" cannot hold. With probability 0.2 the simulation gave 1.00 for a first-order transition scorer, 0.037 for the co-occurrence scorer and 0.023 for MostPop.
+
+## D028 Tuning harness
+
+- Date: 2026-11-09. Status: accepted. Implements METHODS 5.4 without deviation.
+- Decision:
+  - `seqrec tune PLAN` runs one Optuna study per (arm, dataset), stored in `runs/<batch>/optuna.sqlite3`. TPE's first 5 trials are random; median pruning starts after 5 complete trials, with a warm-up of 10% of the arm's epoch cap. The objective is the restored checkpoint's validation NDCG@10.
+  - Each trial is an ordinary run with phase `tune`, seed 0 and tag `tNN`; its test split is the sealed stand-in, and its config records every parameter.
+  - A trial interrupted by a crash resumes from its last checkpoint with its own parameters. TPE is reseeded from (sampler seed, trials so far) before every proposal, so a resumed study proposes the same parameters as an uninterrupted one (tested).
+  - Failed and pruned trials count toward the trial budget, so every arm gets the same number of trials. Export writes `tuning_best.csv`: per study, the best trial that finished without pruning, ties to the earlier trial.
+- Rationale: METHODS 5.4 fixes the sampler, pruner and budget; these choices make resumption and budget accounting exact.
+
+## D029 Dependencies for M2
+
+- Date: 2026-11-09. Status: accepted.
+- Decision: Optuna 5.0 (MIT; released 2026-09-07; with SQLAlchemy and Alembic, both MIT) for tuning, and SciPy 1.18 (BSD-3-Clause) for the noncentral t power of METHODS 7.5.

@@ -43,16 +43,16 @@ Freeze
 
 ## M2 Models, objectives and pilot (19 h / 10 h / 30 min)
 
-- [ ] SASRec backbone with causal and padding masks
-- [ ] BERT4Rec with Cloze training and mask-token inference
-- [ ] Objectives: full CE, chunked CE, sampled softmax, BCE, gBCE
-- [ ] Floor baselines: MostPop, first-order transition
-- [ ] Causality perturbation test; planted-rule test (NDCG@10 at least 0.95); shuffled-label and shuffled-order known-answer tests
-- [ ] Remaining mutation tests (label shift, causal mask removed, test read during tuning)
-- [ ] Tuning harness: Optuna TPE studies in SQLite, pruning, caps and truncation records
+- [x] SASRec backbone with causal and padding masks
+- [x] BERT4Rec with Cloze training and mask-token inference
+- [x] Objectives: full CE, chunked CE, sampled softmax, BCE, gBCE
+- [x] Floor baselines: MostPop, first-order transition
+- [x] Causality perturbation test; planted-rule test (NDCG@10 at least 0.95); shuffled-label and shuffled-order known-answer tests (D027)
+- [x] Remaining mutation tests (label shift, causal mask removed, test read during tuning)
+- [x] Tuning harness: Optuna TPE studies in SQLite, pruning, caps and truncation records (D028)
 - [ ] Pilot on the laptop: anchors on MovieLens-1M (METHODS 11.5), 3 seeds per arm for σ (validation only), epoch-time measurements on all datasets
 - [ ] Anchors inside their bands within three anchor reads per arm, or the arm flagged as in METHODS 11.5
-- [ ] Seed count from METHODS 7.5; updated GPU projection; descoping decisions if needed
+- [ ] Seed count from METHODS 7.5 (rule implemented: `seqrec seeds`); updated GPU projection; descoping decisions if needed
 - [ ] Silent-error review and whole-diff review; fixes
 
 ## M3 RQ1 and RQ2 runs (6 h / 128 to 163 h plus seed reserve / about 3 weeks of laptop time)
