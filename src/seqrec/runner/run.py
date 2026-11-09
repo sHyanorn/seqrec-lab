@@ -268,6 +268,9 @@ def execute(
             )
             with metrics_path.open("a", encoding="utf-8") as f:
                 f.write(json.dumps(record) + "\n")
+            if stats.get("converged"):  # models without training, e.g. the floor baselines
+                stop = "converged"
+                break
     finally:
         samples = sampler.stop() if sampler and sampler.available else []
         if samples:

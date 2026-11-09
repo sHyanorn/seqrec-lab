@@ -15,7 +15,7 @@ from seqrec.data.invariants import InvariantError
 from seqrec.data.splits import TrainSplit
 
 
-def _tensor(a: np.ndarray, device: torch.device) -> torch.Tensor:
+def device_array(a: np.ndarray, device: torch.device) -> torch.Tensor:
     return torch.from_numpy(np.ascontiguousarray(a, dtype=np.int64)).to(device)
 
 
@@ -40,11 +40,11 @@ class TrainData:
         self.source = train.fingerprint
         self.n_items = train.n_items
         self.device = device
-        self.indptr = _tensor(seqs.indptr, device)
-        self.items = _tensor(seqs.items, device)
-        self.pos = _tensor(seqs.pos, device)
-        self.owner = _tensor(np.repeat(np.arange(len(seqs)), seqs.lengths()), device)
-        self.rows = _tensor(np.flatnonzero(seqs.lengths() >= 2), device)
+        self.indptr = device_array(seqs.indptr, device)
+        self.items = device_array(seqs.items, device)
+        self.pos = device_array(seqs.pos, device)
+        self.owner = device_array(np.repeat(np.arange(len(seqs)), seqs.lengths()), device)
+        self.rows = device_array(np.flatnonzero(seqs.lengths() >= 2), device)
 
     def require(self, train: TrainSplit) -> None:
         if train.fingerprint != self.source:
@@ -149,12 +149,12 @@ class HistoryExcludingSampler:
         members = seqs.items[order]
         rank = np.arange(len(members)) - np.repeat(seqs.indptr[:-1], seqs.lengths())
         self.stride = n + 1
-        self.keys = _tensor(owner * self.stride + (members - 1 - rank), device)
-        self.starts = _tensor(seqs.indptr[:-1], device)
+        self.keys = device_array(owner * self.stride + (members - 1 - rank), device)
+        self.starts = device_array(seqs.indptr[:-1], device)
         free = n - seqs.lengths()  # training items are distinct
         if (free < 1).any():
             raise ValueError("a user's training sequence covers every item")
-        self.free = _tensor(free, device)
+        self.free = device_array(free, device)
         self.n_items = n
 
     def require(self, train: TrainSplit) -> None:
