@@ -17,6 +17,7 @@ from seqrec.runner.run import MAX_ANCHOR_READS
 
 HARDWARE_EVENTS = ("hw_slowdown", "hw_thermal", "hw_power_brake")
 TRIAL_TAG = re.compile(r"t\d+")
+STOPPED = ("patience", "max_epochs", "guard")
 
 
 def _load(path: Path) -> dict:
@@ -90,8 +91,23 @@ def access_problems(rows: list[dict]) -> list[str]:
     return problems
 
 
-def _share(rows: list[dict]) -> float | None:
-    return round(sum(r["truncated"] for r in rows) / len(rows), 3) if rows else None
+def _truncation(rows: list[dict]) -> dict:
+    """Truncated runs among those that stopped by patience, the epoch cap or the guard (D030).
+    Pruned, diverged and failed runs stopped before any limit could apply."""
+    stopped = [r for r in rows if r["stop_reason"] in STOPPED]
+    truncated = sum(bool(r["truncated"]) for r in stopped)
+    return {
+        "stopped": len(stopped),
+        "truncated": truncated,
+        "truncated_share": round(truncated / len(stopped), 3) if stopped else None,
+    }
+
+
+def _stop_counts(rows: list[dict]) -> dict:
+    return {
+        "pruned": sum(r["stop_reason"] == "pruned" for r in rows),
+        "diverged": sum(r["stop_reason"] == "diverged" for r in rows),
+    }
 
 
 def _overview(rows: list[dict]) -> list[dict]:
@@ -100,18 +116,15 @@ def _overview(rows: list[dict]) -> list[dict]:
         groups[(r["batch"], r["dataset"], r["split"], r["arm"], r["phase"])].append(r)
     out = []
     for (batch, dataset, split, arm, phase), rs in sorted(groups.items()):
-        done = [r for r in rs if r["truncated"] is not None]
-        unpruned = [r for r in done if r["stop_reason"] != "pruned"]
         out.append(
             {
                 "batch": batch, "dataset": dataset, "split": split, "arm": arm, "phase": phase,
                 "runs": len(rs),
                 "unfinished_or_failed": sum(r["status"] in ("unfinished", "failed") for r in rs),
-                "pruned": len(done) - len(unpruned),
-                "truncated_share": _share(done),  # over every run that finished training
-                "truncated_share_unpruned": _share(unpruned),  # pruned runs cannot hit a cap
-                "gpu_hours": round(sum(r["gpu_hours"] or 0 for r in rs), 3),
             }
+            | _stop_counts(rs)
+            | _truncation(rs)
+            | {"gpu_hours": round(sum(r["gpu_hours"] or 0 for r in rs), 3)}
         )  # fmt: skip
     return out
 
@@ -134,10 +147,11 @@ def tuning_best(rows: list[dict]) -> list[dict]:
             eligible, key=lambda r: (-r["validation_ndcg@10"], int(r["tag"][1:])), default=None
         )
         out.append(
-            {
-                "batch": batch, "dataset": dataset, "arm": arm, "trials": len(trials),
-                "pruned": sum(r["stop_reason"] == "pruned" for r in trials),
-                "failed_or_unfinished": sum(r["status"] != "trained" for r in trials),
+            {"batch": batch, "dataset": dataset, "arm": arm, "trials": len(trials)}
+            | _stop_counts(trials)
+            | {"failed_or_unfinished": sum(r["stop_reason"] is None for r in trials)}
+            | _truncation(trials)  # the METHODS 5.2 rule reads truncated_share (D030)
+            | {
                 "best_run_id": best and best["run_id"],
                 "best_validation_ndcg@10": best and best["validation_ndcg@10"],
                 "best_params": best and best["params"],

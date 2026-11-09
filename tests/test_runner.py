@@ -208,7 +208,7 @@ def _trial_row(tag, ndcg, stop="patience", status="trained", truncated=False):
 
 
 def test_best_trial_skips_pruned_runs_and_breaks_ties_by_trial_number():
-    from seqrec.runner.export import _overview, tuning_best
+    from seqrec.runner.export import tuning_best
 
     rows = [
         _trial_row("t99", 0.20),
@@ -216,9 +216,25 @@ def test_best_trial_skips_pruned_runs_and_breaks_ties_by_trial_number():
         _trial_row("t07", 0.25, stop="pruned"),
         _trial_row("t08", None, stop=None, status="failed", truncated=None),
         _trial_row("t09", 0.10, stop="max_epochs", truncated=True),
+        _trial_row("t10", 0.05, stop="diverged"),
+        _trial_row("t11", None, stop="diverged", status="diverged"),
     ]
     best = tuning_best(rows)
     assert len(best) == 1 and best[0]["best_run_id"] == "r-t99"
-    assert best[0]["trials"] == 5 and best[0]["pruned"] == 1
+    assert best[0]["trials"] == 7 and best[0]["pruned"] == 1 and best[0]["diverged"] == 2
+    assert best[0]["failed_or_unfinished"] == 1
+
+
+def test_truncated_share_counts_only_runs_that_stopped_by_patience_or_a_limit():
+    """D030: pruned, diverged and failed runs stop before any limit applies."""
+    from seqrec.runner.export import _overview, tuning_best
+
+    rows = [_trial_row(f"t{i:02d}", 0.2) for i in range(12)]
+    rows += [_trial_row(f"t{i}", 0.1, stop="max_epochs", truncated=True) for i in (12, 13, 14)]
+    rows.append(_trial_row("t15", 0.1, stop="guard", truncated=True))
+    rows += [_trial_row(f"t{i}", 0.1, stop="pruned") for i in (16, 17, 18)]
+    rows.append(_trial_row("t19", 0.1, stop="diverged"))  # 4 of 16 stopped runs, not 4 of 17
+    best = tuning_best(rows)[0]
+    assert best["stopped"] == 16 and best["truncated"] == 4 and best["truncated_share"] == 0.25
     overview = _overview(rows)[0]
-    assert overview["truncated_share"] == 0.25 and overview["truncated_share_unpruned"] == 0.333
+    assert overview["stopped"] == 16 and overview["truncated_share"] == 0.25
