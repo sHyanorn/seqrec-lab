@@ -4,8 +4,9 @@ Prints wall time, process CPU time and GPU time (kernels, copies and memsets) pe
 that the share of each step the GPU is busy can be read off. Per-step times are the
 difference between an epoch of n steps and an epoch of one step, divided by n - 1, so the
 fixed cost of an epoch (shuffle, first-batch check, reading the loss) is reported apart as
-`epoch_overhead_ms`. Only full batches are timed. Reads only the training split and writes
-nothing.
+`epoch_overhead_ms`. Only full batches are timed. On a GPU it also prints the peaks of memory
+PyTorch allocated and reserved, and how often its allocator asked the driver for memory or
+retried after a failed request (D042). Reads only the training split and writes nothing.
 
     uv run python scripts/profile_step.py --dataset steam --arm sasrec-bce
     uv run python scripts/profile_step.py --from-run runs/m2-anchor/gsasrec-ml-1m-loo-s0-r1
@@ -28,7 +29,7 @@ from seqrec import models  # noqa: F401  registers the arms
 from seqrec.data.registry import DATASETS
 from seqrec.models.trainer import BATCH_SIZE
 from seqrec.runner.config import RunConfig
-from seqrec.runner.run import ARMS, _prepare_splits, seed_everything
+from seqrec.runner.run import ARMS, _prepare_splits, release_device_memory, seed_everything
 
 
 def _steps(model, train, rows: torch.Tensor, n: int) -> None:
@@ -49,6 +50,22 @@ def device_us(events) -> float:
     )
 
 
+def memory_readings(stats: dict | None) -> dict:
+    """Allocator peaks and counts from `torch.cuda.memory_stats`; None values without CUDA. A
+    reserved peak far above the allocated one means cached blocks fill the device (D042)."""
+    stats = stats or {}
+
+    def gib(key):
+        return round(stats[key] / 2**30, 3) if key in stats else None
+
+    return {
+        "torch_allocated_gib_max": gib("allocated_bytes.all.peak"),
+        "torch_reserved_gib_max": gib("reserved_bytes.all.peak"),
+        "alloc_retries": stats.get("num_alloc_retries"),
+        "device_allocs": stats.get("num_device_alloc"),
+    }
+
+
 def _wall_cpu(model, train, rows, n: int) -> tuple[float, float]:
     wall, cpu = time.perf_counter(), time.process_time()
     _steps(model, train, rows, n)
@@ -65,6 +82,10 @@ def measure(
     cfg: RunConfig, data_dir: Path, device: torch.device, steps: int, warmup: int, repeats=5
 ):
     seed_everything(cfg.seed)
+    release_device_memory(device)
+    if device.type == "cuda":
+        torch.cuda.reset_peak_memory_stats(device)
+        torch.cuda.reset_accumulated_memory_stats(device)
     splits, _ = _prepare_splits(cfg, data_dir)  # phase "tune": the test split stays sealed
     model = ARMS[cfg.arm](cfg, splits.train, device)
     rows = model.data.rows
@@ -83,6 +104,7 @@ def measure(
     if wall_ms <= 0:
         raise ValueError(f"timing noise exceeds the step time over {steps} steps; use more steps")
 
+    stats = torch.cuda.memory_stats(device) if device.type == "cuda" else None
     gpu_ms = None
     if device.type == "cuda":  # separate, profiled passes: the profiler slows the CPU side
         gpu_1 = statistics.median(_gpu_us(model, splits.train, rows, 1) for _ in range(repeats))
@@ -94,7 +116,7 @@ def measure(
         "gpu_ms_per_step": None if gpu_ms is None else round(gpu_ms, 3),
         "gpu_busy_share": None if gpu_ms is None else round(gpu_ms / wall_ms, 3),
         "epoch_overhead_ms": round(wall_1 * 1000 - wall_ms, 3),
-    }  # fmt: skip
+    } | memory_readings(stats)  # fmt: skip
 
 
 def notes(result: dict) -> list[str]:

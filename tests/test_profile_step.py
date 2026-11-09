@@ -26,7 +26,9 @@ def test_profile_step_reports_time_per_step(tmp_path, capsys):
     assert profile_step.main([*args, "--data-dir", str(data), "--device", "cpu"]) == 0
     load_splits.cache_clear()
     out = capsys.readouterr().out
-    for field in ("wall_ms_per_step", "cpu_ms_per_step", "gpu_ms_per_step", "steps 2"):
+    fields = ("wall_ms_per_step", "cpu_ms_per_step", "gpu_ms_per_step", "steps 2",
+              "torch_reserved_gib_max", "alloc_retries")  # fmt: skip
+    for field in fields:
         assert field in out
     assert not list(tmp_path.glob("runs*"))  # writes nothing
 
@@ -118,3 +120,21 @@ def test_results_outside_the_assumptions_carry_a_note():
     assert len(gpu_bound) == 1 and "GPU-bound" in gpu_bound[0]
     uneven = profile_step.notes(clean | {"epoch_overhead_ms": -2.0})
     assert len(uneven) == 1 and "epoch_overhead_ms" in uneven[0]
+
+
+def test_memory_readings_separate_memory_in_use_from_cached_blocks():
+    """D042: the allocator's reserved peak, its retries after a failed device allocation and
+    its device allocations show whether cached blocks, not live tensors, fill the device."""
+    stats = {
+        "allocated_bytes.all.peak": 5 * 2**30,
+        "reserved_bytes.all.peak": 27 * 2**30,
+        "num_alloc_retries": 0,
+        "num_device_alloc": 9,
+    }
+    assert profile_step.memory_readings(stats) == {
+        "torch_allocated_gib_max": 5.0,
+        "torch_reserved_gib_max": 27.0,
+        "alloc_retries": 0,
+        "device_allocs": 9,
+    }
+    assert set(profile_step.memory_readings(None).values()) == {None}  # no CUDA device
