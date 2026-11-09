@@ -243,6 +243,28 @@ def _epoch_times(metrics_path: Path) -> dict:
     }  # fmt: skip
 
 
+def epoch_memory(device: torch.device) -> dict:
+    """Peak memory PyTorch allocated and reserved since the last reset; the reserved peak also
+    counts blocks the allocator keeps cached (D041)."""
+    if device.type != "cuda":
+        return {}
+    return {
+        "train_peak_memory_gib": round(torch.cuda.max_memory_allocated(device) / 2**30, 3),
+        "train_peak_reserved_gib": round(torch.cuda.max_memory_reserved(device) / 2**30, 3),
+    }
+
+
+def _memory_peaks(metrics_path: Path) -> dict:
+    """Largest per-epoch memory peaks of a run; None when its epochs recorded none."""
+    lines = metrics_path.read_text(encoding="utf-8").splitlines() if metrics_path.exists() else []
+    records = [json.loads(line) for line in lines]
+    peaks = {}
+    for key in ("train_peak_memory_gib", "train_peak_reserved_gib"):
+        values = [r[key] for r in records if r.get(key) is not None]
+        peaks[f"{key}_max"] = max(values) if values else None
+    return peaks
+
+
 def max_len_of(cfg: RunConfig) -> int:
     return cfg.max_len or DATASETS[cfg.dataset].max_len
 
@@ -349,9 +371,7 @@ def execute(
             stats = model.train_epoch(splits.train, state["epoch"])
             if device.type == "cuda":
                 torch.cuda.synchronize(device)
-                stats["train_peak_memory_gib"] = round(
-                    torch.cuda.max_memory_allocated(device) / 2**30, 3
-                )
+            stats |= epoch_memory(device)
             t_trained = time.perf_counter()
             try:
                 val = evaluate(model.score, splits.validation, max_len, device)
@@ -416,6 +436,7 @@ def execute(
         "wall_s": round(state["wall_s"], 2),
         "checkpoint_s": round(state["checkpoint_s"], 2),  # outside wall_s; kept for budgeting
     } | _epoch_times(metrics_path)
+    summary |= _memory_peaks(metrics_path)
     if best_weights is not None:
         best_path = run_dir / "best.pt"
         _save_atomic(best_weights, best_path)

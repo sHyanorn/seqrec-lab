@@ -883,3 +883,40 @@ def test_a_resumed_run_refuses_changed_evaluation_data(workspace):
     other_full_data()
     with pytest.raises(run_mod.RunConflict, match="full data changed"):
         run_mod.execute(_cfg(), runs, data, CPU, **QUIET)
+
+
+def test_epochs_record_the_memory_pytorch_reserved(monkeypatch):
+    """D041: the allocator's reserved peak, next to the allocated one; a gap between the two
+    is memory held by cached blocks."""
+    monkeypatch.setattr(torch.cuda, "max_memory_allocated", lambda device=None: 3 * 2**30)
+    monkeypatch.setattr(torch.cuda, "max_memory_reserved", lambda device=None: 5 * 2**30)
+    assert run_mod.epoch_memory(torch.device("cuda")) == {
+        "train_peak_memory_gib": 3.0,
+        "train_peak_reserved_gib": 5.0,
+    }
+    assert run_mod.epoch_memory(CPU) == {}
+
+
+def test_runs_summarize_and_export_their_memory_peaks(workspace, monkeypatch):
+    runs, data = workspace
+    peaks = iter(range(1, 1000))
+
+    def fake(device):
+        p = next(peaks)
+        return {"train_peak_memory_gib": p / 2, "train_peak_reserved_gib": float(p)}
+
+    monkeypatch.setattr(run_mod, "epoch_memory", fake)
+    summary = run_mod.execute(_cfg("tune"), runs, data, CPU, **QUIET)
+    epochs = summary["epochs"]
+    assert summary["train_peak_reserved_gib_max"] == epochs
+    assert summary["train_peak_memory_gib_max"] == epochs / 2
+    row = _exported(runs, runs.parent)[_cfg().run_id]
+    assert float(row["torch_reserved_gib_max"]) == epochs
+    assert float(row["torch_allocated_gib_max"]) == epochs / 2
+
+
+def test_runs_without_memory_records_summarize_to_none(workspace):
+    runs, data = workspace
+    summary = run_mod.execute(_cfg("tune"), runs, data, CPU, **QUIET)
+    assert summary["train_peak_reserved_gib_max"] is None
+    assert _exported(runs, runs.parent)[_cfg().run_id]["torch_reserved_gib_max"] == ""

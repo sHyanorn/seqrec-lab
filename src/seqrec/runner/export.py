@@ -78,6 +78,8 @@ def _row(run_dir: Path) -> dict:
         "git_commit": summary.get("git_commit", "")[:12],
         "sm_mhz_median": (nvml.get("sm_mhz") or {}).get("median"),
         "nvml_mem_used_mib_max": (nvml.get("mem_used_mib") or {}).get("max"),
+        "torch_allocated_gib_max": summary.get("train_peak_memory_gib_max"),
+        "torch_reserved_gib_max": summary.get("train_peak_reserved_gib_max"),
         "hardware_slowdown": any(shares.get(k, 0) > 0 for k in HARDWARE_EVENTS),
         "reads_final": reads["final"],
         "reads_anchor": reads["anchor"],
