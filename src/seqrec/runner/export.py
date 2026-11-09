@@ -90,6 +90,10 @@ def access_problems(rows: list[dict]) -> list[str]:
     return problems
 
 
+def _share(rows: list[dict]) -> float | None:
+    return round(sum(r["truncated"] for r in rows) / len(rows), 3) if rows else None
+
+
 def _overview(rows: list[dict]) -> list[dict]:
     groups = defaultdict(list)
     for r in rows:
@@ -97,13 +101,15 @@ def _overview(rows: list[dict]) -> list[dict]:
     out = []
     for (batch, dataset, split, arm, phase), rs in sorted(groups.items()):
         done = [r for r in rs if r["truncated"] is not None]
+        unpruned = [r for r in done if r["stop_reason"] != "pruned"]
         out.append(
             {
                 "batch": batch, "dataset": dataset, "split": split, "arm": arm, "phase": phase,
                 "runs": len(rs),
                 "unfinished_or_failed": sum(r["status"] in ("unfinished", "failed") for r in rs),
-                "truncated_share": round(sum(r["truncated"] for r in done) / len(done), 3)
-                if done else None,
+                "pruned": len(done) - len(unpruned),
+                "truncated_share": _share(done),  # over every run that finished training
+                "truncated_share_unpruned": _share(unpruned),  # pruned runs cannot hit a cap
                 "gpu_hours": round(sum(r["gpu_hours"] or 0 for r in rs), 3),
             }
         )  # fmt: skip
@@ -124,7 +130,9 @@ def tuning_best(rows: list[dict]) -> list[dict]:
             if r["status"] == "trained" and r["stop_reason"] != "pruned"
             and r.get("validation_ndcg@10") is not None
         ]  # fmt: skip
-        best = min(eligible, key=lambda r: (-r["validation_ndcg@10"], r["tag"]), default=None)
+        best = min(
+            eligible, key=lambda r: (-r["validation_ndcg@10"], int(r["tag"][1:])), default=None
+        )
         out.append(
             {
                 "batch": batch, "dataset": dataset, "arm": arm, "trials": len(trials),

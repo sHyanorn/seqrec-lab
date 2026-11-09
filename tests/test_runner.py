@@ -197,3 +197,28 @@ def test_crash_after_a_checkpoint_keeps_every_epoch_logged(workspace, monkeypatc
     lines = (runs / "b" / _cfg().run_id / "metrics.jsonl").read_text().splitlines()
     assert [json.loads(x)["epoch"] for x in lines] == list(range(summary["epochs"]))
     assert not (runs / "b" / _cfg().run_id / "last.pt").exists()
+
+
+def _trial_row(tag, ndcg, stop="patience", status="trained", truncated=False):
+    return {
+        "batch": "t", "dataset": "ml-1m", "split": "loo", "arm": "sasrec-ce", "phase": "tune",
+        "tag": tag, "run_id": f"r-{tag}", "status": status, "stop_reason": stop,
+        "truncated": truncated, "validation_ndcg@10": ndcg, "params": "{}", "gpu_hours": 0.1,
+    }  # fmt: skip
+
+
+def test_best_trial_skips_pruned_runs_and_breaks_ties_by_trial_number():
+    from seqrec.runner.export import _overview, tuning_best
+
+    rows = [
+        _trial_row("t99", 0.20),
+        _trial_row("t100", 0.20),
+        _trial_row("t07", 0.25, stop="pruned"),
+        _trial_row("t08", None, stop=None, status="failed", truncated=None),
+        _trial_row("t09", 0.10, stop="max_epochs", truncated=True),
+    ]
+    best = tuning_best(rows)
+    assert len(best) == 1 and best[0]["best_run_id"] == "r-t99"
+    assert best[0]["trials"] == 5 and best[0]["pruned"] == 1
+    overview = _overview(rows)[0]
+    assert overview["truncated_share"] == 0.25 and overview["truncated_share_unpruned"] == 0.333
