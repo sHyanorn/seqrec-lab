@@ -276,3 +276,35 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
   - Test reads are not retried. A final run whose test read started but did not complete is refused a second read (METHODS 11.6), and the case is decided individually. A failed anchor read still counts toward the three anchor reads (METHODS 11.5). Exports flag every incomplete read.
   - Interruptions without an exception (a closed terminal, sleep, power loss) are resumptions, not failures (D028).
 - Rationale: judging after the fact whether a failure was anomalous (memory fragmentation, a driver reset) or caused by the configuration leaves room for choice; a deterministic error fails again on its retry and is recorded as failed either way. Before this change, a run that succeeded on a rerun was exported as failed, which would have dropped it from the σ estimate (METHODS 7.5) without notice.
+
+## D032 Anchor results
+
+- Date: 2026-11-09. Status: method fixed before any anchor result was seen; results pending.
+- Method: `seqrec anchors results/runs/m2-anchor.csv` lists every anchor run on MovieLens-1M.
+  - Stop conditions, each reported before any other step: a run not tested; anything other than one completed anchor read and no final read per run; a commit or parameters other than those of D026; test NDCG@10 outside the band of the METHODS 11.5 table (edges included in the band); test and validation NDCG@10 more than 3·sqrt((v(1 − v) + t(1 − t))/6,040) apart.
+  - The last threshold is three standard errors of the difference. Per-user NDCG@10 lies in [0, 1], so m(1 − m)/U bounds the variance of a mean over U users, and the two means are treated as independent; at NDCG@10 0.18 the threshold is about 0.021. Test above validation by more is handled like a result above the band (the leakage checks of METHODS 11.5), below by more like a result below it.
+  - Recorded without a stop rule: epochs; best epoch, counted from 1, against [5] (63 for SASRec-CE, 53 for SASRec-BCE, 197 for BERT4Rec) and about 1,790 for the gSASRec checkpoint of [33]; stop reason and truncation; test and validation tie rates, expected near 0 for neural models; test HR@10; NDCG@10 on shuffled test inputs, expected clearly lower (METHODS 3.3); hardware slowdown.
+  - No code changes after a stop condition until the deviation is decided; any change then follows METHODS 11.5.
+- Results: pending.
+
+## D033 Seed variance and seed count
+
+- Date: 2026-11-09. Status: method fixed before any pilot result was seen; results pending.
+- Method:
+  - σ and n: `seqrec seeds results/runs/m2-pilot.csv --tag sigma --dataset ml-1m` (METHODS 7.5).
+  - What the METHODS 5.2 limits cost: `seqrec anchors results/runs/m2-anchor.csv --pilot results/runs/m2-pilot.csv`. Per arm, Δ is the mean log validation NDCG@10 of the three seed-variance runs (METHODS 5.2 limits) minus the log validation NDCG@10 of the latest anchor run (the source's limits, D026), and z = Δ/(σ·sqrt(1 + 1/3)).
+  - An increase of an arm's limits is recommended when Δ < −log(1.02), the SESOI, and z < −2. The limits stay as in METHODS 5.2 until that recommendation is decided.
+  - SASRec-SS has no anchor and is reported without Δ. The METHODS 5.2 limits are longer than the source's for SASRec-CE, SASRec-BCE and BERT4Rec, and much shorter for gSASRec (300 epochs against up to 10,000).
+- Results: pending.
+
+## D034 GPU budget from the pilot
+
+- Date: 2026-11-09. Status: method fixed before any timing result was seen; results pending.
+- Method (`seqrec budget results/runs/m2-pilot.csv`):
+  - Epoch time per dataset and arm: median training plus validation seconds per epoch of the pilot timing runs. Tuned and final configurations are unknown, so the central value is the mean of the anchor size (`time-small`) and the largest size in the search space (`time-large`).
+  - Epochs per run: the mean best epoch (counted from 1) of the MovieLens-1M seed-variance runs, scaled by the best-epoch ratio of [5] Table 2, plus the patience, at most the epoch cap. Ratios against MovieLens-1M: MovieLens-20M 46/63 for cross-entropy and sampled softmax, 30/53 for BCE and gBCE, 68/197 for BERT4Rec; Steam 16/63, 39/53 and 74/197; Video_Games, absent from [5], 1. Epoch counts do not fall with dataset size: in [5], MovieLens-20M has 23 times the users of MovieLens-1M and a best epoch of 46 against 63 (SASRec+).
+  - One run costs its epochs times the epoch time, plus one evaluation of the restored checkpoint.
+  - Blocks: tuning (METHODS 5.4 trial budgets, no credit for pruning); final leave-one-out runs with n seeds (D033); temporal-split runs with 5 seeds, timed as leave-one-out; the shuffle control (SASRec-CE on four datasets, BERT4Rec on two, n seeds); 180 s of warm-up for each of 13 batches; RQ3 at 15 h (METHODS 12); GPU hours already spent, from `overview.csv`. Floor baselines and test reads are left out.
+  - Two further scenarios: MovieLens-1M epochs on every dataset; the same with the largest configuration's epoch time.
+  - Decision: if the central core exceeds 200 GPU hours, the D012 cuts apply in order until it fits, each recorded here. If only the other scenarios exceed it, nothing is cut; the projection is repeated with measured trial times after MovieLens-1M tuning. That repetition also corrects the epoch count if the gSASRec seed-variance runs stop on the early plateau seen on synthetic data (D027).
+- Results: pending.
