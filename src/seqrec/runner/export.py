@@ -89,7 +89,7 @@ def access_problems(rows: list[dict]) -> list[str]:
             problems.append(f"{r['run_id']}: final run read test data more than once")
         if r["phase"] == "anchor" and r["reads_final"]:
             problems.append(f"{r['run_id']}: anchor run used a final read")
-        if r["status"] == "tested" and reads != r["reads_completed"]:
+        if reads != r["reads_completed"]:
             problems.append(f"{r['run_id']}: a test read did not complete")
     anchors = Counter()
     for r in rows:

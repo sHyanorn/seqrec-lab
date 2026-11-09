@@ -312,3 +312,27 @@ def test_a_lost_device_stops_the_batch_and_the_rerun_retries(workspace, monkeypa
     rows = _exported(runs, runs.parent)
     assert rows[first]["status"] == "trained" and rows[first]["failures"] == "1"
     assert rows[second]["failures"] == "0"
+
+
+def test_a_final_run_whose_test_read_failed_is_not_read_again(workspace, monkeypatch):
+    """METHODS 11.6: a final run reads test data once, even if that read did not finish."""
+    runs, data = workspace
+    original = run_mod.evaluate
+    final, anchor = _cfg("final"), _cfg("anchor", tag="a")
+    for cfg in (final, anchor):
+        run_mod.execute(cfg, runs, data, CPU, **QUIET)
+
+        def fail_on_test(scorer, split, max_len, device):
+            raise RuntimeError("simulated failure while scoring")
+
+        monkeypatch.setattr(run_mod, "evaluate", fail_on_test)
+        with pytest.raises(RuntimeError, match="simulated"):
+            run_mod.test_run(cfg, runs, data, CPU, **QUIET)
+        monkeypatch.setattr(run_mod, "evaluate", original)
+    with pytest.raises(PermissionError, match="did not complete"):
+        run_mod.test_run(final, runs, data, CPU, **QUIET)
+    log = runs / "b" / final.run_id / "test_access.jsonl"
+    assert test_access.count_reads(log) == {"final": 1, "anchor": 0, "completed": 0}
+    run_mod.test_run(anchor, runs, data, CPU, **QUIET)  # anchor: counted, allowed
+    problems = export(runs, runs.parent / "results")
+    assert sum("a test read did not complete" in p for p in problems) == 2

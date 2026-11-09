@@ -375,6 +375,12 @@ def test_run(cfg: RunConfig, runs_dir: Path, data_dir: Path, device: torch.devic
             f"{cfg.arm} on {cfg.dataset} used its {MAX_ANCHOR_READS} anchor reads"
         )
 
+    access_log = run_dir / "test_access.jsonl"
+    if cfg.phase == "final" and count_reads(access_log)["final"]:
+        raise PermissionError(
+            f"{cfg.run_id}: an earlier test read did not complete; final runs read test data once"
+        )
+
     best_path = run_dir / "best.pt"
     checkpoint_hash = file_hash(best_path)
     if checkpoint_hash != summary["checkpoint_hash"]:
@@ -383,7 +389,6 @@ def test_run(cfg: RunConfig, runs_dir: Path, data_dir: Path, device: torch.devic
     splits, _ = _prepare_splits(cfg, data_dir)
     model = ARMS[cfg.arm](cfg, splits.train, device)
     model.load_state_dict(torch.load(best_path, weights_only=False))
-    access_log = run_dir / "test_access.jsonl"
     test = read_test(
         splits.test,
         phase=cfg.phase,
