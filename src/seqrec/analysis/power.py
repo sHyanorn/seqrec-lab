@@ -32,7 +32,9 @@ def directional_power(sigma: float, n: int, delta: float = DELTA) -> float:
     se, df = _se_df(sigma, n)
     crit = stats.t.ppf(1 - ALPHA / F1_TESTS / 2, df)
     nc = delta / se
-    return float(stats.nct.sf(crit, df, nc) + stats.nct.cdf(-crit, df, nc))
+    # P(T < -crit | nc) = P(T > crit | -nc); the sf form stays finite where nct.cdf of a far
+    # tail returns NaN.
+    return float(stats.nct.sf(crit, df, nc) + stats.nct.sf(crit, df, -nc))
 
 
 def equivalence_power(sigma: float, n: int, delta: float = DELTA) -> float:
@@ -56,20 +58,31 @@ def pooled_sd(groups: list[np.ndarray]) -> float:
     return math.sqrt(sum((len(g) - 1) * np.var(g, ddof=1) for g in groups if len(g) > 1) / dof)
 
 
-def sigma_from_export(path: Path, tag: str) -> tuple[float, dict[str, list[float]]]:
-    """Pooled SD of log validation NDCG@10 within arms, over runs of one tag in an export."""
+def sigma_from_export(
+    path: Path, tag: str, dataset: str, split: str = "loo"
+) -> tuple[float, dict[str, list[float]]]:
+    """Pooled SD of log validation NDCG@10 within arms, over the trained, unshuffled runs of
+    one tag, dataset and split in an export."""
     groups: dict[str, list[float]] = defaultdict(list)
     with path.open(encoding="utf-8") as f:
         for row in csv.DictReader(f):
             value = row.get("validation_ndcg@10")
-            if row["tag"] == tag and row["arm"] in NEURAL_ARMS and value:
+            if (
+                row["tag"] == tag
+                and row["dataset"] == dataset
+                and row["split"] == split
+                and row["shuffle"] == "none"
+                and row["arm"] in NEURAL_ARMS
+                and row["status"] in ("trained", "tested")
+                and value
+            ):
                 groups[row["arm"]].append(math.log(float(value)))
     sigma = pooled_sd([np.asarray(v) for v in groups.values()])
     return sigma, dict(groups)
 
 
-def report(path: Path, tag: str) -> str:
-    sigma, groups = sigma_from_export(path, tag)
+def report(path: Path, tag: str, dataset: str) -> str:
+    sigma, groups = sigma_from_export(path, tag, dataset)
     n = seed_count(sigma)
     lines = [
         f"{arm}: {len(v)} runs, sd {np.std(v, ddof=1):.5f}" for arm, v in sorted(groups.items())

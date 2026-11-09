@@ -39,6 +39,7 @@ def main(argv=None) -> int:
         "csv", type=Path, help="an exported batch CSV, e.g. results/runs/m2-pilot.csv"
     )
     seeds.add_argument("--tag", default="sigma")
+    seeds.add_argument("--dataset", default="ml-1m")
 
     exp = sub.add_parser("export", help="aggregate finished runs into results/runs")
     exp.add_argument("--runs-dir", type=Path, default=Path("runs"))
@@ -61,7 +62,7 @@ def main(argv=None) -> int:
     if args.command == "seeds":
         from seqrec.analysis.power import report
 
-        print(report(args.csv, args.tag))
+        print(report(args.csv, args.tag, args.dataset))
         return 0
     from seqrec.runner.export import export
 

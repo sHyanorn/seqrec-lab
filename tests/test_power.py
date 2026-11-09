@@ -16,6 +16,15 @@ def test_directional_power_at_sigma_001_and_ten_seeds_is_078():
     assert power.equivalence_power(0.01, 10) >= 0.8
 
 
+def test_power_is_finite_and_small_sigma_needs_five_seeds():
+    for sigma in np.linspace(0.001, 0.012, 45):
+        for n in power.N_RANGE:
+            assert np.isfinite(power.directional_power(sigma, n))
+    for sigma in (0.002, 0.00225, 0.0035, 0.0039, 0.0047):
+        assert power.seed_count(sigma) == 5
+    assert power.directional_power(0.0035, 5) == pytest.approx(0.9985, abs=5e-4)
+
+
 def test_directional_power_matches_simulation():
     rng = np.random.default_rng(0)
     sigma, n = 0.008, 6
@@ -40,13 +49,16 @@ def test_pooled_sd():
 def test_sigma_from_an_export_file(tmp_path):
     path = tmp_path / "pilot.csv"
     path.write_text(
-        "arm,tag,validation_ndcg@10\n"
-        "sasrec-ce,sigma,0.18\nsasrec-ce,sigma,0.182\nbert4rec,sigma,0.15\nbert4rec,sigma,0.151\n"
-        "sasrec-ce,time-small,0.1\nmostpop,sigma,0.05\n",
+        "arm,tag,dataset,split,shuffle,status,validation_ndcg@10\n"
+        "sasrec-ce,sigma,ml-1m,loo,none,trained,0.18\nsasrec-ce,sigma,ml-1m,loo,none,trained,0.182\n"
+        "bert4rec,sigma,ml-1m,loo,none,trained,0.15\nbert4rec,sigma,ml-1m,loo,none,trained,0.151\n"
+        "sasrec-ce,time-small,ml-1m,loo,none,trained,0.1\nmostpop,sigma,ml-1m,loo,none,trained,0.05\n"
+        "sasrec-ce,sigma,steam,loo,none,trained,0.07\nsasrec-ce,sigma,ml-1m,loo,train_eval,trained,0.1\n"
+        "sasrec-ce,sigma,ml-1m,gts,none,trained,0.1\nsasrec-ce,sigma,ml-1m,loo,none,failed,0.01\n",
         encoding="utf-8",
     )
-    sigma, groups = power.sigma_from_export(path, "sigma")
+    sigma, groups = power.sigma_from_export(path, "sigma", "ml-1m")
     assert sorted(groups) == ["bert4rec", "sasrec-ce"] and all(len(v) == 2 for v in groups.values())
     logs = [np.log([0.18, 0.182]), np.log([0.15, 0.151])]
     assert sigma == pytest.approx(power.pooled_sd(logs))
-    assert "pooled sigma" in power.report(path, "sigma")
+    assert "pooled sigma" in power.report(path, "sigma", "ml-1m")
