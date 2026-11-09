@@ -209,10 +209,13 @@ def test_trials_that_never_started_enable_pruning_but_stay_out_of_the_median():
         trial.report(0.5, 30)
         return trial.should_prune()
 
-    assert not middling_trial_is_pruned(study(reporting=2, silent=2))  # 4 complete trials
+    assert not middling_trial_is_pruned(study(reporting=3, silent=1))  # 4 complete trials
     # with the silent trials at their final 0.0 the median would be 0.0 and nothing pruned
-    assert middling_trial_is_pruned(study(reporting=2, silent=3))
+    assert middling_trial_is_pruned(study(reporting=3, silent=2))
     assert not middling_trial_is_pruned(study(reporting=0, silent=5))  # no value at the step
+    # fewer than 3 complete trials with a value at the step are no median to prune against
+    assert not middling_trial_is_pruned(study(reporting=1, silent=4))
+    assert not middling_trial_is_pruned(study(reporting=2, silent=3))
 
 
 def _crash_once(monkeypatch, tag):

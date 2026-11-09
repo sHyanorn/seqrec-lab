@@ -55,6 +55,7 @@ SPACES = {
     "bert4rec": SHARED_SPACE | {"mask_prob": Float(0.1, 0.4)},
 }
 STARTUP_TRIALS = 5
+MEDIAN_TRIALS = 3  # complete trials with a value at a step before that step can prune (D044)
 TRAINING_SEED = 0
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)
@@ -97,8 +98,11 @@ def load_tuning_plan(path: Path) -> tuple[str, float, list[Study]]:
 
 def pruner(cap: int) -> optuna.pruners.BasePruner:
     """Median pruning after 5 complete trials, from step cap // 10 on (METHODS 5.4). A step
-    is an epoch counted from the trial's start epoch (D044)."""
-    return optuna.pruners.MedianPruner(STARTUP_TRIALS, n_warmup_steps=cap // 10)
+    is an epoch counted from the trial's start epoch, and a step prunes only once 3 complete
+    trials have a value at it (D044)."""
+    return optuna.pruners.MedianPruner(
+        STARTUP_TRIALS, n_warmup_steps=cap // 10, n_min_trials=MEDIAN_TRIALS
+    )
 
 
 def _storage(runs_dir: Path, batch: str) -> str:
