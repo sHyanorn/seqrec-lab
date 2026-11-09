@@ -1,12 +1,17 @@
 import csv
+import json
 import math
+from pathlib import Path
 
 import pytest
 
 from seqrec.analysis import anchors, budget, power
 from seqrec.cli import main as cli_main
+from seqrec.runner.config import load_plan
 
 ARMS = ("sasrec-bce", "sasrec-ce", "sasrec-ss", "gsasrec", "bert4rec")
+ANCHOR_PLAN = Path(__file__).resolve().parents[1] / "configs" / "plans" / "m2-anchor.toml"
+PLANNED = {r.arm: r for r in load_plan(ANCHOR_PLAN).runs}
 
 
 def write(path, rows):
@@ -27,10 +32,13 @@ def run_row(arm, tag, val, phase="tune", dataset="ml-1m", **kw):
 
 
 def anchor_row(arm, test, val, **kw):
-    reads = {"reads_anchor": 1, "reads_completed": 1, "reads_final": 0}
-    return run_row(
-        arm, "r1", val, phase="anchor", status="tested", **({"test_ndcg@10": test} | reads | kw)
-    )
+    planned = PLANNED[arm]
+    fixed = {
+        "test_ndcg@10": test, "reads_anchor": 1, "reads_completed": 1, "reads_final": 0,
+        "run_id": planned.run_id, "params": json.dumps(planned.params, sort_keys=True),
+        "max_epochs": planned.max_epochs, "patience": planned.patience, "git_commit": "70b2b0f",
+    }  # fmt: skip
+    return run_row(arm, "r1", val, phase="anchor", status="tested", **(fixed | kw))
 
 
 def test_band_edges_follow_the_methods_table():
@@ -46,27 +54,42 @@ def test_gap_margin_is_three_bounded_standard_errors():
     assert 0.020 < expected < 0.022
 
 
-def test_anchor_table_bands_gaps_and_access(tmp_path):
+def test_anchor_table_bands_gaps_and_stop_conditions(tmp_path):
     path = write(
         tmp_path / "anchor.csv",
         [
             anchor_row("sasrec-ce", 0.182, 0.180, best_epoch=62),
             anchor_row("sasrec-bce", 0.160, 0.130),  # above band, test far above validation
             anchor_row("bert4rec", 0.150, 0.180, reads_completed=0),  # test far below
-            anchor_row("gsasrec", 0.170, 0.171),
             run_row("sasrec-ce", "sigma", 0.18),  # not an anchor run
         ],
     )
     table = {r["arm"]: r for r in anchors.anchor_table(path)}
-    assert list(table) == ["sasrec-ce", "sasrec-bce", "bert4rec", "gsasrec"]
+    assert list(table) == ["sasrec-ce", "sasrec-bce", "bert4rec"]
     assert table["sasrec-ce"]["position"] == "inside" and table["sasrec-ce"]["best_epoch"] == 63
     assert table["sasrec-ce"]["gap_flag"] == ""
     assert table["sasrec-bce"]["position"] == "above"
     assert table["sasrec-bce"]["gap_flag"] == "test above validation"
     assert table["bert4rec"]["gap_flag"] == "test below validation"
-    assert anchors.access_issues(list(table.values())) == [
-        "bert4rec r1: an anchor read did not complete"
-    ]
+    issues = anchors.stop_conditions(list(table.values()), load_plan(ANCHOR_PLAN))
+    assert issues[0] == "gsasrec: no anchor run"
+    assert any(i.startswith("sasrec-bce r1: test NDCG@10 above the band") for i in issues)
+    assert any(i.startswith("sasrec-bce r1: test above validation") for i in issues)
+    assert "bert4rec r1: 1 anchor reads, 0 done" in issues
+    assert not any(i.startswith("sasrec-ce") for i in issues)
+
+
+def test_parameters_limits_and_commits_are_checked_against_the_plan(tmp_path):
+    rows = [anchor_row(a, 0.17 if a == "gsasrec" else 0.18, 0.17) for a in PLANNED]
+    rows[0]["params"] = rows[0]["params"].replace("0.001", "0.002")
+    rows[1]["patience"] = 30
+    rows[2]["git_commit"] = "abc1234"
+    table = anchors.anchor_table(write(tmp_path / "anchor.csv", rows))
+    issues = anchors.stop_conditions(table, load_plan(ANCHOR_PLAN))
+    names = [r["arm"] for r in rows]
+    assert f"{names[0]} r1: parameters differ from the anchor plan" in issues
+    assert f"{names[1]} r1: patience differs from the anchor plan" in issues
+    assert any(i.startswith("anchor runs come from several commits") for i in issues)
 
 
 def test_cap_cost_compares_seed_runs_with_the_anchor(tmp_path):
@@ -92,7 +115,7 @@ def test_cap_cost_compares_seed_runs_with_the_anchor(tmp_path):
     assert "z" not in by_arm["sasrec-ss"] and by_arm["sasrec-ss"]["anchor_validation"] is None
 
 
-def pilot_rows(train_small=1.0, best=None):
+def pilot_rows(train_small=1.0, best=None, checkpoint_s=0.3):
     best = best or {"sasrec-bce": 53, "sasrec-ce": 63, "sasrec-ss": 63, "gsasrec": 53,
                     "bert4rec": 197}  # fmt: skip
     rows = []
@@ -101,8 +124,8 @@ def pilot_rows(train_small=1.0, best=None):
             for size, scale in (("small", 1.0), ("large", 3.0)):
                 rows.append(
                     run_row(a, f"time-{size}", 0.1, dataset=d, epochs=3,
-                            epoch_train_s_median=train_small * scale,
-                            epoch_eval_s_median=0.2 * scale)
+                            epoch_train_s_median=train_small * scale - 0.1,
+                            epoch_eval_s_median=0.2 * scale, checkpoint_s=checkpoint_s)
                 )  # fmt: skip
     for a in ARMS:
         rows += [run_row(a, "sigma", 0.1 + s / 1000, best_epoch=best[a] - 1) for s in range(3)]
@@ -112,8 +135,15 @@ def pilot_rows(train_small=1.0, best=None):
 @pytest.fixture
 def pilot(tmp_path):
     path = write(tmp_path / "m2-pilot.csv", pilot_rows())
-    write(tmp_path / "overview.csv", [{"batch": "m2-anchor", "gpu_hours": 2.5}])
+    write(
+        tmp_path / "overview.csv",
+        [{"batch": "m2-anchor", "gpu_hours": 2.5}, {"batch": "tune-ml-1m", "gpu_hours": 30.0}],
+    )
     return budget.load_pilot(path, tmp_path / "overview.csv")
+
+
+def test_spent_hours_are_the_m2_batches_only(pilot):
+    assert pilot.spent_hours == 2.5
 
 
 def test_epoch_ratios_come_from_the_reference_table():
@@ -127,7 +157,8 @@ def test_run_hours_scale_epochs_add_patience_and_respect_the_cap(pilot, tmp_path
     central, ml1m, upper = budget.SCENARIOS
     epochs, hours = budget.run_hours(pilot, "steam", "sasrec-ce", central)
     assert epochs == pytest.approx(16 + 30)
-    assert hours == pytest.approx((46 * (2.0 + 0.4) + 0.4) / 3600)  # mean of small and large
+    # mean of small and large; training time includes 0.1 s of checkpointing per epoch
+    assert hours == pytest.approx((46 * (2.0 + 0.4) + 0.4) / 3600)
     assert budget.run_hours(pilot, "steam", "sasrec-ce", ml1m)[0] == pytest.approx(63 + 30)
     assert budget.run_hours(pilot, "ml-1m", "bert4rec", upper)[1] == pytest.approx(
         (297 * 3.6 + 0.6) / 3600
@@ -139,16 +170,20 @@ def test_run_hours_scale_epochs_add_patience_and_respect_the_cap(pilot, tmp_path
 
 
 def test_projection_adds_up_every_block(pilot):
-    scenario, scope = budget.SCENARIOS[0], budget.Scope(seeds=6)
+    scenario, scope = budget.SCENARIOS[0], budget.Scope()
     h = {(d, a): budget.run_hours(pilot, d, a, scenario)[1] for d in budget.DATASETS for a in ARMS}
     blocks = budget.project(pilot, scope, scenario)
     assert blocks["spent"] == 2.5
     assert blocks["tuning"] == pytest.approx(sum(budget.TRIALS[d] * v for (d, _), v in h.items()))
-    assert blocks["final_loo"] == pytest.approx(6 * sum(h.values()))
+    assert blocks["final_loo"] == pytest.approx(5 * sum(h.values()))  # METHODS 12: 5 seeds
     assert blocks["final_temporal"] == pytest.approx(5 * sum(h.values()))
     shuffled = sum(h[(d, "sasrec-ce")] for d in budget.DATASETS)
     shuffled += h[("ml-1m", "bert4rec")] + h[("ml-20m", "bert4rec")]
-    assert blocks["shuffle_control"] == pytest.approx(6 * shuffled)
+    assert blocks["shuffle_control"] == pytest.approx(5 * shuffled)
+    extra = budget.extra_seed_hours(pilot, scope, scenario)
+    assert extra["ml-20m"] == pytest.approx(
+        sum(h[("ml-20m", a)] for a in ARMS) + h[("ml-20m", "sasrec-ce")] + h[("ml-20m", "bert4rec")]
+    )
     assert blocks["warmup"] == pytest.approx(13 * 180 / 3600) and blocks["rq3"] == 15
     parts = ("spent", "tuning", "final_loo", "final_temporal", "shuffle_control", "warmup", "rq3")
     assert blocks["core"] == pytest.approx(sum(blocks[k] for k in parts))
@@ -158,11 +193,11 @@ def test_projection_adds_up_every_block(pilot):
 def test_cuts_follow_the_order_of_d012(tmp_path):
     write(tmp_path / "overview.csv", [{"batch": "m2-anchor", "gpu_hours": 2.5}])
     cheap = budget.load_pilot(write(tmp_path / "a.csv", pilot_rows()), tmp_path / "overview.csv")
-    assert budget.cuts(cheap, budget.Scope(seeds=6)) == []
+    assert budget.cuts(cheap, budget.Scope())[1] == []
     costly = budget.load_pilot(
         write(tmp_path / "b.csv", pilot_rows(train_small=60.0)), tmp_path / "overview.csv"
     )
-    steps = budget.cuts(costly, budget.Scope(seeds=6))
+    scope, steps = budget.cuts(costly, budget.Scope())
     assert [name for name, _ in steps] == [
         "halve MovieLens-20M tuning trials",
         "drop the MovieLens-20M temporal split",
@@ -170,6 +205,19 @@ def test_cuts_follow_the_order_of_d012(tmp_path):
     ]
     cores = [core for _, core in steps]
     assert cores == sorted(cores, reverse=True)
+    assert scope.datasets == ("ml-1m", "video-games", "ml-20m") and scope.trials["ml-20m"] == 5
+    assert budget.project(costly, scope, budget.SCENARIOS[0])["warmup"] == pytest.approx(
+        (3 * 2 + 2 + 1) * 180 / 3600
+    )
+
+
+def test_extra_seeds_follow_the_priority_order():
+    costs = {"ml-1m": 1.0, "video-games": 2.0, "steam": 3.0, "ml-20m": 4.0}
+    assert budget.allocate_seeds(10.0, costs, 7) == {
+        "ml-1m": 7, "video-games": 7, "steam": 6, "ml-20m": 5,
+    }  # fmt: skip
+    assert budget.allocate_seeds(100.0, costs, 5) == dict.fromkeys(costs, 5)
+    assert budget.allocate_seeds(-3.0, costs, 8) == dict.fromkeys(costs, 5)
 
 
 def test_missing_pilot_rows_are_named(tmp_path):
@@ -184,9 +232,10 @@ def test_commands_print_their_tables(tmp_path, capsys):
     anchor = write(tmp_path / "m2-anchor.csv", [anchor_row(a, 0.17, 0.17) for a in ARMS[:2]])
     pilot = write(tmp_path / "m2-pilot.csv", pilot_rows())
     write(tmp_path / "overview.csv", [{"batch": "m2-pilot", "gpu_hours": 1}])
-    assert cli_main(["anchors", str(anchor), "--pilot", str(pilot)]) == 0
+    args = ["anchors", str(anchor), "--plan", str(ANCHOR_PLAN), "--pilot", str(pilot)]
+    assert cli_main(args) == 0
     out = capsys.readouterr().out
-    assert "test access: as expected" in out and "raise_cap" in out
+    assert "STOP bert4rec: no anchor run" in out and "raise_cap" in out
     assert cli_main(["budget", str(pilot), "--seeds", "6"]) == 0
     out = capsys.readouterr().out
-    assert "seeds per arm (leave-one-out): 6" in out and "no cut" in out
+    assert "seeds from the METHODS 7.5 rule: 6" in out and "no cut" in out

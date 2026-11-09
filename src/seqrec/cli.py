@@ -46,6 +46,7 @@ def main(argv=None) -> int:
         "csv", type=Path, help="the anchor export, e.g. results/runs/m2-anchor.csv"
     )
     anchors.add_argument("--pilot", type=Path, help="the pilot export, to compare limits (D033)")
+    anchors.add_argument("--plan", type=Path, default=Path("configs/plans/m2-anchor.toml"))
 
     budget = sub.add_parser("budget", help="GPU-hour projection from the pilot (D034)")
     budget.add_argument("csv", type=Path, help="the pilot export, e.g. results/runs/m2-pilot.csv")
@@ -78,7 +79,7 @@ def main(argv=None) -> int:
     if args.command == "anchors":
         from seqrec.analysis.anchors import report as anchor_report
 
-        print(anchor_report(args.csv, args.pilot))
+        print(anchor_report(args.csv, args.plan, args.pilot))
         return 0
     if args.command == "budget":
         from seqrec.analysis.budget import report as budget_report

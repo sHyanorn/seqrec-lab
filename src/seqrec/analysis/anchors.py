@@ -4,6 +4,7 @@ limits cost against the source's training length (D033). Both read exported batc
 from __future__ import annotations
 
 import csv
+import json
 import math
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,6 +13,7 @@ import numpy as np
 
 from seqrec.analysis.power import DELTA, sigma_from_export
 from seqrec.analysis.table import format_table
+from seqrec.runner.config import Plan, RunConfig, load_plan
 
 ML1M_USERS = 6040  # every MovieLens-1M user has a validation and a test target (D022)
 GAP_SE = 3.0  # D032: test and validation NDCG@10 further apart than this many SE are flagged
@@ -100,22 +102,46 @@ def anchor_table(path: Path) -> list[dict]:
                 "reads_anchor": r.get("reads_anchor"), "reads_completed": r.get("reads_completed"),
                 "reads_final": r.get("reads_final"), "failures": r.get("failures", "-"),
                 "hardware_slowdown": r.get("hardware_slowdown"),
-                "git_commit": r.get("git_commit"),
+                "git_commit": r.get("git_commit"), "run_id": r.get("run_id"),
+                "params": r.get("params"),
+                "max_epochs": r.get("max_epochs"), "patience": r.get("patience"),
             }
         )  # fmt: skip
     return out
 
 
-def access_issues(table: list[dict]) -> list[str]:
-    issues = []
+def _plan_mismatch(row: dict, planned: RunConfig | None) -> str | None:
+    if planned is None:
+        return "not in the anchor plan"
+    if json.loads(row["params"] or "{}") != planned.params:
+        return "parameters differ from the anchor plan"
+    for key in ("max_epochs", "patience"):
+        if row[key] not in (None, "") and int(row[key]) != getattr(planned, key):
+            return f"{key} differs from the anchor plan"
+    return None
+
+
+def stop_conditions(table: list[dict], plan: Plan) -> list[str]:
+    """The D032 stop conditions, one line each."""
+    planned = {r.run_id: r for r in plan.runs}
+    issues = [f"{arm}: no anchor run" for arm in ANCHORS if arm not in {r["arm"] for r in table}]
     for r in table:
         name = f"{r['arm']} {r['tag']}"
         if r["status"] != "tested":
             issues.append(f"{name}: status {r['status']}")
-        if r["reads_final"] not in ("0", 0):
+        if str(r["reads_anchor"]) != "1" or str(r["reads_completed"]) != "1":
+            issues.append(f"{name}: {r['reads_anchor']} anchor reads, {r['reads_completed']} done")
+        if str(r["reads_final"]) != "0":
             issues.append(f"{name}: final reads on an anchor run")
-        if r["reads_anchor"] != r["reads_completed"]:
-            issues.append(f"{name}: an anchor read did not complete")
+        if mismatch := _plan_mismatch(r, planned.get(r["run_id"])):
+            issues.append(f"{name}: {mismatch}")
+        if r["position"] in ("above", "below"):
+            issues.append(f"{name}: test NDCG@10 {r['position']} the band {r['band']}")
+        if r["gap_flag"]:
+            issues.append(f"{name}: {r['gap_flag']} by more than {r['gap_margin']:.4f}")
+    commits = sorted({r["git_commit"] for r in table})
+    if len(commits) > 1:
+        issues.append(f"anchor runs come from several commits: {', '.join(commits)}")
     return issues
 
 
@@ -126,7 +152,8 @@ def cap_cost(anchor_csv: Path, pilot_csv: Path, tag: str = "sigma") -> tuple[flo
     sigma, groups = sigma_from_export(pilot_csv, tag, "ml-1m")
     anchors = {}
     for r in _anchor_rows(anchor_csv):
-        if r["status"] in ("trained", "tested") and _num(r, "validation_ndcg@10") is not None:
+        trained = r["status"] in ("trained", "tested", "test_failed")
+        if trained and _num(r, "validation_ndcg@10") is not None:
             anchors[r["arm"]] = _num(r, "validation_ndcg@10")  # sorted by tag: latest wins
     runs = [
         r for r in _read(pilot_csv)
@@ -155,20 +182,21 @@ def cap_cost(anchor_csv: Path, pilot_csv: Path, tag: str = "sigma") -> tuple[flo
     return sigma, out
 
 
-def report(anchor_csv: Path, pilot_csv: Path | None = None) -> str:
+def report(anchor_csv: Path, plan_path: Path, pilot_csv: Path | None = None) -> str:
     table = anchor_table(anchor_csv)
     parts = [
         format_table(table, [
             "arm", "tag", "test_ndcg@10", "band", "position", "validation_ndcg@10",
             "test_minus_validation", "gap_margin", "gap_flag", "epochs", "best_epoch",
-            "stop_reason", "test_tie_rate", "validation_tie_rate",
+            "stop_reason", "truncated", "test_tie_rate", "validation_tie_rate",
         ]),
         format_table(table, [
             "arm", "tag", "status", "test_hr@10", "shuffled_test_ndcg@10", "reads_anchor",
             "reads_completed", "reads_final", "failures", "hardware_slowdown", "git_commit",
         ]),
     ]  # fmt: skip
-    parts.append("\n".join(access_issues(table)) or "test access: as expected")
+    issues = stop_conditions(table, load_plan(plan_path))
+    parts.append("\n".join(f"STOP {i}" for i in issues) or "no D032 stop condition")
     if pilot_csv is not None:
         sigma, rows = cap_cost(anchor_csv, pilot_csv)
         parts.append(f"pooled sigma of log validation NDCG@10: {sigma:.5f}")
