@@ -19,7 +19,7 @@ from seqrec.runner.run import MAX_ANCHOR_READS
 
 HARDWARE_EVENTS = ("hw_slowdown", "hw_thermal", "hw_power_brake")
 TRIAL_TAG = re.compile(r"t\d+")
-STOPPED = ("patience", "max_epochs", "guard")
+STOPPED = ("patience", "max_epochs", "guard", "no_start")
 SLOW_FACTOR = 1.5  # D036
 
 
@@ -61,6 +61,7 @@ def _row(run_dir: Path) -> dict:
         "params": json.dumps(cfg["params"], sort_keys=True),
         "max_epochs": cfg.get("max_epochs"),
         "patience": cfg.get("patience"),
+        "start_limit": cfg.get("start_limit"),
         "guard_hours": cfg.get("guard_hours"),
         "status": status,
         "failures": n_failures,  # failed attempts, retries included (D031)
@@ -68,6 +69,7 @@ def _row(run_dir: Path) -> dict:
         "best_epoch": summary.get("best_epoch"),
         "stop_reason": summary.get("stop_reason"),
         "truncated": summary.get("truncated"),
+        "start_epoch": summary.get("start_epoch"),
         "train_s": summary.get("train_s"),
         "epoch_train_s_median": summary.get("epoch_train_s_median"),
         "epoch_eval_s_median": summary.get("epoch_eval_s_median"),
@@ -131,8 +133,9 @@ def access_problems(rows: list[dict]) -> list[str]:
 
 
 def _truncation(rows: list[dict]) -> dict:
-    """Truncated runs among those that stopped by patience, the epoch cap or the guard (D030).
-    Pruned, diverged and failed runs stopped before any limit could apply."""
+    """Truncated runs among those that stopped by patience, the epoch cap, the guard or the
+    start limit (D030, D035). Pruned, diverged and failed runs stopped before any limit could
+    apply."""
     stopped = [r for r in rows if r["stop_reason"] in STOPPED]
     truncated = sum(bool(r["truncated"]) for r in stopped)
     return {

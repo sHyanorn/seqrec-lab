@@ -43,6 +43,7 @@ from seqrec.telemetry import NvmlSampler, summarize_samples
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 MAX_ANCHOR_READS = 3
+START_FACTOR = 1.5  # D035: a run starts once validation NDCG@10 exceeds this times MostPop's
 
 
 class Model(Protocol):
@@ -189,8 +190,11 @@ def _set_rng_state(state: dict) -> None:
 def _stop_reason(state: dict, cfg: RunConfig) -> str | None:
     if state.get("stop"):  # decided inside the loop (pruned, diverged, converged) and saved
         return state["stop"]
-    if state["bad"] >= cfg.patience:
+    started = state.get("started", True)  # runs without the start rule (D035) count as started
+    if started and state["bad"] >= cfg.patience:
         return "patience"
+    if not started and state["epoch"] >= cfg.start_limit:
+        return "no_start"
     if state["wall_s"] >= cfg.guard_hours * 3600:
         return "guard"
     if state["epoch"] >= cfg.max_epochs:
@@ -226,6 +230,15 @@ def max_len_of(cfg: RunConfig) -> int:
     return cfg.max_len or DATASETS[cfg.dataset].max_len
 
 
+def popularity_reference(cfg: RunConfig, splits: SplitSet, device: torch.device) -> float:
+    """MostPop's (B1) validation NDCG@10 on the run's own splits, the level a run must beat
+    by START_FACTOR before patience counts (D035)."""
+    from seqrec.models.baselines import MostPop  # it imports this module to register itself
+
+    floor = MostPop(replace(cfg, arm="mostpop", params={}), splits.train, device)
+    return evaluate(floor.score, splits.validation, max_len_of(cfg), device).metrics["ndcg@10"]
+
+
 def execute(
     cfg: RunConfig,
     runs_dir: Path,
@@ -253,6 +266,7 @@ def execute(
     model = ARMS[cfg.arm](cfg, splits.train, device)
     if hasattr(model, "sample_positions"):
         checks = checks + check_batch_positions(splits, model.sample_positions())
+    reference = popularity_reference(cfg, splits, device) if cfg.start_limit else None
     manifest = {
         "git_commit": commit,
         "torch": torch.__version__,
@@ -262,6 +276,7 @@ def execute(
         "full_fingerprint": splits.full.fingerprint(),
         "hparams": getattr(model, "hparams", None),
         "invariants_passed": checks,
+        "start_reference": reference,
     }
     manifest_path = run_dir / "manifest.json"
     if manifest_path.exists():
@@ -281,6 +296,8 @@ def execute(
         _set_rng_state(saved["rng"])
         log(f"[run] {cfg.run_id}: resuming at epoch {state['epoch']}")
     state.setdefault("checkpoint_s", 0.0)
+    if reference is not None and "started" not in state:  # a resumed run keeps its own
+        state |= {"started": False, "start_reference": reference, "start_epoch": None}
     _keep_metrics_before(metrics_path, state["epoch"])
 
     def checkpoint() -> None:
@@ -322,6 +339,8 @@ def execute(
             state["train_s"] += t_trained - t_start
             state["wall_s"] += t_evaluated - t_start
             ndcg = val.metrics["ndcg@10"]
+            if not state.get("started", True) and ndcg > START_FACTOR * state["start_reference"]:
+                state |= {"started": True, "start_epoch": state["epoch"]}
             if ndcg > state["best"]:
                 state |= {"best": ndcg, "best_epoch": state["epoch"], "bad": 0}
                 best_weights = _weights(model)
@@ -365,7 +384,9 @@ def execute(
         "epochs": state["epoch"],
         "best_epoch": state["best_epoch"],
         "stop_reason": stop,
-        "truncated": stop in ("max_epochs", "guard"),
+        "truncated": stop in ("max_epochs", "guard", "no_start"),
+        "start_reference": state.get("start_reference"),
+        "start_epoch": state.get("start_epoch"),
         "train_s": round(state["train_s"], 2),
         "wall_s": round(state["wall_s"], 2),
         "checkpoint_s": round(state["checkpoint_s"], 2),  # outside wall_s; kept for budgeting

@@ -636,3 +636,45 @@ def test_export_writes_the_slow_epochs_flag(workspace):
         run_mod.execute(_cfg("tune", seed=seed, tag="sigma"), runs, data, CPU, **QUIET)
     rows = _exported(runs, runs.parent)
     assert {r["slow_epochs"] for r in rows.values()} <= {"True", "False"}
+
+
+def test_patience_waits_until_a_run_beats_popularity(workspace):
+    """D035: before validation NDCG@10 exceeds 1.5 x MostPop's, patience does not count."""
+    import seqrec.models  # noqa: F401  registers mostpop
+
+    runs, data = workspace
+    PopularityModel.peak = 6  # random scores (below 1.5 x MostPop here) except at epoch 6
+    summary = run_mod.execute(_cfg(), runs, data, CPU, **QUIET)
+    assert summary["stop_reason"] == "patience" and summary["epochs"] == 10
+    assert summary["start_epoch"] == 6 and summary["best_epoch"] == 6
+    floor = run_mod.execute(_cfg(arm="mostpop", tag="floor"), runs, data, CPU, **QUIET)
+    assert summary["start_reference"] == pytest.approx(floor["validation"]["ndcg@10"])
+    manifest = json.loads((runs / "b" / _cfg().run_id / "manifest.json").read_text())
+    assert manifest["start_reference"] == summary["start_reference"]
+    assert floor["start_reference"] is None and floor["stop_reason"] == "converged"
+
+
+def test_a_run_that_never_beats_popularity_stops_at_its_start_limit(workspace):
+    runs, data = workspace
+    PopularityModel.peak = 1000
+    summary = run_mod.execute(_cfg(start_limit=8), runs, data, CPU, **QUIET)
+    assert summary["stop_reason"] == "no_start" and summary["truncated"]
+    assert summary["epochs"] == 8 and summary["start_epoch"] is None
+    row = _exported(runs, runs.parent)[_cfg().run_id]
+    assert row["start_limit"] == "8" and row["start_epoch"] == ""
+
+
+def test_start_limits_default_by_arm_and_can_be_set():
+    assert _cfg(arm="gsasrec").start_limit == 200 and _cfg(arm="bert4rec").start_limit == 200
+    assert _cfg(arm="mostpop").start_limit == 0 and _cfg(arm="transition").start_limit == 0
+    assert _cfg(arm="gsasrec", start_limit=400).start_limit == 400
+
+
+def test_runs_that_did_not_start_count_as_truncated():
+    """D035: a no_start stop is a limit, like the epoch cap, for the rule of METHODS 5.2."""
+    from seqrec.runner.export import tuning_best
+
+    rows = [_trial_row(f"t{i:02d}", 0.2) for i in range(4)]
+    rows.append(_trial_row("t04", 0.02, stop="no_start", truncated=True))
+    best = tuning_best(rows)[0]
+    assert best["stopped"] == 5 and best["truncated"] == 1

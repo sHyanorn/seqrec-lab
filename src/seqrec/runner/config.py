@@ -36,6 +36,12 @@ LIMITS = {"bert4rec": (1000, 100)}
 DEFAULT_LIMITS = (300, 30)
 
 
+# Epochs a run may take to beat 1.5 times MostPop's validation NDCG@10 before patience
+# counts (D035); the floor baselines do not train, so the rule is off for them.
+START_LIMIT = 200
+FLOOR_ARMS = ("mostpop", "transition")
+
+
 def default_limits(arm: str) -> tuple[int, int]:
     return next((v for prefix, v in LIMITS.items() if arm.startswith(prefix)), DEFAULT_LIMITS)
 
@@ -52,6 +58,7 @@ class RunConfig:
     params: dict = field(default_factory=dict)
     max_epochs: int | None = None  # None: the arm's default (METHODS 5.2)
     patience: int | None = None
+    start_limit: int | None = None  # None: the arm's default (D035); 0 turns the rule off
     guard_hours: float = 8.0
     max_len: int | None = None  # defaults to the dataset's length
     tag: str = ""  # distinguishes runs that share arm and seed, e.g. tuning trials
@@ -68,6 +75,8 @@ class RunConfig:
             object.__setattr__(self, "max_epochs", epochs)
         if self.patience is None:
             object.__setattr__(self, "patience", patience)
+        if self.start_limit is None:
+            object.__setattr__(self, "start_limit", 0 if self.arm in FLOOR_ARMS else START_LIMIT)
 
     @property
     def run_id(self) -> str:

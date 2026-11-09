@@ -336,6 +336,21 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
   - The BERT4Rec timing runs at the largest size use mask probability 0.4, the upper end of its search range.
   - Warm-ups are recounted after a cut.
 
+## D035 Start rule for slow-starting runs
+
+- Date: 2026-11-09. Status: accepted; the start limit (200 or 300 epochs) is confirmed before the gSASRec rerun. Deviation from METHODS 5.2. Decided after the pilot's validation results (D033) and the anchor results (D032) were seen, and before any tuning run.
+- Trigger: the D033 cap-cost check recommends higher limits for gSASRec (relative −75.9%, z −2.22). Two of its three seed-variance runs stopped by patience at epochs 44 and 54 with validation NDCG@10 0.0216, 1.04 times MostPop's 0.0207; the third reached 0.1841 and the anchor run 0.1828. No run reached the epoch cap, so patience fired before the runs began to learn. The README of the authors' original code (github.com/asash/gsasrec) describes this pattern for gBCE and advises longer patience; [33] uses patience 200.
+- Decision:
+  - At the start of every run of a neural arm, the runner computes MostPop's validation NDCG@10 on the run's own dataset and split, from its training split (B1, METHODS 4.4), and records it as `start_reference` in the manifest and summary.
+  - A run starts at the first epoch whose validation NDCG@10 exceeds 1.5 times that value. Before it starts, patience does not count; afterwards patience and the epoch cap act as in METHODS 5.2.
+  - A run that has not started after `start_limit` epochs (default 200) stops with reason `no_start`. It counts as truncated, so the doubling rule of METHODS 5.2 (D030) covers it, and doubling also doubles the start limit. It keeps its best checkpoint and enters every analysis like any other run.
+  - The rule applies to all neural arms (A1 to A5). The floor baselines do not train and have start limit 0. Median pruning in tuning stays as in METHODS 5.4.
+- Effect on existing runs: a run that passed the threshold before patience fired follows the same path under the rule. All twelve seed-variance runs of A1 to A3 and A5, and gSASRec seed 2, ended above 0.14 against a threshold of 0.031, so their results stand. gSASRec seeds 1 to 3 are rerun under the rule in batch `m2-gsasrec`, whose runs replace the pilot's gSASRec seed-variance runs in D033 and D034.
+- Factor: the stuck runs sat at 1.04 times MostPop; after three epochs SASRec-BCE and SASRec-SS stood at 2.3 times and SASRec-CE at 4.8 times, and converged runs at 7 to 9 times. A wrong factor costs epochs but never removes a run.
+- Cost: if every gSASRec run starts as seed 2 and the anchor run did, the central D034 projection grows by about 53 GPU hours (gSASRec on MovieLens-1M from 117 to 234 epochs per run).
+- Alternatives: the anchor limits for gSASRec (10,000 epochs, patience 200) add about 164 hours and stretch the pruning warm-up to 1,000 epochs; a lower t is already tuned over [0.5, 1.0], and changing it in the seed-variance runs would leave the anchor configuration; dropping stuck runs selects on the outcome.
+- Tests: the start-rule tests in `tests/test_runner.py` failed before the change (METHODS 11.5).
+
 ## D036 Time counted by the guard
 
 - Date: 2026-11-09. Status: accepted. Clarifies the wall-clock guard of METHODS 5.2. Fixed after the pilot timings were seen (D034) and before any M3 run.
