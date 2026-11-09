@@ -188,7 +188,7 @@ def test_projection_adds_up_every_block(pilot):
     assert blocks["warmup"] == pytest.approx(13 * 180 / 3600) and blocks["rq3"] == 15
     parts = ("spent", "tuning", "final_loo", "final_temporal", "shuffle_control", "warmup", "rq3")
     assert blocks["core"] == pytest.approx(sum(blocks[k] for k in parts))
-    assert blocks["reserve"] == pytest.approx(200 - blocks["core"])
+    assert blocks["reserve"] == pytest.approx(500 - blocks["core"])  # D034 amendment
 
 
 def test_cuts_follow_the_order_of_d012(tmp_path):

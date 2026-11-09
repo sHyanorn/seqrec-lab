@@ -116,7 +116,7 @@ GPU work runs on the laptop. The owner runs one command per batch of runs; the r
 
 ## 10. Compute budget
 
-The total cap is 200 GPU hours (D012). Before measurement, the core work is estimated at 153 to 188 hours. The rest of the cap is a reserve for extra seeds, then RQ4. METHODS section 12 has the breakdown and the descoping order. The M2 pilot replaces these estimates with measured times. With about 50 GPU hours available per week, M3 takes about three weeks of calendar time.
+The total cap is 500 GPU hours (D012, raised from 200 in D034 after the pilot). Before measurement, the core work is estimated at 153 to 188 hours. The rest of the cap is a reserve for extra seeds, then RQ4. METHODS section 12 has the breakdown and the descoping order. The M2 pilot replaces these estimates with measured times. With about 50 GPU hours available per week, M3 takes about three weeks of calendar time.
 
 ## 11. Deliverables
 

@@ -113,6 +113,7 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
 - Date: 2026-11-08. Status: accepted.
 - Decision: at most 200 GPU hours in total. Core work is estimated at 153 to 188 hours; the rest is a reserve used first for extra seeds (D018), then for RQ4. Cuts if the projected core exceeds the cap, in order: halve MovieLens-20M tuning trials, drop the MovieLens-20M temporal split, drop Steam.
 - Rationale: estimates before measurement (METHODS section 12). About 50 laptop hours per week are available.
+- Amendment 2026-11-09: the cap is 500 GPU hours (D034). The cut order is unchanged and applies above it.
 
 ## D013 Execution model
 
@@ -335,6 +336,7 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
   - Epoch time includes the checkpoint time per epoch measured by the timing runs, which falls outside the training and validation timers.
   - The BERT4Rec timing runs at the largest size use mask probability 0.4, the upper end of its search range.
   - Warm-ups are recounted after a cut.
+- Amendment 2026-11-09 (after the pilot projection was seen, before any tuning run): the owner raised the GPU cap from 200 to 500 hours, all on the laptop, and kept the full scope. The central core is 416.0 h, or 468.9 h with the start rule of D035; the three D012 cuts leave 222.6 h (246.7 h), still above 200 h, and the third cut drops Steam, the only dataset where G2 and G3 have a negative published sign. The D012 cut order stays and applies above 500 h. Before tuning starts on each dataset, the projection is repeated with the measured trial times of the datasets already tuned; if the central core then exceeds 500 h, the D012 cuts apply in order and each is recorded here. `seqrec budget` uses the 500 h cap; METHODS 12 still states 200 h, so this is a deviation from it.
 
 ## D035 Start rule for slow-starting runs
 

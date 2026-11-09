@@ -29,7 +29,7 @@ TRIALS = {"ml-1m": 20, "video-games": 20, "steam": 20, "ml-20m": 10}  # METHODS 
 CORE_SEEDS = 5  # METHODS 12: final runs with 5 seeds on both splits
 SHUFFLED = {"sasrec-ce": DATASETS, "bert4rec": ("ml-1m", "ml-20m")}  # METHODS 3.3
 RQ3_HOURS = 15.0  # METHODS 12; measured in M4
-CAP_HOURS = 200.0  # D012
+CAP_HOURS = 500.0  # D012, raised in D034
 WARMUP_S = 180.0  # per batch (METHODS 5.5)
 PILOT_BATCH_PREFIX = "m2-"  # hours already spent: the M2 batches
 
