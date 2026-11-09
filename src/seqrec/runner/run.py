@@ -38,7 +38,7 @@ from seqrec.data.splits import SealedOff, SplitSet, TrainSplit, shuffle_eval_inp
 from seqrec.data.store import load_splits
 from seqrec.eval.ranking import NonFiniteScores, evaluate
 from seqrec.eval.test_access import count_reads, mark_completed, read_test
-from seqrec.runner.config import RunConfig
+from seqrec.runner.config import RunConfig, default_start_limit
 from seqrec.telemetry import NvmlSampler, summarize_samples
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -135,14 +135,26 @@ def _save_atomic(obj, path: Path) -> None:
     _replace(tmp, path)
 
 
+def _differences(config_path: Path, cfg: RunConfig) -> list[str]:
+    """Fields in which a stored config.json differs from cfg, as "field stored, now new"."""
+    stored = json.loads(config_path.read_text(encoding="utf-8"))
+    # Directories claimed before the start rule (D035) have no start_limit; such a run
+    # continues under the rule with the default limit (D040).
+    stored.setdefault("start_limit", default_start_limit(stored["arm"]))
+    current = json.loads(cfg.to_json())
+    return [
+        f"{k} {stored.get(k)}, now {current.get(k)}"
+        for k in sorted(stored.keys() | current.keys())
+        if stored.get(k) != current.get(k)
+    ]
+
+
 def config_conflicts(cfgs: list[RunConfig], runs_dir: Path) -> list[str]:
     """Runs whose existing directory holds a different configuration."""
     out = []
     for cfg in cfgs:
         path = run_dir_of(cfg, runs_dir) / "config.json"
-        if path.exists() and json.loads(path.read_text(encoding="utf-8")) != json.loads(
-            cfg.to_json()
-        ):
+        if path.exists() and _differences(path, cfg):
             out.append(cfg.run_id)
     return out
 
@@ -151,8 +163,8 @@ def _claim(cfg: RunConfig, run_dir: Path) -> None:
     """Create the run directory, or confirm it belongs to this exact configuration."""
     config_path = run_dir / "config.json"
     if config_path.exists():
-        if json.loads(config_path.read_text(encoding="utf-8")) != json.loads(cfg.to_json()):
-            raise RunConflict(f"{run_dir} holds a different configuration")
+        if diff := _differences(config_path, cfg):
+            raise RunConflict(f"{run_dir} holds a different configuration: {'; '.join(diff)}")
         return
     run_dir.mkdir(parents=True, exist_ok=True)
     _write_atomic(config_path, cfg.to_json())

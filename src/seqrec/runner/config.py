@@ -46,6 +46,10 @@ def default_limits(arm: str) -> tuple[int, int]:
     return next((v for prefix, v in LIMITS.items() if arm.startswith(prefix)), DEFAULT_LIMITS)
 
 
+def default_start_limit(arm: str) -> int:
+    return 0 if arm in FLOOR_ARMS else START_LIMIT
+
+
 @dataclass(frozen=True)
 class RunConfig:
     batch: str
@@ -76,7 +80,9 @@ class RunConfig:
         if self.patience is None:
             object.__setattr__(self, "patience", patience)
         if self.start_limit is None:
-            object.__setattr__(self, "start_limit", 0 if self.arm in FLOOR_ARMS else START_LIMIT)
+            object.__setattr__(self, "start_limit", default_start_limit(self.arm))
+        if self.start_limit < 0:
+            raise ValueError(f"start_limit must be 0 or more, got {self.start_limit}")
 
     @property
     def run_id(self) -> str:

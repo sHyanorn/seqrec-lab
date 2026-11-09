@@ -678,3 +678,47 @@ def test_runs_that_did_not_start_count_as_truncated():
     rows.append(_trial_row("t04", 0.02, stop="no_start", truncated=True))
     best = tuning_best(rows)[0]
     assert best["stopped"] == 5 and best["truncated"] == 1
+
+
+def _legacy_config(cfg, runs):
+    """A run directory claimed before D035, whose config.json has no start_limit."""
+    run_dir = runs / cfg.batch / cfg.run_id
+    run_dir.mkdir(parents=True)
+    stored = json.loads(cfg.to_json())
+    del stored["start_limit"]
+    (run_dir / "config.json").write_text(json.dumps(stored, indent=1, sort_keys=True))
+    return run_dir
+
+
+def test_run_directories_from_before_the_start_rule_are_not_conflicts(workspace):
+    runs, data = workspace
+    _legacy_config(_cfg(), runs)
+    assert run_mod.config_conflicts([_cfg()], runs) == []
+    assert run_mod.execute(_cfg(), runs, data, CPU, **QUIET)["stop_reason"] == "patience"
+    assert run_mod.test_run(_cfg(), runs, data, CPU, **QUIET)["test"]["users"] > 0
+
+
+def test_a_different_start_limit_is_a_conflict_that_names_it(workspace):
+    runs, data = workspace
+    _legacy_config(_cfg(), runs)
+    assert run_mod.config_conflicts([_cfg(start_limit=0)], runs) == [_cfg().run_id]
+    with pytest.raises(run_mod.RunConflict, match="start_limit 200, now 0"):
+        run_mod.execute(_cfg(start_limit=0), runs, data, CPU, **QUIET)
+
+
+def test_a_changed_default_start_limit_stops_an_interrupted_run(workspace, monkeypatch):
+    """A run keeps the start limit it began with (D035, D040)."""
+    from seqrec.runner import config
+
+    runs, data = workspace
+    PopularityModel.crash = "train@2"
+    with pytest.raises(RuntimeError):
+        run_mod.execute(_cfg(), runs, data, CPU, **QUIET)
+    monkeypatch.setattr(config, "START_LIMIT", 300)
+    with pytest.raises(run_mod.RunConflict, match="start_limit 200, now 300"):
+        run_mod.execute(_cfg(), runs, data, CPU, **QUIET)
+
+
+def test_a_negative_start_limit_is_rejected():
+    with pytest.raises(ValueError, match="start_limit"):
+        _cfg(start_limit=-1)

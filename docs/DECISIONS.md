@@ -378,3 +378,8 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
 - Date: 2026-11-09. Status: accepted. A measurement tool outside METHODS; no analysis uses its output.
 - Decision: `scripts/profile_step.py` trains one arm for a few steps on one prepared dataset through the arm's own epoch loop and prints wall time, process CPU time and GPU kernel time per step. It reads only the training split and writes nothing. `tests/test_profile_step.py` failed before the script existed (METHODS 11.5).
 - Rationale: in the pilot timing runs every arm took about 7 ms per step on Steam and Video_Games, at both configuration sizes, which points to a fixed cost per step outside GPU compute. What a change to the training loop could save depends on how much of a step the GPU is busy, which only the GPU machine can measure.
+
+## D040 Fixes from the M2 close review
+
+- Date: 2026-11-09. Status: accepted. Code changes after the anchor reads (METHODS 11.5); each came with a test that failed before it. Decided before any M3 run and before the gSASRec rerun of D035.
+- Run directories claimed before D035 have no `start_limit` in `config.json`. They compare equal to a plan with the default limit, so interrupted batches resume; such a run continues under the rule. A run whose start limit differs from its directory, including after a change of the default, is refused, and the message names the field (`test_run_directories_from_before_the_start_rule_are_not_conflicts`, `test_a_changed_default_start_limit_stops_an_interrupted_run`). A negative start limit is rejected.
