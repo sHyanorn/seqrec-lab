@@ -293,3 +293,17 @@ def test_a_later_export_replaces_the_runs_it_repeats(tmp_path, capsys):
     args = ["anchors", str(anchor), "--plan", str(ANCHOR_PLAN), "--pilot", str(pilot), str(rerun)]
     assert cli_main(args) == 0
     assert cli_main(["budget", str(pilot), str(rerun), "--seeds", "6"]) == 0
+
+
+def test_a_rerun_with_an_unfinished_run_is_refused(tmp_path, capsys):
+    """A later export replaces whole groups, so a failed seed in it would shrink n and sigma
+    without notice; the analysis stops instead (D040)."""
+    pilot = write(tmp_path / "m2-pilot.csv", pilot_rows())
+    rows = [run_row("gsasrec", "sigma", v, run_id=f"g{i}") for i, v in enumerate((0.18, 0.19))]
+    rows.append(run_row("gsasrec", "sigma", "", run_id="g2", status="failed"))
+    rerun = write(tmp_path / "m2-gsasrec.csv", rows)
+    with pytest.raises(power.IncompleteRerun, match="g2 is failed"):
+        power.read_exports([pilot, rerun])
+    assert cli_main(["seeds", str(pilot), str(rerun)]) == 1
+    assert "g2 is failed" in capsys.readouterr().err
+    assert len(power.read_exports(pilot)) == len(pilot_rows())  # the first file is not checked

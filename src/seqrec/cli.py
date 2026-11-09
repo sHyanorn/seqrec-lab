@@ -85,24 +85,14 @@ def main(argv=None) -> int:
         step = {"run": run_batch, "test": test_batch, "tune": tune_batch}[args.command]
         failed = step(args.plan, args.runs_dir, args.data_dir, device)
         return 1 if failed else 0
-    if args.command == "seeds":
-        from seqrec.analysis.power import report
+    if args.command in ("seeds", "anchors", "budget"):
+        from seqrec.analysis.power import IncompleteRerun
 
-        print(report(args.csv, args.tag, args.dataset))
-        return 0
-    if args.command == "anchors":
-        from seqrec.analysis.anchors import report as anchor_report
-
-        print(anchor_report(args.csv, args.plan, args.pilot))
-        return 0
-    if args.command == "budget":
-        from seqrec.analysis.budget import report as budget_report
-
-        print(
-            budget_report(
-                args.csv, args.overview or args.csv[0].with_name("overview.csv"), args.seeds
-            )
-        )
+        try:
+            print(_analysis(args))
+        except IncompleteRerun as e:
+            print(f"[{args.command}] {e}", file=sys.stderr)
+            return 1
         return 0
     from seqrec.runner.export import export
 
@@ -110,6 +100,21 @@ def main(argv=None) -> int:
     for p in problems:
         print(f"[export] {p}", file=sys.stderr)
     return 1 if problems else 0
+
+
+def _analysis(args) -> str:
+    if args.command == "seeds":
+        from seqrec.analysis.power import report
+
+        return report(args.csv, args.tag, args.dataset)
+    if args.command == "anchors":
+        from seqrec.analysis.anchors import report as anchor_report
+
+        return anchor_report(args.csv, args.plan, args.pilot)
+    from seqrec.analysis.budget import report as budget_report
+
+    overview = args.overview or args.csv[0].with_name("overview.csv")
+    return budget_report(args.csv, overview, args.seeds)
 
 
 if __name__ == "__main__":

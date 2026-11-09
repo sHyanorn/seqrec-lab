@@ -27,15 +27,28 @@ REPLACE_KEY = ("tag", "dataset", "split", "shuffle", "arm")
 Exports = Path | Sequence[Path]
 
 
+FINISHED = ("trained", "tested")
+
+
+class IncompleteRerun(ValueError):
+    """A later export holds a run that did not finish training."""
+
+
 def read_exports(paths: Exports) -> list[dict]:
     """Rows of one or more exported batch CSVs. The rows of a later file replace the rows of
     earlier files with the same tag, dataset, split, shuffle and arm, so a rerun stands in
-    for the runs it repeats (D035)."""
+    for the runs it repeats (D035). Every run of a later file must have finished training:
+    a failed seed would otherwise shrink the group without notice (D040)."""
     merged: dict[tuple, list[dict]] = {}
-    for path in [paths] if isinstance(paths, Path) else paths:
+    for i, path in enumerate([paths] if isinstance(paths, Path) else paths):
         groups = defaultdict(list)
         with Path(path).open(encoding="utf-8") as f:
             for row in csv.DictReader(f):
+                if i and row["status"] not in FINISHED:
+                    raise IncompleteRerun(
+                        f"{path}: {row.get('run_id', '?')} is {row['status']}; a later export "
+                        "replaces earlier runs only when all its runs finished training"
+                    )
                 groups[tuple(row[k] for k in REPLACE_KEY)].append(row)
         merged |= groups
     return [row for rows in merged.values() for row in rows]
@@ -90,7 +103,7 @@ def sigma_from_export(
             and row["split"] == split
             and row["shuffle"] == "none"
             and row["arm"] in NEURAL_ARMS
-            and row["status"] in ("trained", "tested")
+            and row["status"] in FINISHED
             and value
         ):
             groups[row["arm"]].append(math.log(float(value)))
