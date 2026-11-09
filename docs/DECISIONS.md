@@ -382,6 +382,7 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
 - Decision: `scripts/profile_step.py` trains one arm for a few steps on one prepared dataset through the arm's own epoch loop and prints wall time, process CPU time and GPU kernel time per step. It reads only the training split and writes nothing. `tests/test_profile_step.py` failed before the script existed (METHODS 11.5).
 - Rationale: in the pilot timing runs every arm took about 7 ms per step on Steam and Video_Games, at both configuration sizes, which points to a fixed cost per step outside GPU compute. What a change to the training loop could save depends on how much of a step the GPU is busy, which only the GPU machine can measure.
 - GPU time counted once per kernel, per-step times without the cost per epoch, and `--from-run`: D040.
+- The script prints a note above its JSON line when the busy share exceeds 1, since GPU time and wall time come from separate passes and the share then only says that the GPU limits the step, and when the cost per epoch is negative, since a one-step epoch then ran faster than a step of the long epoch and the split between the two is not meaningful (`test_results_outside_the_assumptions_carry_a_note`).
 
 ## D040 Fixes from the M2 close review
 

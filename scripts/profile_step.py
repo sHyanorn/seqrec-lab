@@ -97,6 +97,23 @@ def measure(
     }  # fmt: skip
 
 
+def notes(result: dict) -> list[str]:
+    """Warnings for results outside the script's assumptions (D039)."""
+    out = []
+    busy = result.get("gpu_busy_share")
+    if busy is not None and busy > 1:
+        out.append(
+            "GPU-bound; GPU time comes from a separate profiled pass, so the busy share only "
+            "says that the GPU limits the step"
+        )
+    if result["epoch_overhead_ms"] < 0:
+        out.append(
+            "a one-step epoch was faster than a step of the long epoch (a higher clock after an "
+            "idle GPU, or a slowdown during the long epoch); epoch_overhead_ms is not meaningful"
+        )
+    return out
+
+
 def config_from_run(run_dir: Path) -> RunConfig:
     """The configuration of an existing run, as a training-only profiling run."""
     c = json.loads((run_dir / "config.json").read_text(encoding="utf-8"))
@@ -134,6 +151,8 @@ def main(argv=None) -> int:
         cfg = RunConfig("profile", args.dataset, "loo", args.arm, 0, "tune", params=params)
     result = measure(cfg, args.data_dir, device, args.steps, args.warmup)
     print(f"steps {result['steps']}")
+    for note in notes(result):
+        print(f"note: {note}")
     print(json.dumps(result))
     return 0
 

@@ -106,3 +106,15 @@ def test_a_run_directory_supplies_the_configuration(tmp_path, capsys):
     assert not (run_dir / "test_access.jsonl").exists()
     with pytest.raises(SystemExit):
         profile_step.main(["--from-run", str(run_dir), "--arm", "sasrec-bce"])
+
+
+def test_results_outside_the_assumptions_carry_a_note():
+    """D039: GPU time comes from a separate profiled pass, and the split into per-step and
+    per-epoch time assumes every step takes as long."""
+    clean = {"gpu_busy_share": 0.2, "epoch_overhead_ms": 1.0}
+    assert profile_step.notes(clean) == []
+    assert profile_step.notes(clean | {"gpu_busy_share": None}) == []
+    gpu_bound = profile_step.notes(clean | {"gpu_busy_share": 1.15})
+    assert len(gpu_bound) == 1 and "GPU-bound" in gpu_bound[0]
+    uneven = profile_step.notes(clean | {"epoch_overhead_ms": -2.0})
+    assert len(uneven) == 1 and "epoch_overhead_ms" in uneven[0]
