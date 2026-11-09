@@ -11,10 +11,17 @@ Status: milestone M2 (models, objectives and pilot).
 
 ## Environment check
 
-Requires [uv](https://docs.astral.sh/uv/). On the GPU machine:
+Requires [uv](https://docs.astral.sh/uv/). Linux locks two torch builds, so the sync names one; Windows has only the CUDA build:
 
 ```
-uv sync --locked
+uv sync --locked                  # Windows
+uv sync --locked --extra cu132    # Linux with an NVIDIA GPU
+uv sync --locked --extra cpu      # Linux without a GPU
+```
+
+On the GPU machine:
+
+```
 uv run python scripts/check_env.py
 ```
 
@@ -23,7 +30,6 @@ The report is written to `results/env/`. `--quick` runs tiny shapes and also wor
 ## Tests
 
 ```
-uv sync --locked
 uv run pytest
 ```
 

@@ -8,11 +8,16 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
     "numpy>=2",
     "pandas>=2.2",
-    "torch==2.15.*",
+    "torch==2.15.*; sys_platform == 'win32'",
     "nvidia-ml-py>=13",
     "optuna>=5,<6",
     "scipy>=1.14",
 ]
+
+# Linux has two torch builds; pick exactly one: `uv sync --extra cpu` or `--extra cu132`.
+[project.optional-dependencies]
+cpu = ["torch==2.15.*; sys_platform == 'linux'"]
+cu132 = ["torch==2.15.*; sys_platform == 'linux'"]
 
 [project.scripts]
 seqrec = "seqrec.cli:main"
@@ -44,11 +49,13 @@ environments = [
     "sys_platform == 'win32'",
     "sys_platform == 'linux'",
 ]
+conflicts = [[{ extra = "cpu" }, { extra = "cu132" }]]
 
 [tool.uv.sources]
 torch = [
     { index = "pytorch-cu132", marker = "sys_platform == 'win32'" },
-    { index = "pytorch-cpu", marker = "sys_platform == 'linux'" },
+    { index = "pytorch-cpu", marker = "sys_platform == 'linux'", extra = "cpu" },
+    { index = "pytorch-cu132", marker = "sys_platform == 'linux'", extra = "cu132" },
 ]
 
 [[tool.uv.index]]
