@@ -580,3 +580,32 @@ def test_a_torn_last_failure_record_is_ignored(tmp_path):
 
     (tmp_path / "failures.jsonl").write_text('{"step": "train"}\n{"step": "tr')
     assert failures(tmp_path) == [{"step": "train"}]
+
+
+def test_the_guard_counts_training_and_validation_time_only(workspace, monkeypatch):
+    """D036: checkpoint writes and set-up do not count toward the guard."""
+    import time as real_time
+    from types import SimpleNamespace
+
+    runs, data = workspace
+    clock = [0.0]
+    monkeypatch.setattr(
+        run_mod, "time", SimpleNamespace(perf_counter=lambda: clock[0], sleep=real_time.sleep)
+    )
+    save = run_mod._save_atomic
+
+    def slow_save(obj, path):  # each checkpoint write takes an hour of the fake clock
+        clock[0] += 3600.0
+        save(obj, path)
+
+    def epoch_of_one_second(self, train, epoch):
+        clock[0] += 1.0
+        self.epochs = epoch + 1
+        return {"loss": 0.0}
+
+    monkeypatch.setattr(run_mod, "_save_atomic", slow_save)
+    monkeypatch.setattr(PopularityModel, "train_epoch", epoch_of_one_second)
+    summary = run_mod.execute(_cfg(guard_hours=2.0), runs, data, CPU, **QUIET)
+    assert summary["stop_reason"] == "patience" and summary["epochs"] == 4
+    assert summary["wall_s"] == pytest.approx(4.0) and summary["checkpoint_s"] >= 4 * 3600
+

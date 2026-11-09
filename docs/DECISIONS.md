@@ -336,6 +336,12 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
   - The BERT4Rec timing runs at the largest size use mask probability 0.4, the upper end of its search range.
   - Warm-ups are recounted after a cut.
 
+## D036 Time counted by the guard
+
+- Date: 2026-11-09. Status: accepted. Clarifies the wall-clock guard of METHODS 5.2. Fixed after the pilot timings were seen (D034) and before any M3 run.
+- Decision: the 8-hour guard counts the training and validation time of every epoch, summed over all sessions of a run. Checkpoint writes, the set-up before the first epoch (data loading, invariant checks, model construction), the final evaluation of the restored checkpoint and any time between sessions are not counted. The check runs before each epoch, so a run can pass the guard by at most one epoch. Doubled limits (METHODS 5.2) double this time. The runner has counted this way since M1; `test_the_guard_counts_training_and_validation_time_only` fixes it.
+- Rationale: an interrupted run gets the same budget as an uninterrupted one, and disk speed does not decide when a run stops. Checkpoint writes took about 1% of epoch time in the pilot, so the choice moves guard stops by about that much.
+
 ## D037 Triton FMA fusion fixed on
 
 - Date: 2026-11-09. Status: accepted. No training run compiles code, so no result depends on it.
