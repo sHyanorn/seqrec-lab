@@ -10,6 +10,7 @@ split = "loo"
 phase = "anchor"
 seeds = [0]
 tag = "r1"
+start_limit = 0  # the sources have no start rule (D035); the r1 runs predate it (D040)
 
 [[runs]]  # [5]: published NDCG@10 0.1821, band 0.172 to 0.192
 arm = "sasrec-ce"

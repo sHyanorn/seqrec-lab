@@ -138,10 +138,12 @@ def _save_atomic(obj, path: Path) -> None:
 def _differences(config_path: Path, cfg: RunConfig) -> list[str]:
     """Fields in which a stored config.json differs from cfg, as "field stored, now new"."""
     stored = json.loads(config_path.read_text(encoding="utf-8"))
-    # Directories claimed before the start rule (D035) have no start_limit; such a run
-    # continues under the rule with the default limit (D040).
-    stored.setdefault("start_limit", default_start_limit(stored["arm"]))
     current = json.loads(cfg.to_json())
+    if "start_limit" not in stored:
+        # Claimed before the start rule (D035), so trained without it. A plan written before
+        # then resolves to the arm's default; one may also state 0. Either keeps it off (D040).
+        same = cfg.start_limit in (0, default_start_limit(cfg.arm))
+        stored["start_limit"] = cfg.start_limit if same else "absent"
     return [
         f"{k} {stored.get(k)}, now {current.get(k)}"
         for k in sorted(stored.keys() | current.keys())
@@ -159,15 +161,18 @@ def config_conflicts(cfgs: list[RunConfig], runs_dir: Path) -> list[str]:
     return out
 
 
-def _claim(cfg: RunConfig, run_dir: Path) -> None:
-    """Create the run directory, or confirm it belongs to this exact configuration."""
+def _claim(cfg: RunConfig, run_dir: Path) -> RunConfig:
+    """Create the run directory, or confirm it belongs to this exact configuration. Returns
+    the configuration the run trains with: a run from before the start rule keeps it off."""
     config_path = run_dir / "config.json"
     if config_path.exists():
         if diff := _differences(config_path, cfg):
             raise RunConflict(f"{run_dir} holds a different configuration: {'; '.join(diff)}")
-        return
+        stored = json.loads(config_path.read_text(encoding="utf-8"))
+        return cfg if "start_limit" in stored else replace(cfg, start_limit=0)
     run_dir.mkdir(parents=True, exist_ok=True)
     _write_atomic(config_path, cfg.to_json())
+    return cfg
 
 
 def _prepare_splits(cfg: RunConfig, data_dir: Path) -> tuple[SplitSet, list[str]]:
@@ -222,15 +227,6 @@ def _keep_metrics_before(path: Path, epoch: int) -> None:
         _write_atomic(path, "".join(line + "\n" for line in kept))
 
 
-def _first_epoch_above(path: Path, threshold: float) -> int | None:
-    if path.exists():
-        for line in path.read_text(encoding="utf-8").splitlines():
-            record = json.loads(line)
-            if record["val_ndcg@10"] > threshold:
-                return record["epoch"]
-    return None
-
-
 def _weights(model: Model) -> dict:
     """What a restored checkpoint needs: inference weights if the model separates them."""
     return model.weights() if hasattr(model, "weights") else model.state_dict()
@@ -274,7 +270,7 @@ def execute(
     the run as pruned (tuning, METHODS 5.4)."""
     run_dir = run_dir_of(cfg, runs_dir)
     summary_path = run_dir / "summary.json"
-    _claim(cfg, run_dir)
+    cfg = _claim(cfg, run_dir)
     if summary_path.exists():
         return json.loads(summary_path.read_text(encoding="utf-8"))
 
@@ -319,10 +315,9 @@ def execute(
     state.setdefault("checkpoint_s", 0.0)
     _keep_metrics_before(metrics_path, state["epoch"])
     if reference is not None and "started" not in state:  # a resumed run keeps its own
-        # New, or saved before the start rule (D040): started if an epoch beat the threshold.
-        start = _first_epoch_above(metrics_path, START_FACTOR * reference)
-        started = start is not None or state["best"] > START_FACTOR * reference
-        state |= {"started": started, "start_reference": reference, "start_epoch": start}
+        if last_path.exists():
+            raise RunConflict(f"{run_dir}: last.pt has no record of the start rule the run uses")
+        state |= {"started": False, "start_reference": reference, "start_epoch": None}
 
     def checkpoint() -> None:
         t0 = time.perf_counter()

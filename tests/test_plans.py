@@ -39,3 +39,8 @@ def test_plan_runs_build_their_models(path, train):
         assert {r.phase for r in plan.runs} == {"anchor"} and len(plan.runs) == 4
     else:
         assert {r.phase for r in plan.runs} == {"tune"}
+
+
+def test_anchor_runs_train_without_the_start_rule():
+    """The anchors follow their sources, which have no start rule (D035, D040)."""
+    assert {r.start_limit for r in load_plan(PLANS / "m2-anchor.toml").runs} == {0}

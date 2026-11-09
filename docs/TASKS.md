@@ -54,7 +54,6 @@ Freeze
 - [x] Anchors inside their bands within three anchor reads per arm, or the arm flagged as in METHODS 11.5 (D032: all four inside after one read)
 - [ ] Seed count from METHODS 7.5 (rule implemented: `seqrec seeds`); updated GPU projection; descoping decisions if needed
 - [ ] Silent-error review and whole-diff review; fixes
-- Before any new anchor run: set `start_limit = 0` in `configs/plans/m2-anchor.toml`, because `seqrec anchors` compares parameters and limits with the plan but not the start limit (D035, D040)
 
 Before M3 tuning starts
 - [ ] CPU continuous integration: tests and lint on every push; tests that need prepared real data are skipped there, and the workflow says so

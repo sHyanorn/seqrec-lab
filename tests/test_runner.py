@@ -690,12 +690,15 @@ def test_run_directories_from_before_the_start_rule_are_not_conflicts(workspace)
     assert run_mod.test_run(_cfg(), runs, data, CPU, **QUIET)["test"]["users"] > 0
 
 
-def test_a_different_start_limit_is_a_conflict_that_names_it(workspace):
+def test_a_run_from_before_the_start_rule_accepts_only_its_own_limits(workspace):
+    """A pre-D035 directory trained without the rule: a plan with the default limit, written
+    before D035, or with 0 matches it; any other limit is a conflict that names the field."""
     runs, data = workspace
     _legacy_config(_cfg(), runs)
-    assert run_mod.config_conflicts([_cfg(start_limit=0)], runs) == [_cfg().run_id]
-    with pytest.raises(run_mod.RunConflict, match="start_limit 200, now 0"):
-        run_mod.execute(_cfg(start_limit=0), runs, data, CPU, **QUIET)
+    assert run_mod.config_conflicts([_cfg(), _cfg(start_limit=0)], runs) == []
+    assert run_mod.config_conflicts([_cfg(start_limit=400)], runs) == [_cfg().run_id]
+    with pytest.raises(run_mod.RunConflict, match="start_limit absent, now 400"):
+        run_mod.execute(_cfg(start_limit=400), runs, data, CPU, **QUIET)
 
 
 def test_a_changed_default_start_limit_stops_an_interrupted_run(workspace, monkeypatch):
@@ -737,19 +740,25 @@ def test_an_interrupted_run_keeps_its_start_rule_state(workspace):
     assert summary["start_epoch"] == 6 and summary["best_epoch"] == 6
 
 
-def test_a_state_saved_before_the_start_rule_resumes_as_started(workspace):
-    """A last.pt from before D035 has no start record; a run that already beat the threshold
-    is started, at the first epoch above it in metrics.jsonl (D040)."""
+def test_a_run_from_before_the_start_rule_finishes_without_it(workspace):
+    """Resumed after D035, a run that never beat 1.5 x MostPop stops by patience as it would
+    have, instead of training on to the cap (D040)."""
     runs, data = workspace
-    PopularityModel.peak = 2
+    PopularityModel.peak = 1000  # constant random scores: best at epoch 0, never started
+    _legacy_config(_cfg(), runs)
+    summary = _crash_then_resume(runs, data, _cfg(), crash_epoch=2)
+    assert summary["stop_reason"] == "patience" and summary["epochs"] == 4
+    assert summary["start_limit"] == 0 and summary["start_reference"] is None
+
+
+def test_a_checkpoint_without_its_start_record_is_refused(workspace):
+    runs, data = workspace
 
     def drop_start_record(state):
-        for key in ("started", "start_reference", "start_epoch"):
-            del state[key]
+        del state["started"]
 
-    summary = _crash_then_resume(runs, data, _cfg(), crash_epoch=4, edit_state=drop_start_record)
-    assert summary["stop_reason"] == "patience" and summary["epochs"] == 6
-    assert summary["start_epoch"] == 2 and summary["start_limit"] == 200
+    with pytest.raises(run_mod.RunConflict, match="start rule"):
+        _crash_then_resume(runs, data, _cfg(), crash_epoch=2, edit_state=drop_start_record)
 
 
 def test_export_lists_peak_device_memory(workspace):
