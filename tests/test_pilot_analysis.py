@@ -38,7 +38,8 @@ def anchor_row(arm, test, val, **kw):
         "run_id": planned.run_id, "params": json.dumps(planned.params, sort_keys=True),
         "max_epochs": planned.max_epochs, "patience": planned.patience, "git_commit": "70b2b0f",
     }  # fmt: skip
-    return run_row(arm, "r1", val, phase="anchor", status="tested", **(fixed | kw))
+    tag = kw.pop("tag", "r1")
+    return run_row(arm, tag, val, phase="anchor", status="tested", **(fixed | kw))
 
 
 def test_band_edges_follow_the_methods_table():
@@ -239,3 +240,29 @@ def test_commands_print_their_tables(tmp_path, capsys):
     assert cli_main(["budget", str(pilot), "--seeds", "6"]) == 0
     out = capsys.readouterr().out
     assert "seeds from the METHODS 7.5 rule: 6" in out and "no cut" in out
+
+
+def test_only_the_latest_anchor_run_of_an_arm_is_checked(tmp_path):
+    plan = tmp_path / "anchor.toml"
+    bce = PLANNED["sasrec-bce"]
+    params = ", ".join(f"{k} = {str(v).lower()}" for k, v in bce.params.items())
+    plan.write_text(
+        'batch = "m2-anchor"\n[defaults]\ndataset = "ml-1m"\nsplit = "loo"\n'
+        'phase = "anchor"\nseeds = [0]\n'
+        + "".join(
+            f'[[runs]]\narm = "sasrec-bce"\ntag = "{tag}"\nmax_epochs = 100\n'
+            f"patience = 10\nparams = {{ {params} }}\n"
+            for tag in ("r1", "r2")
+        ),
+        encoding="utf-8",
+    )
+    r2 = load_plan(plan).runs[1]
+    rows = [
+        anchor_row("sasrec-bce", 0.160, 0.155),  # r1: above the band, an older commit
+        anchor_row("sasrec-bce", 0.134, 0.135, tag="r2", run_id=r2.run_id, git_commit="def5678"),
+    ]
+    table = anchors.anchor_table(write(tmp_path / "anchor.csv", rows))
+    assert [r["tag"] for r in table] == ["r1", "r2"]
+    issues = anchors.stop_conditions(table, load_plan(plan))
+    assert not any(i.startswith("sasrec-bce") or "commits" in i for i in issues)
+    assert len(issues) == 3  # the three arms without an anchor run

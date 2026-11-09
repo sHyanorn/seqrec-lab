@@ -105,6 +105,7 @@ def anchor_table(path: Path) -> list[dict]:
                 "git_commit": r.get("git_commit"), "run_id": r.get("run_id"),
                 "params": r.get("params"),
                 "max_epochs": r.get("max_epochs"), "patience": r.get("patience"),
+                "guard_hours": r.get("guard_hours"),
             }
         )  # fmt: skip
     return out
@@ -115,17 +116,19 @@ def _plan_mismatch(row: dict, planned: RunConfig | None) -> str | None:
         return "not in the anchor plan"
     if json.loads(row["params"] or "{}") != planned.params:
         return "parameters differ from the anchor plan"
-    for key in ("max_epochs", "patience"):
-        if row[key] not in (None, "") and int(row[key]) != getattr(planned, key):
+    for key in ("max_epochs", "patience", "guard_hours"):
+        if row[key] not in (None, "") and float(row[key]) != getattr(planned, key):
             return f"{key} differs from the anchor plan"
     return None
 
 
 def stop_conditions(table: list[dict], plan: Plan) -> list[str]:
-    """The D032 stop conditions, one line each."""
+    """The D032 stop conditions, one line each, for the latest anchor run of each arm; an
+    earlier run (before a permitted re-read, METHODS 11.5) stays in the table as history."""
     planned = {r.run_id: r for r in plan.runs}
+    latest = list({r["arm"]: r for r in table}.values())  # the table is sorted by tag
     issues = [f"{arm}: no anchor run" for arm in ANCHORS if arm not in {r["arm"] for r in table}]
-    for r in table:
+    for r in latest:
         name = f"{r['arm']} {r['tag']}"
         if r["status"] != "tested":
             issues.append(f"{name}: status {r['status']}")
@@ -139,7 +142,7 @@ def stop_conditions(table: list[dict], plan: Plan) -> list[str]:
             issues.append(f"{name}: test NDCG@10 {r['position']} the band {r['band']}")
         if r["gap_flag"]:
             issues.append(f"{name}: {r['gap_flag']} by more than {r['gap_margin']:.4f}")
-    commits = sorted({r["git_commit"] for r in table})
+    commits = sorted({r["git_commit"] for r in latest})
     if len(commits) > 1:
         issues.append(f"anchor runs come from several commits: {', '.join(commits)}")
     return issues
