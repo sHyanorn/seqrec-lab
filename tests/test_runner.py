@@ -804,15 +804,25 @@ def _fake_clock(monkeypatch):
 
 
 def test_the_guard_leaves_out_set_up_and_adds_up_sessions(workspace, monkeypatch):
-    """D036: each session's set-up (data, invariants, model) takes an hour of the fake clock
-    and is not counted; epoch time from before an interruption is."""
+    """D036: each step of a session's set-up (data and invariants, model, popularity
+    reference) takes an hour of the fake clock and is not counted; epoch time from before an
+    interruption is."""
     runs, data = workspace
     clock = _fake_clock(monkeypatch)
     init = PopularityModel.__init__
 
-    def slow_init(self, cfg, train, device):
-        clock[0] += 3600.0
-        init(self, cfg, train, device)
+    def an_hour_first(fn):
+        def slow(*args, **kw):
+            clock[0] += 3600.0
+            return fn(*args, **kw)
+
+        return slow
+
+    monkeypatch.setattr(run_mod, "load_splits", an_hour_first(run_mod.load_splits))
+    monkeypatch.setattr(
+        run_mod, "popularity_reference", an_hour_first(run_mod.popularity_reference)
+    )
+    slow_init = an_hour_first(init)
 
     def epoch_of_1000_seconds(self, train, epoch):
         if epoch == 2 and not getattr(PopularityModel, "crashed", False):
