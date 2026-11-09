@@ -335,3 +335,9 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
   - Epoch time includes the checkpoint time per epoch measured by the timing runs, which falls outside the training and validation timers.
   - The BERT4Rec timing runs at the largest size use mask probability 0.4, the upper end of its search range.
   - Warm-ups are recounted after a cut.
+
+## D037 Triton FMA fusion fixed on
+
+- Date: 2026-11-09. Status: accepted. No training run compiles code, so no result depends on it.
+- Decision: importing `seqrec` sets `TRITON_DEFAULT_FP_FUSION=1` and overrides any inherited value. Every entry point imports the package before anything is compiled, including the `torch.compile` worker of `scripts/check_env.py`. `tests/test_package.py` failed before the change (METHODS 11.5).
+- Rationale: fusion is already the default of the locked triton-windows 3.9 (D003), so behaviour does not change. Fixing it keeps a later Triton release or a stray environment variable from changing the rounding of compiled kernels unnoticed, which the M4 `torch.compile` measurements (METHODS 9.1) would absorb.
