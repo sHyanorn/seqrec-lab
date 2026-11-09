@@ -1,10 +1,11 @@
 """Time training steps of one arm on one prepared dataset (D039).
 
-Prints wall time, process CPU time and GPU kernel time per step, so that the share of each
-step the GPU spends computing can be read off. Per-step times are the difference between an
-epoch of n steps and an epoch of one step, divided by n - 1, so the fixed cost of an epoch
-(shuffle, first-batch check, reading the loss) is reported apart as `epoch_overhead_ms`.
-Reads only the training split and writes nothing.
+Prints wall time, process CPU time and GPU time (kernels, copies and memsets) per step, so
+that the share of each step the GPU is busy can be read off. Per-step times are the
+difference between an epoch of n steps and an epoch of one step, divided by n - 1, so the
+fixed cost of an epoch (shuffle, first-batch check, reading the loss) is reported apart as
+`epoch_overhead_ms`. Only full batches are timed. Reads only the training split and writes
+nothing.
 
     uv run python scripts/profile_step.py --dataset steam --arm sasrec-bce
     uv run python scripts/profile_step.py --from-run runs/m2-anchor/gsasrec-ml-1m-loo-s0-r1
@@ -14,7 +15,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import statistics
 import sys
 import time
@@ -39,8 +39,9 @@ def _steps(model, train, rows: torch.Tensor, n: int) -> None:
 
 
 def device_us(events) -> float:
-    """GPU time of profiler events, each kernel counted once: CPU ops also report the device
-    time of the kernels they launch, and GPU user annotations span other events."""
+    """GPU time of profiler events, each GPU event (kernel, copy, memset) counted once: CPU ops
+    also report the device time of the kernels they launch, and GPU user annotations span
+    other events."""
     return sum(
         e.device_time_total
         for e in events
@@ -67,10 +68,10 @@ def measure(
     splits, _ = _prepare_splits(cfg, data_dir)  # phase "tune": the test split stays sealed
     model = ARMS[cfg.arm](cfg, splits.train, device)
     rows = model.data.rows
-    available = math.ceil(len(rows) / BATCH_SIZE)
+    available = len(rows) // BATCH_SIZE  # full batches: a partial one has another shape
     steps, warmup = min(steps, available), min(warmup, available)
     if steps < 2:
-        raise ValueError(f"{cfg.dataset} has {available} batches; at least 2 are needed")
+        raise ValueError(f"{cfg.dataset} has {available} full batches; at least 2 are needed")
     _steps(model, splits.train, rows, warmup)
 
     # The median of several one-step epochs, against one epoch of `steps` steps.
@@ -79,6 +80,8 @@ def measure(
     wall_n, cpu_n = _wall_cpu(model, splits.train, rows, steps)
     wall_ms = (wall_n - wall_1) * 1000 / (steps - 1)
     cpu_ms = (cpu_n - cpu_1) * 1000 / (steps - 1)
+    if wall_ms <= 0:
+        raise ValueError(f"timing noise exceeds the step time over {steps} steps; use more steps")
 
     gpu_ms = None
     if device.type == "cuda":  # separate, profiled passes: the profiler slows the CPU side
@@ -88,7 +91,7 @@ def measure(
         "dataset": cfg.dataset, "arm": cfg.arm, "params": cfg.params, "steps": steps,
         "wall_ms_per_step": round(wall_ms, 3),
         "cpu_ms_per_step": round(cpu_ms, 3),
-        "gpu_kernel_ms_per_step": None if gpu_ms is None else round(gpu_ms, 3),
+        "gpu_ms_per_step": None if gpu_ms is None else round(gpu_ms, 3),
         "gpu_busy_share": None if gpu_ms is None else round(gpu_ms / wall_ms, 3),
         "epoch_overhead_ms": round(wall_1 * 1000 - wall_ms, 3),
     }  # fmt: skip

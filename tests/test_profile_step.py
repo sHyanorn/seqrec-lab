@@ -26,12 +26,12 @@ def test_profile_step_reports_time_per_step(tmp_path, capsys):
     assert profile_step.main([*args, "--data-dir", str(data), "--device", "cpu"]) == 0
     load_splits.cache_clear()
     out = capsys.readouterr().out
-    for field in ("wall_ms_per_step", "cpu_ms_per_step", "gpu_kernel_ms_per_step", "steps 2"):
+    for field in ("wall_ms_per_step", "cpu_ms_per_step", "gpu_ms_per_step", "steps 2"):
         assert field in out
     assert not list(tmp_path.glob("runs*"))  # writes nothing
 
 
-def test_gpu_time_counts_each_kernel_once():
+def test_gpu_time_counts_each_gpu_event_once():
     """CPU ops also report the device time of the kernels they launch, and GPU user
     annotations span other events; only the kernels themselves are summed."""
     from torch.autograd import DeviceType
@@ -56,13 +56,15 @@ def test_fewer_than_two_steps_are_refused(tmp_path):
 
 
 class _FixedCostModel:
-    """Sleeps 60 ms per epoch plus 2 ms per step."""
+    """Sleeps 60 ms per epoch plus `per_step` s per step; 10 full batches and a partial one."""
+
+    per_step = 0.002
 
     def __init__(self, cfg, train, device):
-        self.data = SimpleNamespace(rows=torch.zeros(10 * BATCH_SIZE, 2, dtype=torch.long))
+        self.data = SimpleNamespace(rows=torch.zeros(10 * BATCH_SIZE + 24, 2, dtype=torch.long))
 
     def train_epoch(self, train, epoch):
-        time.sleep(0.06 + 0.002 * math.ceil(len(self.data.rows) / BATCH_SIZE))
+        time.sleep(0.06 + self.per_step * math.ceil(len(self.data.rows) / BATCH_SIZE))
         return {"loss": 0.0}
 
 
@@ -73,9 +75,14 @@ def test_time_per_step_leaves_out_the_cost_per_epoch(tmp_path, monkeypatch):
     monkeypatch.setitem(profile_step.ARMS, "fixed", _FixedCostModel)
     cfg = RunConfig("profile", "ml-1m", "loo", "fixed", 0, "tune")
     result = profile_step.measure(cfg, data, torch.device("cpu"), steps=8, warmup=1)
-    load_splits.cache_clear()
     assert result["wall_ms_per_step"] == pytest.approx(2.0, abs=1.5)
     assert result["epoch_overhead_ms"] == pytest.approx(60.0, abs=10.0)
+    whole = profile_step.measure(cfg, data, torch.device("cpu"), steps=50, warmup=1)
+    assert whole["steps"] == 10  # full batches only: a partial one has another shape
+    monkeypatch.setattr(_FixedCostModel, "per_step", -0.002)  # timing noise beyond a step
+    with pytest.raises(ValueError, match="more steps"):
+        profile_step.measure(cfg, data, torch.device("cpu"), steps=8, warmup=1)
+    load_splits.cache_clear()
 
 
 def test_a_run_directory_supplies_the_configuration(tmp_path, capsys):
