@@ -135,14 +135,19 @@ def test_precision_under_bf16_autocast():
 
 
 class _LargestTensor(torch.utils._python_dispatch.TorchDispatchMode):
-    """Records the most elements of any tensor an operation returns."""
+    """Records the most elements of any new tensor an operation returns (views excluded)."""
 
     largest = 0
 
     def __torch_dispatch__(self, func, types, args=(), kwargs=None):
         out = func(*args, **(kwargs or {}))
+        inputs = {
+            t.untyped_storage().data_ptr()
+            for t in torch.utils._pytree.tree_leaves((args, kwargs))
+            if isinstance(t, torch.Tensor)
+        }
         for t in torch.utils._pytree.tree_leaves(out):
-            if isinstance(t, torch.Tensor):
+            if isinstance(t, torch.Tensor) and t.untyped_storage().data_ptr() not in inputs:
                 self.largest = max(self.largest, t.numel())
         return out
 
@@ -157,7 +162,8 @@ def gbce_inputs(m, k, n, d):
 @pytest.mark.parametrize("n", [50, 300])  # w.shape[0] at most K x d (gather), or above it
 def test_gbce_never_holds_a_negative_embedding_per_position(n, monkeypatch):
     """D042: the (M, K, d) tensor of gathered negative embeddings, whose size changed with
-    every batch, filled the device. Both paths stay within the chunk budget."""
+    every batch, filled the device. Neither path creates it, in the forward or the backward
+    pass."""
     m, k, d = 64, 8, 16
     monkeypatch.setattr(losses, "GBCE_CHUNK_ELEMENTS", 4 * k * d)
     h, w, y, neg = gbce_inputs(m, k, n, d)
@@ -183,3 +189,42 @@ def test_gbce_paths_match_the_gathered_form_in_value_and_gradient(n, budget, mon
     assert got.item() == pytest.approx(want.item(), abs=1e-12)
     for g, e in zip(got_grads, want_grads, strict=True):
         torch.testing.assert_close(g, e, rtol=0, atol=1e-12)
+
+
+@pytest.mark.parametrize("rows, alternative", [(50, 4 * 8 * 16), (300, 4 * 300)])
+def test_negative_logits_take_the_smaller_intermediate(rows, alternative):
+    """At most K x d rows: all item scores (4, rows); more: the embeddings (4, K, d). The other
+    form would create a tensor of `alternative` elements."""
+    h, w = torch.randn(4, 16), torch.randn(rows, 16)
+    neg = torch.randint(1, rows, (4, 8))
+    with _LargestTensor() as mode:
+        losses.negative_logits(h, w, neg)
+    assert mode.largest < alternative
+
+
+@pytest.mark.parametrize("rows", [52, 300])
+def test_negative_logits_slices_stay_within_the_budget(rows, monkeypatch):
+    m, k, d, budget = 66, 8, 16, 512  # the last slice is partial
+    monkeypatch.setattr(losses, "GBCE_CHUNK_ELEMENTS", budget)
+    h, w = torch.randn(m, d), torch.randn(rows, d)
+    neg = torch.randint(1, rows, (m, k))
+    with _LargestTensor() as mode:
+        got = losses.negative_logits(h, w, neg)
+    assert mode.largest <= max(budget, m * k)  # the slices, then their concatenation
+    torch.testing.assert_close(got, torch.einsum("md,mkd->mk", h, w[neg]))
+
+
+def test_sliced_gbce_under_bf16_autocast_matches_fp32(monkeypatch):
+    """The recomputed slices run with autocast off, as in the forward pass."""
+    monkeypatch.setattr(losses, "GBCE_CHUNK_ELEMENTS", 512)
+    torch.manual_seed(1)
+    h, w = torch.randn(66, 16, requires_grad=True), torch.randn(302, 16, requires_grad=True)
+    y, neg = torch.randint(1, 301, (66,)), torch.randint(1, 301, (66, 8))
+    exact = losses.gbce(h, w, y, neg, t=0.75, n_items=300)
+    want = torch.autograd.grad(exact, (h, w))
+    with torch.autocast("cpu", dtype=torch.bfloat16):
+        mixed = losses.gbce(h, w, y, neg, t=0.75, n_items=300)
+    got = torch.autograd.grad(mixed, (h, w))
+    assert mixed.dtype == torch.float32 and mixed.item() == exact.item()
+    for g, e in zip(got, want, strict=True):
+        torch.testing.assert_close(g, e, rtol=0, atol=0)

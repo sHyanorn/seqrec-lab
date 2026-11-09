@@ -90,8 +90,8 @@ def _negative_logits(h, w, neg):
 
 def negative_logits(h, w, neg) -> torch.Tensor:
     """`_negative_logits` over slices of positions whose intermediates hold at most
-    GBCE_CHUNK_ELEMENTS elements, recomputed in the backward pass, so their size no longer
-    grows with the number of positions in a batch (D042)."""
+    GBCE_CHUNK_ELEMENTS elements, recomputed in the backward pass, so their size stays
+    bounded however many positions a batch has (D042)."""
     width = min(w.shape[0], neg.shape[1] * h.shape[1])
     chunk = max(1, GBCE_CHUNK_ELEMENTS // width)
     if len(h) <= chunk:
