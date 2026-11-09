@@ -1,0 +1,2 @@
+batch,dataset,arm,trials,pruned,diverged,failed_or_unfinished,stopped,truncated,truncated_share,best_run_id,best_validation_ndcg@10,best_params
+m2-tune-smoke,ml-1m,sasrec-ce,3,0,0,0,3,3,1.0,sasrec-ce-ml-1m-loo-s0-t02,0.12784988048602125,"{""blocks"": 1, ""dim"": 128, ""dropout"": 0.23341363755143332, ""heads"": 1, ""lr"": 0.0007447144904083078, ""shared_output"": true, ""weight_decay"": 0.0}"
