@@ -62,6 +62,7 @@ Before M3 tuning starts
 - [ ] bf16 training is checked only by the output dtype; also check an intermediate activation
 - [ ] The known-answer test for the shuffled-order transform (METHODS 3.3) is weak; test exact orders on a hand-made case
 - [ ] The anchor-read limit is enforced in `test_run`, not in `read_test`; move it into the reader so every caller is bound by it
+- [ ] Median pruning starts after 10% of the epoch cap (30 epochs), inside the gSASRec plateau before the start rule (D035) fires, where every trial sits near MostPop and pruning acts on noise. Decide, against the source's practice and Optuna's pruner options, whether pruning counts from a trial's start epoch; a change deviates from METHODS 5.4
 
 ## M3 RQ1 and RQ2 runs (6 h / 128 to 163 h plus seed reserve / about 3 weeks of laptop time)
 
