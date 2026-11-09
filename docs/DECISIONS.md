@@ -278,10 +278,11 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
 - Rationale: judging after the fact whether a failure was anomalous (memory fragmentation, a driver reset) or caused by the configuration leaves room for choice; a deterministic error fails again on its retry and is recorded as failed either way. Before this change, a run that succeeded on a rerun was exported as failed, which would have dropped it from the σ estimate (METHODS 7.5) without notice.
 - Amendment 2026-11-09 (review fixes, before any tuning trial or pilot run):
   - A plan edited under an existing run directory (a configuration conflict) is not a failed attempt. A dataset that has not been prepared stops the command before any attempt.
-  - A run whose summary exists has finished, whatever its failure count. Stop decisions made inside the epoch loop (pruned, diverged) are saved with the checkpoint, so a retry never trains past them.
+  - A run whose summary exists has finished, whatever its failure count; a single call still makes at most two attempts. Stop decisions made inside the epoch loop (pruned, diverged) are saved with that epoch's checkpoint, so a retry never trains past them.
+  - `seqrec run` and `seqrec test` refuse a plan whose runs differ from their existing run directories before any attempt or test read, so a run cannot change after other runs of its plan were tested (METHODS 5.5). `seqrec tune` reports such a study and continues with the next.
   - After any failure, a GPU that no longer runs a kernel stops the command, also after a final failure and while testing, so the next run is not charged for it.
   - `seqrec test` treats a run whose training failed twice as finished: it is listed and not tested, and the other runs of the plan are tested. A replacement seed has to enter the plan before `seqrec test` runs (METHODS 5.5). Diverged runs are not tested.
-  - Refused test reads (anchor limit reached, an earlier final read incomplete, a changed checkpoint) are reported and not recorded as failures. Export marks a run `test_failed` only when a test read started and did not complete.
+  - Test reads refused before any data are read (anchor limit reached, an earlier final read incomplete, a changed checkpoint) are reported and not recorded as failures; any other error, including one after the read started, is recorded. Export marks a run `test_failed` only when a test read started and did not complete.
   - Run files are flushed to disk before they replace the previous version, and a transient Windows file lock on that replacement is retried.
 
 ## D032 Anchor results
@@ -293,7 +294,7 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
   - Recorded without a stop rule: epochs; best epoch, counted from 1, against [5] (63 for SASRec-CE, 53 for SASRec-BCE, 197 for BERT4Rec) and about 1,790 for the gSASRec checkpoint of [33]; stop reason and truncation; test and validation tie rates, expected near 0 for neural models; test HR@10; NDCG@10 on shuffled test inputs, expected clearly lower (METHODS 3.3); hardware slowdown.
   - No code changes after a stop condition until the deviation is decided; any change then follows METHODS 11.5.
 - Results: pending.
-- Amendment 2026-11-09 (before any anchor result was seen): the command prints every stop condition. Parameters, and limits where the export lists them, are compared with `configs/plans/m2-anchor.toml`; all anchor runs must come from one commit, which is reported; a missing arm is a stop condition.
+- Amendment 2026-11-09 (before any anchor result was seen): the command prints every stop condition. Parameters, and limits (epoch cap, patience, guard) where the export lists them, are compared with `configs/plans/m2-anchor.toml`; a missing arm is a stop condition. The conditions apply to the latest anchor run of each arm, which must all come from one commit; earlier runs stay in the table as history.
 
 ## D033 Seed variance and seed count
 
