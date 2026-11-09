@@ -73,6 +73,10 @@ def register_arm(name: str):
     return wrap
 
 
+class TestRefused(PermissionError):
+    """A test read refused before any data were read (METHODS 11.5, 11.6)."""
+
+
 class RunConflict(RuntimeError):
     """A run directory holds a different configuration."""
 
@@ -128,6 +132,18 @@ def _save_atomic(obj, path: Path) -> None:
         f.flush()
         os.fsync(f.fileno())
     _replace(tmp, path)
+
+
+def config_conflicts(cfgs: list[RunConfig], runs_dir: Path) -> list[str]:
+    """Runs whose existing directory holds a different configuration."""
+    out = []
+    for cfg in cfgs:
+        path = run_dir_of(cfg, runs_dir) / "config.json"
+        if path.exists() and json.loads(path.read_text(encoding="utf-8")) != json.loads(
+            cfg.to_json()
+        ):
+            out.append(cfg.run_id)
+    return out
 
 
 def _claim(cfg: RunConfig, run_dir: Path) -> None:
@@ -327,13 +343,12 @@ def execute(
                 f.write(json.dumps(record) + "\n")
                 f.flush()
                 os.fsync(f.fileno())
-            checkpoint()
             if stats.get("converged"):  # models without training, e.g. the floor baselines
                 state["stop"] = "converged"
             elif report is not None and report(record["epoch"], ndcg):
                 state["stop"] = "pruned"
+            checkpoint()  # with the stop decision, so that a retry does not train on
             if state.get("stop"):
-                checkpoint()  # so that a retry does not train on
                 break
     finally:
         samples = sampler.stop() if sampler and sampler.available else []
@@ -393,7 +408,7 @@ def anchor_reads(runs_dir: Path, dataset: str, arm: str) -> int:
 def test_run(cfg: RunConfig, runs_dir: Path, data_dir: Path, device: torch.device, log=print):
     """Read test data once for a trained final or anchor run and write test.json."""
     if cfg.phase not in ("final", "anchor"):
-        raise PermissionError("only final and anchor runs are tested")
+        raise TestRefused("only final and anchor runs are tested")
     run_dir = run_dir_of(cfg, runs_dir)
     _claim(cfg, run_dir)
     if (run_dir / "test.json").exists():
@@ -402,20 +417,18 @@ def test_run(cfg: RunConfig, runs_dir: Path, data_dir: Path, device: torch.devic
     if summary["status"] != "trained":
         raise RuntimeError(f"{cfg.run_id} has no checkpoint ({summary['status']})")
     if cfg.phase == "anchor" and anchor_reads(runs_dir, cfg.dataset, cfg.arm) >= MAX_ANCHOR_READS:
-        raise PermissionError(
-            f"{cfg.arm} on {cfg.dataset} used its {MAX_ANCHOR_READS} anchor reads"
-        )
+        raise TestRefused(f"{cfg.arm} on {cfg.dataset} used its {MAX_ANCHOR_READS} anchor reads")
 
     access_log = run_dir / "test_access.jsonl"
     if cfg.phase == "final" and count_reads(access_log)["final"]:
-        raise PermissionError(
+        raise TestRefused(
             f"{cfg.run_id}: an earlier test read did not complete; final runs read test data once"
         )
 
     best_path = run_dir / "best.pt"
     checkpoint_hash = file_hash(best_path)
     if checkpoint_hash != summary["checkpoint_hash"]:
-        raise RunConflict(f"{cfg.run_id}: checkpoint changed after training")
+        raise TestRefused(f"{cfg.run_id}: checkpoint changed after training")
     seed_everything(cfg.seed)
     splits, _ = _prepare_splits(cfg, data_dir)
     model = ARMS[cfg.arm](cfg, splits.train, device)

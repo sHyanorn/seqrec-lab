@@ -66,8 +66,10 @@ def record_failure(run_dir: Path, step: str) -> None:
     }
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "error.txt").write_text(traceback.format_exc(), encoding="utf-8")
-    with (run_dir / "failures.jsonl").open("a", encoding="utf-8") as f:
-        f.write(json.dumps(record) + "\n")
+    path = run_dir / "failures.jsonl"
+    torn = path.exists() and not path.read_bytes().endswith(b"\n")  # a record cut short
+    with path.open("a", encoding="utf-8") as f:
+        f.write(("\n" if torn else "") + json.dumps(record) + "\n")
 
 
 def device_usable(device: torch.device) -> bool:
@@ -86,10 +88,12 @@ def device_usable(device: torch.device) -> bool:
 
 def train_with_retry[T](train: Callable[[], T], run_dir: Path, device: torch.device, log) -> T:
     """Call `train`; after a failure, retry once (training resumes from its last checkpoint)."""
+    tried = 0
     while True:
         finished = (run_dir / "summary.json").exists()  # train() returns the summary
-        if not finished and train_failures(run_dir) >= TRAIN_ATTEMPTS:
+        if tried >= TRAIN_ATTEMPTS or (not finished and train_failures(run_dir) >= TRAIN_ATTEMPTS):
             raise TrainingFailed(f"{run_dir.name}: training failed {TRAIN_ATTEMPTS} times")
+        tried += 1
         try:
             return train()
         except RunConflict:

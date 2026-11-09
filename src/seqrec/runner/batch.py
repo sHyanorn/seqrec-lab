@@ -18,15 +18,29 @@ from seqrec.runner.attempts import (
     train_with_retry,
 )
 from seqrec.runner.config import Plan, load_plan
-from seqrec.runner.run import ARMS, RunConflict, execute, run_dir_of, test_run
+from seqrec.runner.run import (
+    ARMS,
+    RunConflict,
+    TestRefused,
+    config_conflicts,
+    execute,
+    run_dir_of,
+    test_run,
+)
 from seqrec.runner.tune import load_tuning_plan, run_study
 from seqrec.telemetry import warmup_gpu
 
 
-def _check_arms(plan: Plan) -> None:
+def _check_plan(plan: Plan, runs_dir: Path) -> None:
     unknown = sorted({r.arm for r in plan.runs} - set(ARMS))
     if unknown:
         raise ValueError(f"unknown arms in plan: {unknown}")
+    conflicts = config_conflicts(plan.runs, runs_dir)
+    if conflicts:  # an edited plan would otherwise mix configurations (METHODS 5.5)
+        raise RunConflict(
+            f"the plan differs from {len(conflicts)} existing run directories, e.g. "
+            f"{conflicts[0]}; restore the plan or use a new batch name"
+        )
 
 
 def require_data(datasets, data_dir: Path) -> None:
@@ -54,7 +68,7 @@ def _test(cfg, runs_dir: Path, data_dir: Path, device, log) -> bool:
     try:
         test_run(cfg, runs_dir, data_dir, device, log=log)
         return True
-    except (PermissionError, RunConflict) as err:
+    except TestRefused as err:
         log(f"[batch] {cfg.run_id}: test read refused: {err}")
     except Exception:
         record_failure(run_dir_of(cfg, runs_dir), "test")
@@ -71,7 +85,7 @@ def _warm_up(warmup_s: float, dataset: str, split: str, data_dir: Path, device, 
 
 def run_batch(plan_path: Path, runs_dir: Path, data_dir: Path, device: torch.device, log=print):
     plan = load_plan(plan_path)
-    _check_arms(plan)
+    _check_plan(plan, runs_dir)
     pending = [r for r in plan.runs if not (run_dir_of(r, runs_dir) / "summary.json").exists()]
     require_data({r.dataset for r in pending}, data_dir)
     failed = [r.run_id for r in pending if _given_up(r, runs_dir)]
@@ -101,7 +115,7 @@ def test_batch(plan_path: Path, runs_dir: Path, data_dir: Path, device: torch.de
     """Refuses until every run of the plan has finished training (METHODS 5.5); a run whose
     training failed twice has finished (D031) and is not tested, nor is a diverged run."""
     plan = load_plan(plan_path)
-    _check_arms(plan)
+    _check_plan(plan, runs_dir)
     require_data({r.dataset for r in plan.runs}, data_dir)
     summaries = {r.run_id: run_dir_of(r, runs_dir) / "summary.json" for r in plan.runs}
     untrained = [
@@ -144,6 +158,10 @@ def tune_batch(plan_path: Path, runs_dir: Path, data_dir: Path, device: torch.de
         except DeviceLost as err:  # the trial stays running and resumes on the next run
             log(f"[tune] {err}")
             return failed + [err.run_id]
+        except RunConflict as err:  # the plan changed under an existing trial directory
+            log(f"[tune] {study.name}: {err}")
+            failed.append(study.name)
+            continue
         failed += failed_now
         complete = [t for t in opt.trials if t.state.name == "COMPLETE"]
         best = max(complete, key=lambda t: t.value, default=None)

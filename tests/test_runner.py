@@ -398,8 +398,84 @@ def test_a_config_conflict_is_not_a_failed_attempt(workspace):
     run_mod._claim(_cfg("tune"), runs / "b" / _cfg("tune").run_id)
     plan = _plan(runs.parent)
     plan.write_text(plan.read_text().replace('arm = "pop"', 'arm = "pop"\npatience = 3'))
-    assert run_batch(plan, runs, data, CPU, **QUIET) == [_cfg("tune").run_id]
+    with pytest.raises(run_mod.RunConflict, match="differs from 1 existing run"):
+        run_batch(plan, runs, data, CPU, **QUIET)
     assert _failures(runs / "b" / _cfg("tune").run_id) == []
+
+
+def test_an_edited_plan_is_refused_before_any_test_read(workspace):
+    """METHODS 5.5: no test read while a run of the plan can still change."""
+    from seqrec.runner.batch import run_batch, test_batch
+
+    runs, data = workspace
+    plan = _plan(runs.parent, seeds=(1, 2), phase="final")
+    assert run_batch(plan, runs, data, CPU, **QUIET) == []
+    plan.write_text(plan.read_text().replace("seeds = [1, 2]", "seeds = [1, 2]\npatience = 3"))
+    with pytest.raises(run_mod.RunConflict):
+        test_batch(plan, runs, data, CPU, **QUIET)
+    assert not any(runs.rglob("test_access.jsonl"))
+
+
+def test_a_prune_decision_is_saved_with_the_epoch_it_follows(workspace, monkeypatch):
+    runs, data = workspace
+    original, calls = run_mod._save_atomic, {"last": 0}
+
+    def fail_second_checkpoint(obj, path):
+        if path.name == "last.pt":
+            calls["last"] += 1
+            if calls["last"] == 2:
+                raise OSError("simulated failure while saving last.pt")
+        original(obj, path)
+
+    monkeypatch.setattr(run_mod, "_save_atomic", fail_second_checkpoint)
+    cfg = _cfg("tune")
+
+    def prune_after_epoch_1(epoch, value):
+        return epoch >= 1
+
+    with pytest.raises(OSError):
+        run_mod.execute(cfg, runs, data, CPU, report=prune_after_epoch_1, **QUIET)
+    summary = run_mod.execute(cfg, runs, data, CPU, report=prune_after_epoch_1, **QUIET)
+    assert summary["stop_reason"] == "pruned" and summary["epochs"] == 2
+
+
+def test_retries_end_even_when_a_finished_run_keeps_failing(tmp_path):
+    from seqrec.runner.attempts import TrainingFailed, train_with_retry
+
+    (tmp_path / "summary.json").write_text("")  # unreadable, e.g. after a power loss
+
+    def train():
+        raise ValueError("cannot read summary.json")
+
+    with pytest.raises(TrainingFailed):
+        train_with_retry(train, tmp_path, CPU, lambda _: None)
+    assert len(_failures(tmp_path)) == 2
+
+
+def test_a_file_error_after_the_test_read_started_is_recorded(workspace, monkeypatch):
+    from seqrec.runner.batch import run_batch, test_batch
+
+    runs, data = workspace
+    plan = _plan(runs.parent, phase="final")
+    assert run_batch(plan, runs, data, CPU, **QUIET) == []
+
+    def locked(log_path, run_id):
+        raise PermissionError("file in use")
+
+    monkeypatch.setattr(run_mod, "mark_completed", locked)
+    assert test_batch(plan, runs, data, CPU, **QUIET) == [_cfg().run_id]
+    assert [f["step"] for f in _failures(runs / "b" / _cfg().run_id)] == ["test"]
+
+
+def test_a_new_failure_after_a_torn_record_is_kept(tmp_path):
+    from seqrec.runner.attempts import failures, record_failure
+
+    (tmp_path / "failures.jsonl").write_text('{"step": "train"}\n{"step": "tr')
+    try:
+        raise RuntimeError("x")
+    except RuntimeError:
+        record_failure(tmp_path, "train")
+    assert [f["step"] for f in failures(tmp_path)] == ["train", "train"]
 
 
 def test_a_missing_dataset_stops_the_batch_before_any_attempt(workspace):
@@ -437,7 +513,7 @@ def test_testing_skips_runs_that_failed_twice_or_diverged(workspace, monkeypatch
     runs, data = workspace
     plan = _plan(runs.parent, seeds=(1, 2, 3), phase="final")
     failed, diverged = (runs / "b" / _cfg(seed=s).run_id for s in (1, 3))
-    run_mod._claim(_cfg(seed=1), failed)
+    run_mod._claim(_cfg(seed=1, max_epochs=6, patience=2), failed)  # as in the plan
     (failed / "failures.jsonl").write_text('{"step": "train"}\n{"step": "train"}\n')
     original = PopularityModel.score
 

@@ -203,3 +203,17 @@ def test_a_lost_device_leaves_the_trial_to_resume_on_rerun(workspace, monkeypatc
     assert optuna.trial.TrialState.FAIL not in {t.state for t in opt.trials}
     t02 = root / "runs" / "t" / "sasrec-ce-ml-1m-loo-s0-t02" / "failures.jsonl"
     assert len(t02.read_text().splitlines()) == 1
+
+
+def test_a_config_conflict_in_one_study_is_reported_and_others_run(workspace):
+    from seqrec.runner.batch import tune_batch
+
+    root, plan = workspace
+    plan.write_text(plan.read_text() + '[[studies]]\narm = "sasrec-bce"\n')
+    _, _, studies = tune.load_tuning_plan(plan)
+    clash = studies[0].config(0, {})
+    run_mod._claim(clash, run_mod.run_dir_of(clash, root / "runs"))
+    failed = tune_batch(plan, root / "runs", root / "data", CPU, **QUIET)
+    assert failed == ["sasrec-ce-ml-1m"]
+    assert not (run_mod.run_dir_of(clash, root / "runs") / "failures.jsonl").exists()
+    assert len(list((root / "runs" / "t").glob("sasrec-bce-*"))) == 6
