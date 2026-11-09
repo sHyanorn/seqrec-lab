@@ -758,3 +758,12 @@ def test_a_state_saved_before_the_start_rule_resumes_as_started(workspace):
     summary = _crash_then_resume(runs, data, _cfg(), crash_epoch=4, edit_state=drop_start_record)
     assert summary["stop_reason"] == "patience" and summary["epochs"] == 6
     assert summary["start_epoch"] == 2 and summary["start_limit"] == 200
+
+
+def test_export_lists_peak_device_memory(workspace):
+    runs, data = workspace
+    run_mod.execute(_cfg("tune"), runs, data, CPU, **QUIET)
+    path = runs / "b" / _cfg("tune").run_id / "summary.json"
+    summary = json.loads(path.read_text())
+    path.write_text(json.dumps(summary | {"nvml": {"mem_used_mib": {"max": 15500}}}))
+    assert _exported(runs, runs.parent)[_cfg().run_id]["nvml_mem_used_mib_max"] == "15500"

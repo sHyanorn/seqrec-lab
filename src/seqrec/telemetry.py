@@ -106,7 +106,8 @@ def nvml_static() -> dict:
 
 
 class NvmlSampler(threading.Thread):
-    """Samples clocks, temperature, power and clock event reasons at a fixed interval."""
+    """Samples clocks, temperature, power, clock event reasons and device memory in use at a
+    fixed interval."""
 
     def __init__(self, interval_s: float = 0.1):
         super().__init__(daemon=True)
@@ -132,6 +133,10 @@ class NvmlSampler(threading.Thread):
                     "power_w": try_call(lambda: round(nv.nvmlDeviceGetPowerUsage(h) / 1000, 2)),
                     "pstate": try_call(lambda: nv.nvmlDeviceGetPerformanceState(h)),
                     "reasons": try_call(lambda: _event_reasons(nv, h)),
+                    # The whole device, other processes and the display included
+                    "mem_used_mib": try_call(
+                        lambda: round(nv.nvmlDeviceGetMemoryInfo(h).used / 2**20)
+                    ),
                 }
             )
             self._stop_event.wait(self.interval_s)
@@ -171,6 +176,7 @@ def summarize_samples(nv, samples: list[dict]) -> dict:
         "mem_mhz": describe(series("mem_mhz")),
         "temp_c": describe(temps) | {"start": temps[0], "end": temps[-1]} if temps else None,
         "power_w": describe(series("power_w")),
+        "mem_used_mib": describe(series("mem_used_mib")),
         "share_of_samples_with_reason": shares,
     }
 

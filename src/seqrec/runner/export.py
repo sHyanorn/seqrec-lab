@@ -77,6 +77,7 @@ def _row(run_dir: Path) -> dict:
         "gpu_hours": round(summary["wall_s"] / 3600, 4) if "wall_s" in summary else None,
         "git_commit": summary.get("git_commit", "")[:12],
         "sm_mhz_median": (nvml.get("sm_mhz") or {}).get("median"),
+        "nvml_mem_used_mib_max": (nvml.get("mem_used_mib") or {}).get("max"),
         "hardware_slowdown": any(shares.get(k, 0) > 0 for k in HARDWARE_EVENTS),
         "reads_final": reads["final"],
         "reads_anchor": reads["anchor"],
