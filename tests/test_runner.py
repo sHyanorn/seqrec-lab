@@ -619,7 +619,7 @@ def _timed_row(seed, train_s, tag="sigma", params="{}", eval_s=0.1):
 
 
 def test_slow_epochs_flags_runs_far_slower_than_the_same_configuration():
-    """D036: a run whose epoch time exceeds 1.5 times the median of its other seeds."""
+    """D038: a run whose epoch time exceeds 1.5 times the median of its other seeds."""
     from seqrec.runner.export import flag_slow_epochs
 
     rows = [_timed_row(1, 1.73), _timed_row(2, 30.56), _timed_row(3, 1.91)]

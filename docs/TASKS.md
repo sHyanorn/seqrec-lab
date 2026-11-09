@@ -54,6 +54,15 @@ Freeze
 - [x] Anchors inside their bands within three anchor reads per arm, or the arm flagged as in METHODS 11.5 (D032: all four inside after one read)
 - [ ] Seed count from METHODS 7.5 (rule implemented: `seqrec seeds`); updated GPU projection; descoping decisions if needed
 - [ ] Silent-error review and whole-diff review; fixes
+- Before any new anchor run: set `start_limit = 0` in `configs/plans/m2-anchor.toml`, because `seqrec anchors` compares parameters and limits with the plan but not the start limit (D035, D040)
+
+Before M3 tuning starts
+- [ ] CPU continuous integration: tests and lint on every push; tests that need prepared real data are skipped there, and the workflow says so
+- [ ] Invariant checks run once per process and are cached with the splits (`load_splits`), so a dataset rebuilt while a batch runs is not checked again; key the cache on the stored file, or rerun the checks per run
+- [ ] No check that `seqs.items` equals `full.items[seqs.pos]` in every split; add it to the invariants (METHODS 11.1)
+- [ ] bf16 training is checked only by the output dtype; also check an intermediate activation
+- [ ] The known-answer test for the shuffled-order transform (METHODS 3.3) is weak; test exact orders on a hand-made case
+- [ ] The anchor-read limit is enforced in `test_run`, not in `read_test`; move it into the reader so every caller is bound by it
 
 ## M3 RQ1 and RQ2 runs (6 h / 128 to 163 h plus seed reserve / about 3 weeks of laptop time)
 

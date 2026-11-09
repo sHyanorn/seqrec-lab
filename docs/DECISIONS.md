@@ -345,7 +345,7 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
 - Decision:
   - At the start of every run of a neural arm, the runner computes MostPop's validation NDCG@10 on the run's own dataset and split, from its training split (B1, METHODS 4.4), and records it as `start_reference` in the manifest and summary.
   - A run starts at the first epoch whose validation NDCG@10 exceeds 1.5 times that value. Before it starts, patience does not count; afterwards patience and the epoch cap act as in METHODS 5.2.
-  - A run that has not started after `start_limit` epochs (default 200) stops with reason `no_start`. It counts as truncated, so the doubling rule of METHODS 5.2 (D030) covers it, and doubling also doubles the start limit. It keeps its best checkpoint and enters every analysis like any other run.
+  - A run that has not started after `start_limit` epochs (default 200) stops with reason `no_start`. It counts as truncated, so the doubling rule of METHODS 5.2 (D030) covers it, and doubling also doubles the start limit. The code does not double it: a plan with doubled limits sets `start_limit` to twice the default by hand, next to `max_epochs`, `patience` and `guard_hours`. It keeps its best checkpoint and enters every analysis like any other run.
   - The rule applies to all neural arms (A1 to A5). The floor baselines do not train and have start limit 0. Median pruning in tuning stays as in METHODS 5.4.
 - Effect on existing runs: a run that passed the threshold before patience fired follows the same path under the rule. All twelve seed-variance runs of A1 to A3 and A5, and gSASRec seed 2, ended above 0.14 against a threshold of 0.031, so their results stand. gSASRec seeds 1 to 3 are rerun under the rule in batch `m2-gsasrec`, whose runs replace the pilot's gSASRec seed-variance runs in D033 and D034.
 - Analysis inputs: `seqrec seeds`, `seqrec budget` and `seqrec anchors --pilot` accept several exports, and runs in a later file replace earlier runs with the same tag, dataset, split, shuffle and arm. D033 and D034 read `results/runs/m2-pilot.csv` followed by `results/runs/m2-gsasrec.csv`.
@@ -353,6 +353,7 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
 - Cost: if every gSASRec run starts as seed 2 and the anchor run did, the central D034 projection grows by about 53 GPU hours (gSASRec on MovieLens-1M from 117 to 234 epochs per run).
 - Alternatives: the anchor limits for gSASRec (10,000 epochs, patience 200) add about 164 hours and stretch the pruning warm-up to 1,000 epochs; a lower t is already tuned over [0.5, 1.0], and changing it in the seed-variance runs would leave the anchor configuration; dropping stuck runs selects on the outcome.
 - Tests: the start-rule tests in `tests/test_runner.py` and `test_a_later_export_replaces_the_runs_it_repeats` failed before their changes (METHODS 11.5).
+- Run directories and checkpoints from before this rule, and a later export with unfinished runs: D040.
 
 ## D036 Time counted by the guard
 
@@ -372,12 +373,14 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
 - Decision: export marks `slow_epochs` when a run's median training plus validation time per epoch exceeds 1.5 times the median of the other runs with the same batch, dataset, split, shuffle, arm, parameters and tag, that is, its other seeds. Runs without such runs (tuning trials, timing runs) get no value. RQ2 timing analyses treat a flagged run like one with a hardware slowdown: it stays in the primary analysis and is left out of the repeat of METHODS 7.6. The flag tests failed before the change (METHODS 11.5).
 - Rationale: in the pilot, gSASRec seed 2 took 30.6 s per training epoch against 1.7 to 1.9 s for its other seeds and the anchor run, at a higher SM clock (median 2,917 against about 2,000 MHz) and with no hardware slowdown event. Neither flag of METHODS 8 catches such a run, and its times would enter time to target (H2a) unmarked.
 - Limitation: tuning trials have no other seeds, so a slowed trial is not flagged; under the guard (D036) it can be marked truncated and count toward the doubling rule of METHODS 5.2.
+- `test_export_flags_the_slow_seed` checks the exported values of the flag (D040).
 
 ## D039 Step-time profiler
 
 - Date: 2026-11-09. Status: accepted. A measurement tool outside METHODS; no analysis uses its output.
 - Decision: `scripts/profile_step.py` trains one arm for a few steps on one prepared dataset through the arm's own epoch loop and prints wall time, process CPU time and GPU kernel time per step. It reads only the training split and writes nothing. `tests/test_profile_step.py` failed before the script existed (METHODS 11.5).
 - Rationale: in the pilot timing runs every arm took about 7 ms per step on Steam and Video_Games, at both configuration sizes, which points to a fixed cost per step outside GPU compute. What a change to the training loop could save depends on how much of a step the GPU is busy, which only the GPU machine can measure.
+- GPU time counted once per kernel, per-step times without the cost per epoch, and `--from-run`: D040.
 
 ## D040 Fixes from the M2 close review
 
@@ -389,3 +392,4 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
 - `seqrec seeds`, `anchors` and `budget` stop with status 1 when an export after the first holds a run that did not finish training. Such a file replaces whole groups (D035), so a failed seed would have lowered n and changed σ without notice (`test_a_rerun_with_an_unfinished_run_is_refused`).
 - The NVML sampler also records device memory in use (`nvmlDeviceGetMemoryInfo`, the whole device, other processes and the display included). Run summaries give its distribution and export its peak as `nvml_mem_used_mib_max`, next to the PyTorch allocation peak per epoch, so a run that came close to the 16 GB can be found (`test_the_sampler_records_device_memory_and_its_peak`, `test_export_lists_peak_device_memory`).
 - `seqrec test` compares the training and full-data fingerprints with the run's manifest before the test read and refuses a run whose data changed since training; the refusal is not a read and not a failure (D031). Before, only a resumed training session compared the training fingerprint (`test_a_run_is_not_tested_on_data_other_than_it_trained_on`, `test_a_rebuilt_dataset_is_refused_before_the_test_read`).
+- `test_the_guard_leaves_out_set_up_and_adds_up_sessions` extends the D036 test to set-up time and an interrupted run.

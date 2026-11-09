@@ -20,7 +20,7 @@ from seqrec.runner.run import MAX_ANCHOR_READS
 HARDWARE_EVENTS = ("hw_slowdown", "hw_thermal", "hw_power_brake")
 TRIAL_TAG = re.compile(r"t\d+")
 STOPPED = ("patience", "max_epochs", "guard", "no_start")
-SLOW_FACTOR = 1.5  # D036
+SLOW_FACTOR = 1.5  # D038
 
 
 def _load(path: Path) -> dict:
@@ -90,7 +90,7 @@ def _row(run_dir: Path) -> dict:
 
 
 def flag_slow_epochs(rows: list[dict]) -> None:
-    """Set `slow_epochs` on every row (D036): True when the run's median training plus
+    """Set `slow_epochs` on every row (D038): True when the run's median training plus
     validation time per epoch exceeds SLOW_FACTOR times the median of the other runs with
     the same batch, dataset, split, shuffle, arm, parameters and tag (its other seeds).
     None when the run has no epoch time or no such other run."""
