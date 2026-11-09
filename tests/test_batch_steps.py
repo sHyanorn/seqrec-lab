@@ -17,8 +17,20 @@ pytestmark = pytest.mark.skipif(shutil.which("bash") is None, reason="needs bash
 
 
 def steps(*args, cwd=REPO, env=None, path_prefix=None):
-    full = {k: v for k, v in os.environ.items() if not k.startswith(("GITHUB_", "GIT_"))}
-    full |= {"GITHUB_REF": "refs/heads/main", "TASK": "run", "HOURS": "23"} | (env or {})
+    job = (
+        "GITHUB_",
+        "GIT_",
+        "GH_",
+        "PUSH_",
+        "SEQREC_",
+        "TASK",
+        "PLAN",
+        "HOURS",
+        "PROFILE_",
+        "REPEATS",
+    )
+    full = {k: v for k, v in os.environ.items() if not k.startswith(job)}
+    full |= {"GITHUB_REF": "refs/heads/main", "TASK": "run", "HOURS": "22"} | (env or {})
     if path_prefix:
         full["PATH"] = f"{path_prefix}{os.pathsep}{full['PATH']}"
     return subprocess.run(
@@ -73,8 +85,8 @@ def test_unknown_tasks_are_rejected(task):
     assert steps("check-inputs", env={"TASK": task, "PLAN": "m2-anchor.toml"}).returncode == 1
 
 
-@pytest.mark.parametrize("hours", ["0", "24", "1.5", "", "2h"])
-def test_hours_outside_1_to_23_are_rejected(hours):
+@pytest.mark.parametrize("hours", ["0", "23", "1.5", "", "2h"])
+def test_hours_outside_1_to_22_are_rejected(hours):
     result = steps("check-inputs", env={"PLAN": "m2-anchor.toml", "HOURS": hours})
     assert result.returncode == 1
     assert "hours" in result.stderr
@@ -127,6 +139,11 @@ def test_repeats_outside_1_to_20_are_rejected(repeats):
     assert "repeats" in result.stderr
 
 
+def test_the_test_task_has_no_hour_limit_to_check():
+    env = {"TASK": "test", "PLAN": "m2-anchor.toml", "HOURS": ""}
+    assert steps("check-inputs", env=env).returncode == 0
+
+
 def test_setup_needs_no_other_input():
     assert steps("check-inputs", env={"TASK": "setup"}).returncode == 0
 
@@ -138,21 +155,28 @@ STATUS_ENV = {
     "GITHUB_API_URL": "https://api.example",
     "GITHUB_REPOSITORY": "o/r",
     "GITHUB_SHA": "abc123",
+    "GITHUB_RUN_ID": "77",
+    "GITHUB_SERVER_URL": "https://github.example",
 }
+RECORD_POSTS = 'printf "%s\\n" "$@" | grep "^{{" >> {}/posts; cat > /dev/null'
 
 
 def test_status_posts_one_commit_status(tmp_path):
-    fake(tmp_path / "bin", "curl", f'printf "%s\\n" "$@" > {tmp_path}/curl-args')
+    fake(
+        tmp_path / "bin", "curl", f'printf "%s\\n" "$@" > {tmp_path}/curl-args; cat > {tmp_path}/in'
+    )
     result = steps("status", "pending", 'say "hi"\n' + "x" * 200, env=STATUS_ENV,
                    path_prefix=tmp_path / "bin")  # fmt: skip
     assert result.returncode == 0
     args = (tmp_path / "curl-args").read_text(encoding="utf-8")
     assert "https://api.example/repos/o/r/statuses/abc123" in args
-    assert "Authorization: Bearer t0ken" in args
+    assert "t0ken" not in args  # the token goes in on stdin, not on the command line
+    assert (tmp_path / "in").read_text(encoding="utf-8").strip() == "Authorization: Bearer t0ken"
     body = next(line for line in args.splitlines() if line.startswith("{"))
     sent = json.loads(body)
     assert sent["state"] == "pending"
-    assert sent["context"] == "batch/progress"
+    assert sent["context"] == "batch/77"  # one context per job: jobs do not overwrite each other
+    assert sent["target_url"] == "https://github.example/o/r/actions/runs/77"
     assert sent["description"].startswith("say hi")
     assert len(sent["description"]) <= 140
     assert "t0ken" not in result.stdout + result.stderr
@@ -177,8 +201,8 @@ def plan_env(tmp_path, **more):
 
 
 def test_plan_runs_the_task_and_reports_start_and_success(tmp_path):
-    fake(tmp_path / "bin", "curl", f'printf "%s\\n" "$@" | grep "^{{" >> {tmp_path}/posts')
-    fake(tmp_path / "bin", "uv", f'echo "$@" > {tmp_path}/uv-args')
+    fake(tmp_path / "bin", "curl", RECORD_POSTS.format(tmp_path))
+    fake(tmp_path / "bin", "uv", f'echo "$@" > {tmp_path}/uv-args; env > {tmp_path}/uv-env')
     runs = tmp_path / "home" / "runs" / "m2-anchor"
     for name in ("r1", "r2"):
         (runs / name).mkdir(parents=True)
@@ -192,12 +216,14 @@ def test_plan_runs_the_task_and_reports_start_and_success(tmp_path):
     ]  # fmt: skip
     posts = (tmp_path / "posts").read_text(encoding="utf-8").splitlines()
     assert '"state":"pending"' in posts[0]
-    assert '"state":"success"' in posts[-1]
+    assert '"state":"pending"' in posts[-1]  # success is reported only after the commit step
     assert "1 runs trained" in posts[-1]
+    assert "plan finished" in posts[-1]
+    assert "t0ken" not in (tmp_path / "uv-env").read_text(encoding="utf-8")
 
 
 def test_plan_passes_a_failure_on_and_reports_it(tmp_path):
-    fake(tmp_path / "bin", "curl", f'printf "%s\\n" "$@" | grep "^{{" >> {tmp_path}/posts')
+    fake(tmp_path / "bin", "curl", RECORD_POSTS.format(tmp_path))
     fake(tmp_path / "bin", "uv", "exit 3")
     result = steps("plan", env=plan_env(tmp_path), path_prefix=tmp_path / "bin")
     assert result.returncode == 3
@@ -205,7 +231,7 @@ def test_plan_passes_a_failure_on_and_reports_it(tmp_path):
 
 
 def test_plan_reports_while_running_and_stops_at_the_hour_limit(tmp_path):
-    fake(tmp_path / "bin", "curl", f'printf "%s\\n" "$@" | grep "^{{" >> {tmp_path}/posts')
+    fake(tmp_path / "bin", "curl", RECORD_POSTS.format(tmp_path))
     fake(tmp_path / "bin", "uv", "sleep 30")
     env = plan_env(tmp_path, HOURS="1", HOUR_SECONDS="3")  # an hour of 3 seconds
     result = steps("plan", env=env, path_prefix=tmp_path / "bin")
@@ -216,6 +242,14 @@ def test_plan_reports_while_running_and_stops_at_the_hour_limit(tmp_path):
     assert "hour limit" in posts[-1]
     leftover = subprocess.run(["pgrep", "-f", "sleep 30"], capture_output=True, text=True)
     assert leftover.stdout == ""
+
+
+def test_the_test_task_is_never_cut_short(tmp_path):
+    """A test read that is interrupted counts as used and cannot be repeated."""
+    fake(tmp_path / "bin", "curl", "cat > /dev/null")
+    fake(tmp_path / "bin", "uv", "sleep 2")
+    env = plan_env(tmp_path, TASK="test", HOURS="1", HOUR_SECONDS="1")
+    assert steps("plan", env=env, path_prefix=tmp_path / "bin").returncode == 0
 
 
 # --- profile ------------------------------------------------------------------------------
@@ -256,7 +290,7 @@ def clone(tmp_path):
     ident = ["-c", "user.name=A U Thor", "-c", "user.email=author@example.com"]
     for rel in ("results/data/stats.csv", "results/runs/b1.csv", "results/runs/b2.csv"):
         (work / rel).parent.mkdir(parents=True, exist_ok=True)
-        (work / rel).write_text("v1\n", encoding="utf-8")
+        (work / rel).write_text("run_id,x\nr1,v1\n", encoding="utf-8")
     git("add", ".", cwd=work)
     git(*ident, "commit", "-m", "feat: first", cwd=work)
     git("push", "origin", "HEAD:main", cwd=work)
@@ -274,10 +308,10 @@ def log(repo, fmt="%an <%ae> %s"):
 def test_data_unchanged_passes_on_a_clean_tree_and_fails_on_any_difference(clone):
     work, _, _ = clone
     assert steps("data-unchanged", cwd=work).returncode == 0
-    (work / "results/data/stats.csv").write_text("v2\n", encoding="utf-8")
+    (work / "results/data/stats.csv").write_text("run_id,x\nr1,v2\n", encoding="utf-8")
     result = steps("data-unchanged", cwd=work)
     assert result.returncode == 1
-    assert "+v2" in result.stdout
+    assert "+r1,v2" in result.stdout
     git("checkout", "results/data/stats.csv", cwd=work)
     (work / "results/data/new.csv").write_text("x\n", encoding="utf-8")
     result = steps("data-unchanged", cwd=work)
@@ -285,21 +319,40 @@ def test_data_unchanged_passes_on_a_clean_tree_and_fails_on_any_difference(clone
     assert "new.csv" in result.stdout
 
 
-def test_commit_adds_only_the_named_paths_and_pushes_as_the_last_author(clone):
+BOT = "github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>"
+
+
+def push(repo, rel, text, subject):
+    (repo / rel).write_text(text, encoding="utf-8")
+    git("add", ".", cwd=repo)
+    git("-c", "user.name=X", "-c", "user.email=x@example.com", "commit", "-m", subject, cwd=repo)
+    git("push", "origin", "HEAD:main", cwd=repo)
+
+
+def test_commit_pushes_only_the_named_paths_under_a_fixed_identity(clone):
     work, _, origin = clone
-    (work / "results/runs/b1.csv").write_text("v2\n", encoding="utf-8")
+    (work / "results/runs/b1.csv").write_text("run_id,x\nr1,v2\n", encoding="utf-8")
     (work / "results/runs/b2.csv").write_text("not this job\n", encoding="utf-8")
-    result = steps(
-        "commit", "chore(results): add run b1.toml results",
-        "results/runs/b1.csv", "results/runs/tuning_best.csv", cwd=work,
-    )  # fmt: skip
+    result = steps("commit", "chore(results): add run b1 results", "results/runs/b1.csv",
+                   cwd=work, env={"GITHUB_RUN_ID": "77", "GITHUB_SHA": "abc123"})  # fmt: skip
     assert result.returncode == 0, result.stderr
-    assert log(origin) == "A U Thor <author@example.com> chore(results): add run b1.toml results"
+    assert log(origin) == f"{BOT} chore(results): add run b1 results"
+    assert log(origin, "%cn <%ce>") == BOT
+    assert log(origin, "%b") == "Run 77 at abc123"
     names = subprocess.run(
         ["git", "show", "--name-only", "--format=", "main"],
         cwd=origin, capture_output=True, text=True,
     )  # fmt: skip
     assert names.stdout.split() == ["results/runs/b1.csv"]
+    assert (work / "results/runs/b2.csv").read_text(encoding="utf-8") == "not this job\n"
+
+
+def test_commit_refuses_a_path_that_does_not_exist(clone):
+    work, _, origin = clone
+    result = steps("commit", "chore(results): x", "results/runs/missing.csv", cwd=work)
+    assert result.returncode == 1
+    assert "does not exist" in result.stderr
+    assert log(origin).endswith("feat: first")
 
 
 def test_commit_does_nothing_when_the_paths_are_unchanged(clone):
@@ -307,43 +360,67 @@ def test_commit_does_nothing_when_the_paths_are_unchanged(clone):
     (work / "results/runs/b2.csv").write_text("not this job\n", encoding="utf-8")
     result = steps("commit", "chore(results): x", "results/runs/b1.csv", cwd=work)
     assert result.returncode == 0
+    assert "nothing to commit" in result.stdout
     assert log(origin).endswith("feat: first")
 
 
 def test_commit_lands_on_top_of_commits_pushed_meanwhile(clone):
     work, other, origin = clone
-    (other / "README.md").write_text("docs\n", encoding="utf-8")
-    git("add", ".", cwd=other)
-    git("-c", "user.name=X", "-c", "user.email=x@example.com", "commit", "-m", "docs: x", cwd=other)
-    git("push", "origin", "HEAD:main", cwd=other)
-    (work / "results/runs/b1.csv").write_text("v2\n", encoding="utf-8")
-    (work / "results/runs/b2.csv").write_text("not this job\n", encoding="utf-8")
+    push(other, "README.md", "docs\n", "docs: x")
+    (work / "results/runs/b1.csv").write_text("run_id,x\nr1,v2\n", encoding="utf-8")
     result = steps("commit", "chore(results): add b1", "results/runs/b1.csv", cwd=work)
     assert result.returncode == 0, result.stderr
     assert log(origin, "%s") == "chore(results): add b1"
-    assert log(origin, "%P") != ""
     parent = subprocess.run(
         ["git", "log", "-1", "--format=%s", "main~1"], cwd=origin, capture_output=True, text=True
     )
     assert parent.stdout.strip() == "docs: x"
+    files = subprocess.run(
+        ["git", "ls-tree", "-r", "--name-only", "main"], cwd=origin, capture_output=True, text=True
+    )
+    assert "README.md" in files.stdout.split()
 
 
-def test_commit_fails_without_pushing_when_the_same_file_changed_meanwhile(clone):
+def test_commit_replaces_the_file_on_main_with_the_new_export(clone):
     work, other, origin = clone
-    (other / "results/runs/b1.csv").write_text("theirs\n", encoding="utf-8")
-    git("add", ".", cwd=other)
-    git("-c", "user.name=X", "-c", "user.email=x@example.com", "commit", "-m", "fix: x", cwd=other)
-    git("push", "origin", "HEAD:main", cwd=other)
-    (work / "results/runs/b1.csv").write_text("ours\n", encoding="utf-8")
+    push(other, "results/runs/b1.csv", "run_id,x\nr1,old\n", "chore(results): earlier export")
+    (work / "results/runs/b1.csv").write_text("run_id,x\nr1,new\nr2,new\n", encoding="utf-8")
+    result = steps("commit", "chore(results): add b1", "results/runs/b1.csv", cwd=work)
+    assert result.returncode == 0, result.stderr
+    shown = subprocess.run(
+        ["git", "show", "main:results/runs/b1.csv"], cwd=origin, capture_output=True, text=True
+    )
+    assert shown.stdout == "run_id,x\nr1,new\nr2,new\n"
+
+
+def test_commit_refuses_an_export_that_lacks_runs_main_has(clone):
+    """The same batch run on another machine: its rows must not disappear from main."""
+    work, other, origin = clone
+    push(other, "results/runs/b1.csv", "run_id,x\nr1,a\nr9,a\n", "chore(results): other machine")
+    (work / "results/runs/b1.csv").write_text("run_id,x\nr1,b\nr2,b\n", encoding="utf-8")
     result = steps("commit", "chore(results): add b1", "results/runs/b1.csv", cwd=work)
     assert result.returncode == 1
-    assert "conflict" in result.stderr
-    assert log(origin, "%s") == "fix: x"
+    assert "r9" in result.stderr
+    assert log(origin, "%s") == "chore(results): other machine"
+
+
+def test_commit_adds_new_files_of_a_directory_and_keeps_those_on_main(clone):
+    work, other, origin = clone
+    push(other, "results/data/later.csv", "x\n", "chore: later")
+    (work / "results/data/report.txt").write_text("r\n", encoding="utf-8")
+    result = steps("commit", "chore(env): add a report", "results/data", cwd=work)
+    assert result.returncode == 0, result.stderr
+    files = subprocess.run(
+        ["git", "ls-tree", "-r", "--name-only", "main"], cwd=origin, capture_output=True, text=True
+    ).stdout.split()
+    assert {"results/data/later.csv", "results/data/report.txt", "results/data/stats.csv"} <= set(
+        files
+    )
 
 
 def test_commit_with_push_dry_run_leaves_the_remote_alone(clone):
     work, _, origin = clone
-    (work / "results/runs/b1.csv").write_text("v2\n", encoding="utf-8")
+    (work / "results/runs/b1.csv").write_text("run_id,x\nr1,v2\n", encoding="utf-8")
     result = steps("commit", "chore(results): add b1", "results/runs/b1.csv", cwd=work,
                    env={"PUSH_DRY_RUN": "1"})  # fmt: skip
     assert result.returncode == 0, result.stderr

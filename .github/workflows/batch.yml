@@ -14,9 +14,9 @@ on:
         description: plan file name in configs/plans (run, tune, test)
         type: string
       hours:
-        description: stop the plan after this many hours, 1 to 23 (run, tune, test)
+        description: stop the plan after this many hours, 1 to 22 (run, tune)
         type: number
-        default: 23
+        default: 22
       profile_args:
         description: profile_step.py arguments (profile)
         type: string
@@ -39,6 +39,8 @@ concurrency:
 
 env:
   SEQREC_HOME: /tmp/seqrec
+  STOP_REQUEST: /tmp/seqrec/stop-request
+  MACHINE: hosted
   PUSH_DRY_RUN: "1"
   TASK: ${{ inputs.task }}
   PLAN: ${{ inputs.plan }}
@@ -48,18 +50,19 @@ env:
 
 jobs:
   batch:
+    if: github.ref == 'refs/heads/main' # a guard against a mistaken ref
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
       - name: Claim the machine
         run: |
           mkdir -p "$SEQREC_HOME/bin"
-          rm -f "$SEQREC_HOME/stop-request" # a request left by the job before this one
+          rm -f "$STOP_REQUEST" # a request left by the job before this one
           echo "$SEQREC_HOME/bin" >> "$GITHUB_PATH"
           curl -LsSf https://astral.sh/uv/0.11.32/install.sh | env UV_INSTALL_DIR="$SEQREC_HOME/bin" UV_NO_MODIFY_PATH=1 sh
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          persist-credentials: false # only the commit steps get the token
+          persist-credentials: false # the token is given to single steps, never to the code under test
       - name: Check inputs
         run: bash scripts/cloud/batch_steps.sh check-inputs
       - name: Sync
@@ -67,14 +70,14 @@ jobs:
         run: uv sync --locked --extra cpu
       - name: Machine
         run: |
-          lscpu | grep "Model name"; nproc; uname -r; hostname
+          lscpu | grep "Model name"; nproc; uname -r
           uv --version
           uv run --no-sync python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
       - name: Report start
         if: inputs.task == 'setup' || inputs.task == 'profile'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: bash scripts/cloud/batch_steps.sh status pending "$TASK started"
+        run: bash scripts/cloud/batch_steps.sh status pending "$TASK started on $MACHINE"
       - name: Setup
         id: setup
         if: inputs.task == 'setup'
@@ -91,16 +94,22 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: >
           bash scripts/cloud/batch_steps.sh commit
-          "chore(env): add the check_env report of machine $(hostname)" results/env
+          "chore(env): add the check_env report of machine $MACHINE" results/env
       - name: Profile
         if: inputs.task == 'profile'
         timeout-minutes: 120
         run: bash scripts/cloud/batch_steps.sh profile
+      # An export that already fails (a test read left incomplete) would fail again after the
+      # plan; better before hours of training than after.
+      - name: Export check
+        if: contains(fromJSON('["run", "tune", "test"]'), inputs.task)
+        timeout-minutes: 30
+        run: uv run --no-sync seqrec export --runs-dir "$SEQREC_HOME/runs" --out-dir "$RUNNER_TEMP/export-check"
       - name: Plan
         id: plan
         if: contains(fromJSON('["run", "tune", "test"]'), inputs.task)
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }} # for progress statuses; removed from the plan's own environment
         run: bash scripts/cloud/batch_steps.sh plan
       # Results are committed only when the plan step succeeded. After a failure, a
       # cancellation or a timeout the runs stay on the volume and the same job resumes them.
@@ -108,14 +117,16 @@ jobs:
         if: steps.plan.outcome == 'success'
         timeout-minutes: 30
         run: uv run --no-sync seqrec export --runs-dir "$SEQREC_HOME/runs"
+      # Only this batch's file: overview.csv and tuning_best.csv cover whatever is on this
+      # machine's volume, not what is in the repository.
       - name: Commit results
         if: steps.plan.outcome == 'success'
         timeout-minutes: 10
         env:
           GH_TOKEN: ${{ github.token }}
         run: >
-          bash scripts/cloud/batch_steps.sh commit "chore(results): add $TASK ${PLAN%.toml} results"
-          "results/runs/${PLAN%.toml}.csv" results/runs/overview.csv results/runs/tuning_best.csv
+          bash scripts/cloud/batch_steps.sh commit
+          "chore(results): add $TASK ${PLAN%.toml} results" "results/runs/${PLAN%.toml}.csv"
       - name: Report end
         if: always()
         env:
@@ -123,7 +134,7 @@ jobs:
           JOB_STATUS: ${{ job.status }}
         run: |
           [ "$JOB_STATUS" = success ] && state=success || state=failure
-          bash scripts/cloud/batch_steps.sh status "$state" "$TASK ${PLAN%.toml} job ended: $JOB_STATUS, $(git log -1 --format=%h)"
+          bash scripts/cloud/batch_steps.sh status "$state" "$TASK ${PLAN%.toml} on $MACHINE ended: $JOB_STATUS"
       - name: Request stop
         if: always() && inputs.stop
-        run: touch "$SEQREC_HOME/stop-request" # the machine's watchdog acts on this file
+        run: touch "$STOP_REQUEST" # the machine's watchdog acts on this file

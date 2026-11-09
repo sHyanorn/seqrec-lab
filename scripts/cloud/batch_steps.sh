@@ -53,9 +53,10 @@ check_inputs() {
     [ "${GITHUB_REF:-}" = refs/heads/main ] || die "ref: batches run from main only"
     case "${TASK:-}" in
         setup) ;;
-        run | tune | test)
+        test) plan_batch > /dev/null ;;
+        run | tune)
             plan_batch > /dev/null
-            [[ "${HOURS:-}" =~ ^([1-9]|1[0-9]|2[0-3])$ ]] || die "hours: a whole number from 1 to 23"
+            [[ "${HOURS:-}" =~ ^([1-9]|1[0-9]|2[0-2])$ ]] || die "hours: a whole number from 1 to 22"
             ;;
         profile)
             profile_args > /dev/null
@@ -65,18 +66,20 @@ check_inputs() {
     esac
 }
 
-# Commit status "batch/progress" on the commit the job runs from. The job log is readable
+# Commit status "batch/<run id>" on the commit the job runs from. The job log is readable
 # only after the job ends; this is readable while it runs. Never fails the step.
 status() {
     local text
     text=$(printf '%s' "$2" | tr -cd 'A-Za-z0-9 ._:,/-' | cut -c1-140)
-    curl -fsS -m 20 -o /dev/null -H "Authorization: Bearer $GH_TOKEN" \
+    curl -fsS -m 20 -o /dev/null -H @- \
         "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
-        -d "{\"state\":\"$1\",\"context\":\"batch/progress\",\"description\":\"$text\"}" || true
+        -d "{\"state\":\"$1\",\"context\":\"batch/$GITHUB_RUN_ID\",\"description\":\"$text\",\"target_url\":\"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\"}" \
+        <<< "Authorization: Bearer $GH_TOKEN" || true
 }
 
 plan() {
     local batch runs code=0 ticker
+    local -a limit=()
     batch=$(plan_batch)
     runs="$SEQREC_HOME/runs"
     progress() { # finished runs of this batch and the run directory written last
@@ -86,16 +89,22 @@ plan() {
         status "$1" "$TASK $batch: $trained runs trained, newest ${newest:-none}${2:+, $2}"
     }
     progress pending
-    (while sleep "${PROGRESS_SECONDS:-300}"; do progress pending; done) &
+    (while sleep "${PROGRESS_SECONDS:-600}"; do progress pending; done) &
     ticker=$!
     # HOURS bounds the cost of a batch that hangs; a stopped batch resumes when run again.
-    timeout --signal=INT --kill-after=60 "$((HOURS * ${HOUR_SECONDS:-3600}))" \
-        uv run --no-sync seqrec "$TASK" "configs/plans/$PLAN" \
+    # Test reads get no limit: an interrupted read counts as used and cannot be repeated.
+    if [ "$TASK" != test ]; then
+        limit=(timeout --signal=INT --kill-after=60 "$((HOURS * ${HOUR_SECONDS:-3600}))")
+    fi
+    # The code under test gets no token.
+    "${limit[@]}" env -u GH_TOKEN uv run --no-sync seqrec "$TASK" "configs/plans/$PLAN" \
         --runs-dir "$runs" --data-dir "$SEQREC_HOME/data" || code=$?
+    pkill -P "$ticker" 2> /dev/null || true
     kill "$ticker" 2> /dev/null || true
+    wait "$ticker" 2> /dev/null || true
     case "$code" in
-        0) progress success ;;
-        124 | 137) progress failure "stopped at the $HOURS hour limit" ;;
+        0) progress pending "plan finished" ;; # success is reported once the results are pushed
+        124) progress failure "stopped at the $HOURS hour limit" ;;
         *) progress failure "exit code $code" ;;
     esac
     return "$code"
@@ -121,35 +130,48 @@ data_unchanged() {
     die "results/data differs from the committed files"
 }
 
-# Commit the named paths, and only those, on top of main as it is now, then push.
+# Put the named paths, and only those, on top of main as it is now and push. Each file
+# replaces main's version whole; a CSV that lacks rows main has is refused, so a batch
+# exported on another machine cannot be dropped.
 commit() {
-    local message=$1 path
+    local message=$1 path lost
     shift
     for path in "$@"; do
-        if [ -e "$path" ]; then git add -- "$path"; fi
+        [ -e "$path" ] || die "commit: $path does not exist"
     done
-    if git diff --cached --quiet; then
-        echo "nothing to commit"
-        return 0
-    fi
-    git -c user.name="$(git log -1 --format=%an)" -c user.email="$(git log -1 --format=%ae)" \
-        commit --quiet -m "$message"
     if [ -n "${GH_TOKEN:-}" ]; then # the checkout keeps no credentials; only this step can push
         export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.https://github.com/.extraheader"
         GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
         export GIT_CONFIG_VALUE_0
     fi
-    git stash --quiet --include-untracked # what the export wrote for other batches
+    tree=$(mktemp -d) # not local: the exit trap reads it
+    trap 'git worktree remove --force "$tree/main" 2> /dev/null; rm -rf "$tree"' EXIT
     for _ in 1 2 3; do
-        git fetch --quiet origin main
-        if ! git -c user.name=batch -c user.email=batch@localhost rebase --quiet FETCH_HEAD; then
-            git rebase --abort
-            die "conflict with main: the results stay in the runs directory, nothing was pushed"
+        if git fetch --quiet origin main; then
+            git worktree add --quiet --detach "$tree/main" FETCH_HEAD
+            for path in "$@"; do
+                if [[ "$path" == *.csv && -f "$tree/main/$path" ]]; then
+                    lost=$(LC_ALL=C comm -23 <(cut -d, -f1 "$tree/main/$path" | LC_ALL=C sort) \
+                        <(cut -d, -f1 "$path" | LC_ALL=C sort) | tr '\n' ' ')
+                    [ -z "$lost" ] || die "commit: main's $path has rows this export lacks: $lost"
+                fi
+                mkdir -p "$(dirname "$tree/main/$path")"
+                cp -rT "$path" "$tree/main/$path"
+            done
+            git -C "$tree/main" add -- "$@"
+            if git -C "$tree/main" diff --cached --quiet; then
+                echo "nothing to commit"
+                return 0
+            fi
+            git -C "$tree/main" -c user.name="github-actions[bot]" \
+                -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+                commit --quiet -m "$message" ${GITHUB_RUN_ID:+-m "Run $GITHUB_RUN_ID at $GITHUB_SHA"}
+            if git -C "$tree/main" push ${PUSH_DRY_RUN:+--dry-run} origin HEAD:main; then return 0; fi
+            git worktree remove --force "$tree/main"
         fi
-        if git push ${PUSH_DRY_RUN:+--dry-run} origin HEAD:main; then return 0; fi
         sleep 5
     done
-    die "push failed"
+    die "commit: push failed"
 }
 
 case "${1:-}" in
