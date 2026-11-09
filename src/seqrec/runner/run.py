@@ -3,8 +3,10 @@
 Run directory (runs/<batch>/<run_id>/):
     config.json, manifest.json   what was run, on which code and data, invariants passed
     metrics.jsonl                one line per finished epoch
-    last.pt                      resume state, including the best weights so far (local only)
-    best.pt                      the selected checkpoint, written when training ends
+    last.pt                      resume state, including the best weights so far; removed
+                                 when training ends (local only)
+    best.pt                      the selected weights, written when training ends; removed
+                                 for tuning runs, which are never tested
     nvml.jsonl                   GPU telemetry at 1 Hz
     summary.json                 written when training ends; marks the run as trained
     test_access.jsonl, test.json written by `test_run` (phases final and anchor only)
@@ -46,8 +48,9 @@ MAX_ANCHOR_READS = 3
 class Model(Protocol):
     """state_dict returns a snapshot of everything training depends on: weights, optimizer,
     scaler and any random generator the model owns. Optional attributes: `hparams` (resolved
-    hyperparameters, recorded in the manifest) and `sample_positions()` (full-log positions
-    used by one sampled training batch, checked against the splits)."""
+    hyperparameters, recorded in the manifest), `sample_positions()` (full-log positions
+    used by one sampled training batch, checked against the splits) and `weights()` (a
+    snapshot of what inference needs, used for the best checkpoint)."""
 
     def train_epoch(self, train: TrainSplit, epoch: int) -> dict: ...
 
@@ -168,6 +171,11 @@ def _keep_metrics_before(path: Path, epoch: int) -> None:
         _write_atomic(path, "".join(line + "\n" for line in kept))
 
 
+def _weights(model: Model) -> dict:
+    """What a restored checkpoint needs: inference weights if the model separates them."""
+    return model.weights() if hasattr(model, "weights") else model.state_dict()
+
+
 def _epoch_times(metrics_path: Path) -> dict:
     """Median seconds per epoch for training and for validation scoring."""
     lines = metrics_path.read_text(encoding="utf-8").splitlines() if metrics_path.exists() else []
@@ -238,6 +246,10 @@ def execute(
         _set_rng_state(saved["rng"])
         log(f"[run] {cfg.run_id}: resuming at epoch {state['epoch']}")
     _keep_metrics_before(metrics_path, state["epoch"])
+    if report is not None and metrics_path.exists():  # a resumed trial re-reports its epochs
+        for line in metrics_path.read_text(encoding="utf-8").splitlines():
+            record = json.loads(line)
+            report(record["epoch"], record["val_ndcg@10"])
 
     sampler = NvmlSampler(interval_s=1.0) if device.type == "cuda" else None
     if sampler and sampler.available:
@@ -265,7 +277,7 @@ def execute(
             ndcg = val.metrics["ndcg@10"]
             if ndcg > state["best"]:
                 state |= {"best": ndcg, "best_epoch": state["epoch"], "bad": 0}
-                best_weights = model.state_dict()
+                best_weights = _weights(model)
             else:
                 state["bad"] += 1
             record = {
@@ -278,7 +290,10 @@ def execute(
                 "epoch_eval_s": round(t_evaluated - t_trained, 3),
             } | stats
             state["epoch"] += 1
-            # Checkpoint first, then log: a crash in between repeats the epoch cleanly.
+            # Log first, then checkpoint: a crash in between resumes before this epoch, and
+            # the resume drops its line before repeating it.
+            with metrics_path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(record) + "\n")
             _save_atomic(
                 {
                     "model": model.state_dict(),
@@ -288,8 +303,6 @@ def execute(
                 },  # fmt: skip
                 last_path,
             )
-            with metrics_path.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(record) + "\n")
             if stats.get("converged"):  # models without training, e.g. the floor baselines
                 stop = "converged"
                 break
@@ -328,6 +341,10 @@ def execute(
         all_samples = [json.loads(x) for x in nvml_path.read_text(encoding="utf-8").splitlines()]
         summary["nvml"] = summarize_samples(sampler.nv, all_samples)
     _write_atomic(run_dir / "summary.json", json.dumps(summary, indent=1))
+    # The resume state is no longer needed; tuning checkpoints are never tested (disk space).
+    last_path.unlink(missing_ok=True)
+    if cfg.phase == "tune":
+        (run_dir / "best.pt").unlink(missing_ok=True)
     log(f"[run] {cfg.run_id}: {stop} after {state['epoch']} epochs")
     return summary
 

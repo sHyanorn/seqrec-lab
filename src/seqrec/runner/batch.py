@@ -74,10 +74,13 @@ def tune_batch(plan_path: Path, runs_dir: Path, data_dir: Path, device: torch.de
     batch, warmup_s, studies = load_tuning_plan(plan_path)
     if studies:
         _warm_up(warmup_s, studies[0].dataset, "loo", data_dir, device, log)
+    failed: list[str] = []
     for study in studies:
-        opt = run_study(study, runs_dir, data_dir, device, log)
+        opt, failed_now = run_study(study, runs_dir, data_dir, device, log)
+        failed += failed_now
         complete = [t for t in opt.trials if t.state.name == "COMPLETE"]
         best = max(complete, key=lambda t: t.value, default=None)
         best_id = best.user_attrs["run_id"] if best else None
         log(f"[tune] {study.name}: {len(complete)} of {len(opt.trials)} complete; best {best_id}")
-    return []
+    log(f"[tune] done; {len(failed)} trials failed in this session")
+    return failed

@@ -81,6 +81,9 @@ def test_planted_rule_is_learned(arm, trained, rule):
     lines = (rule[0] / "b" / cfg.run_id / "metrics.jsonl").read_text().splitlines()
     best = max(json.loads(x)["val_ndcg@10"] for x in lines)
     assert summary["validation"]["ndcg@10"] == pytest.approx(best)  # best checkpoint restored
+    run_dir = rule[0] / "b" / cfg.run_id
+    assert set(torch.load(run_dir / "best.pt", weights_only=False)) == {"net"}  # weights only
+    assert not (run_dir / "last.pt").exists()
 
 
 def load_model(ws, cfg):
@@ -118,6 +121,7 @@ def test_shuffled_order_falls_to_popularity(noisy):
     load_splits.cache_clear()
     assert ordered["ndcg@10"] >= 0.95
     assert shuffled["ndcg@10"] <= 0.10, (shuffled, popular)
+    assert popular["ndcg@10"] <= 0.10  # so the threshold sits at the popularity level
 
 
 def test_bert4rec_scored_without_its_mask_token_fails(trained, rule, monkeypatch):

@@ -176,3 +176,24 @@ def test_batches_through_cli(workspace):
     tune_dir = next((runs / "b").glob("*s3*"))
     (tune_dir / "test_access.jsonl").write_text(json.dumps({"phase": "final"}) + "\n")
     assert any("tuning run read test data" in p for p in export(runs, out))
+
+
+def test_crash_after_a_checkpoint_keeps_every_epoch_logged(workspace, monkeypatch):
+    runs, data = workspace
+    original = run_mod._save_atomic
+    calls = {"last": 0}
+
+    def crash_on_third_checkpoint(obj, path):
+        original(obj, path)
+        if path.name == "last.pt":
+            calls["last"] += 1
+            if calls["last"] == 3:
+                raise RuntimeError("simulated crash right after the checkpoint")
+
+    monkeypatch.setattr(run_mod, "_save_atomic", crash_on_third_checkpoint)
+    with pytest.raises(RuntimeError):
+        run_mod.execute(_cfg(), runs, data, CPU, **QUIET)
+    summary = run_mod.execute(_cfg(), runs, data, CPU, **QUIET)
+    lines = (runs / "b" / _cfg().run_id / "metrics.jsonl").read_text().splitlines()
+    assert [json.loads(x)["epoch"] for x in lines] == list(range(summary["epochs"]))
+    assert not (runs / "b" / _cfg().run_id / "last.pt").exists()

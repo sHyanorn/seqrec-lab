@@ -34,7 +34,7 @@ def workspace(tmp_path):
 
 def run_plan(root, plan, runs="runs"):
     _, _, studies = tune.load_tuning_plan(plan)
-    return tune.run_study(studies[0], root / runs, root / "data", CPU, **QUIET)
+    return tune.run_study(studies[0], root / runs, root / "data", CPU, **QUIET)[0]
 
 
 def trial_params(opt):
@@ -52,6 +52,11 @@ def test_trials_are_tagged_tuning_runs_with_sealed_test_data(workspace):
         assert cfg["phase"] == "tune" and cfg["seed"] == 0
         assert set(cfg["params"]) == set(tune.SPACES["sasrec-ce"])
         assert not (d / "test_access.jsonl").exists()
+        assert not (d / "last.pt").exists() and not (d / "best.pt").exists()  # disk space
+        manifest = json.loads((d / "manifest.json").read_text())
+        assert manifest["hparams"] == {"ce_chunk": 0} | cfg["params"]
+        summary = json.loads((d / "summary.json").read_text())
+        assert summary["epoch_train_s_median"] > 0 and summary["epoch_eval_s_median"] > 0
     out = root / "results"
     assert export(root / "runs", out) == []
     best = (out / "tuning_best.csv").read_text().splitlines()
@@ -79,6 +84,7 @@ def test_interrupted_study_resumes_with_the_same_proposals(workspace, monkeypatc
     opt = run_plan(root, plan)
     assert len(opt.trials) == 6
     assert trial_params(opt) == reference
+    assert sorted(opt.trials[2].intermediate_values) == [0, 1, 2]  # epoch 1 re-reported
     resumed = root / "runs" / "t" / "sasrec-ce-ml-1m-loo-s0-t02"
     assert json.loads((resumed / "config.json").read_text())["params"] == reference[2]
     epochs = [json.loads(x)["epoch"] for x in (resumed / "metrics.jsonl").read_text().splitlines()]
@@ -96,8 +102,9 @@ def test_trials_cannot_reach_test_data(workspace, monkeypatch):
         return original(scorer, splits.test.unseal("read"), max_len, device)
 
     monkeypatch.setattr(run_mod, "evaluate", evaluate_test_instead)
-    opt = run_plan(root, plan)
-    assert {t.state for t in opt.trials} == {optuna.trial.TrialState.FAIL}
+    _, _, studies = tune.load_tuning_plan(plan)
+    opt, failed = tune.run_study(studies[0], root / "runs", root / "data", CPU, **QUIET)
+    assert {t.state for t in opt.trials} == {optuna.trial.TrialState.FAIL} and len(failed) == 6
     error = (root / "runs" / "t" / "sasrec-ce-ml-1m-loo-s0-t00" / "error.txt").read_text()
     assert "tuning runs cannot access test data" in error
 
@@ -112,3 +119,41 @@ def test_pruned_trials_count_toward_the_budget(workspace, monkeypatch):
         (root / "runs" / "t" / "sasrec-ce-ml-1m-loo-s0-t05" / "summary.json").read_text()
     )
     assert summary["stop_reason"] == "pruned" and summary["epochs"] == 1
+
+
+def test_a_trial_stored_without_all_parameters_fails_and_uses_budget(workspace):
+    root, plan = workspace
+    _, _, studies = tune.load_tuning_plan(plan)
+    study = studies[0]
+    opt = optuna.create_study(
+        study_name=study.name, storage=tune._storage(root / "runs", "t"), direction="maximize"
+    )
+    opt.ask({"lr": tune.SPACES["sasrec-ce"]["lr"]})  # interrupted while storing parameters
+    opt, failed = tune.run_study(study, root / "runs", root / "data", CPU, **QUIET)
+    assert opt.trials[0].state == optuna.trial.TrialState.FAIL and len(opt.trials) == 6
+    assert failed == ["sasrec-ce-ml-1m-loo-s0-t00"]
+    assert not (root / "runs" / "t" / failed[0]).exists()  # it never trained
+
+
+def test_pruner_waits_for_five_complete_trials_and_the_warm_up():
+    opt = optuna.create_study(direction="maximize", pruner=tune.pruner(cap=300))
+
+    def complete_trial():
+        trial = opt.ask()
+        for step in range(40):
+            trial.report(1.0, step)
+        opt.tell(trial, 1.0)
+
+    def worse_trial_prunes_at(step: int) -> bool:
+        trial = opt.ask()
+        trial.report(0.0, step)
+        pruned = trial.should_prune()
+        opt.tell(trial, state=optuna.trial.TrialState.FAIL)
+        return pruned
+
+    for _ in range(4):
+        complete_trial()
+    assert not worse_trial_prunes_at(35)  # only 4 complete trials
+    complete_trial()
+    assert not worse_trial_prunes_at(29)  # inside the warm-up of 10% of the cap
+    assert worse_trial_prunes_at(30)

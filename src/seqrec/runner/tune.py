@@ -15,13 +15,15 @@ sealed and the run directory records every parameter. Studies are stored in
 runs/<batch>/optuna.sqlite3. After an interruption a running trial resumes from its
 checkpoint with its own parameters. TPE is reseeded from (sampler seed, trials so far)
 before every proposal, so an interrupted study proposes what an uninterrupted one would.
-Failed and pruned trials count toward the trial budget.
+Failed and pruned trials count toward the trial budget; a trial interrupted before all its
+parameters were stored is marked failed.
 """
 
 from __future__ import annotations
 
 import tomllib
 import traceback
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -29,6 +31,7 @@ import optuna
 from optuna.distributions import CategoricalDistribution as Choice
 from optuna.distributions import FloatDistribution as Float
 from optuna.trial import TrialState
+from sqlalchemy.engine import URL
 
 from seqrec.runner.config import RunConfig, default_limits
 from seqrec.runner.run import ARMS, execute, run_dir_of
@@ -90,10 +93,15 @@ def load_tuning_plan(path: Path) -> tuple[str, float, list[Study]]:
     return batch, float(raw.get("warmup_s", 0)), studies
 
 
+def pruner(cap: int) -> optuna.pruners.BasePruner:
+    """Median pruning after 5 complete trials, from epoch index cap // 10 on (METHODS 5.4)."""
+    return optuna.pruners.MedianPruner(STARTUP_TRIALS, n_warmup_steps=cap // 10)
+
+
 def _storage(runs_dir: Path, batch: str) -> str:
     path = (runs_dir / batch / "optuna.sqlite3").resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
-    return f"sqlite:///{path.as_posix()}"
+    return URL.create("sqlite", database=str(path)).render_as_string(hide_password=False)
 
 
 def _run_trial(study, opt: optuna.Study, trial: optuna.Trial, runs_dir, data_dir, device, log):
@@ -101,7 +109,9 @@ def _run_trial(study, opt: optuna.Study, trial: optuna.Trial, runs_dir, data_dir
     trial.set_user_attr("run_id", cfg.run_id)
 
     def report(epoch: int, value: float) -> bool:
-        trial.report(value, epoch)
+        with warnings.catch_warnings():  # a resumed trial re-reports finished epochs
+            warnings.simplefilter("ignore", UserWarning)
+            trial.report(value, epoch)
         return trial.should_prune()
 
     try:
@@ -112,16 +122,21 @@ def _run_trial(study, opt: optuna.Study, trial: optuna.Trial, runs_dir, data_dir
         (run_dir / "error.txt").write_text(traceback.format_exc(), encoding="utf-8")
         log(f"[tune] {cfg.run_id} failed; see error.txt")
         opt.tell(trial, state=TrialState.FAIL)
-        return
+        return cfg.run_id
     if summary["stop_reason"] == "pruned":
         opt.tell(trial, state=TrialState.PRUNED)
     elif summary["status"] == "trained":
         opt.tell(trial, summary["validation"]["ndcg@10"])
     else:
         opt.tell(trial, state=TrialState.FAIL)
+        return cfg.run_id
+    return None
 
 
-def run_study(study: Study, runs_dir: Path, data_dir: Path, device, log=print) -> optuna.Study:
+def run_study(
+    study: Study, runs_dir: Path, data_dir: Path, device, log=print
+) -> tuple[optuna.Study, list[str]]:
+    """Run a study to its trial budget; returns it and the run ids of trials that failed now."""
     if study.arm not in ARMS:
         raise ValueError(f"unknown arm {study.arm!r}")
     cap = study.max_epochs or default_limits(study.arm)[0]
@@ -130,17 +145,24 @@ def run_study(study: Study, runs_dir: Path, data_dir: Path, device, log=print) -
         storage=_storage(runs_dir, study.batch),
         direction="maximize",
         load_if_exists=True,
-        pruner=optuna.pruners.MedianPruner(STARTUP_TRIALS, n_warmup_steps=cap // 10),
+        pruner=pruner(cap),
     )
+    failed: list[str] = []
     for frozen in opt.get_trials(deepcopy=False, states=(TrialState.RUNNING,)):
+        if set(frozen.params) != set(SPACES[study.arm]):
+            # interrupted while its parameters were being stored: it never trained
+            log(f"[tune] {study.name}: trial {frozen.number} has incomplete parameters; failed")
+            opt.tell(frozen.number, state=TrialState.FAIL)
+            failed.append(study.config(frozen.number, {}).run_id)
+            continue
         log(f"[tune] {study.name}: resuming trial {frozen.number}")
         trial = optuna.trial.Trial(opt, frozen._trial_id)
-        _run_trial(study, opt, trial, runs_dir, data_dir, device, log)
+        failed += filter(None, [_run_trial(study, opt, trial, runs_dir, data_dir, device, log)])
     while (done := len(opt.trials)) < study.trials:
         opt.sampler = optuna.samplers.TPESampler(
             seed=study.sampler_seed * 10_000 + done, n_startup_trials=STARTUP_TRIALS
         )
         trial = opt.ask(SPACES[study.arm])
         log(f"[tune] {study.name}: trial {trial.number} of {study.trials}")
-        _run_trial(study, opt, trial, runs_dir, data_dir, device, log)
-    return opt
+        failed += filter(None, [_run_trial(study, opt, trial, runs_dir, data_dir, device, log)])
+    return opt, failed

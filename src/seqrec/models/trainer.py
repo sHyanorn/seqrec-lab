@@ -56,9 +56,6 @@ def init_weights(net: nn.Module) -> None:
         elif isinstance(m, nn.LayerNorm):
             nn.init.ones_(m.weight)
             nn.init.zeros_(m.bias)
-        elif isinstance(m, nn.MultiheadAttention):
-            nn.init.normal_(m.in_proj_weight, std=INIT_STD)
-            nn.init.zeros_(m.in_proj_bias)
 
 
 class NeuralModel:
@@ -132,16 +129,18 @@ class NeuralModel:
         return batch_positions(self.data, batch)
 
     def state_dict(self) -> dict:
-        """A snapshot: later training steps do not change it."""
-        return copy.deepcopy(
-            {
-                "net": self.net.state_dict(),
-                "opt": self.opt.state_dict(),
-                "gen": self.gen.get_state(),
-            }
-        )
+        """A snapshot of the training state: later steps do not change it."""
+        state = {"net": self.net.state_dict(), "opt": self.opt.state_dict()}
+        return copy.deepcopy(state | {"gen": self.gen.get_state()})
+
+    def weights(self) -> dict:
+        """A snapshot of the network weights only, for the best checkpoint."""
+        return copy.deepcopy({"net": self.net.state_dict()})
 
     def load_state_dict(self, state: dict) -> None:
+        """Loads a training state or weights only; never aliases the given tensors."""
+        state = copy.deepcopy(state)
         self.net.load_state_dict(state["net"])
-        self.opt.load_state_dict(state["opt"])
-        self.gen.set_state(state["gen"])
+        if "opt" in state:
+            self.opt.load_state_dict(state["opt"])
+            self.gen.set_state(state["gen"])
