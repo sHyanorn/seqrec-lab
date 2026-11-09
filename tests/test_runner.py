@@ -855,3 +855,21 @@ def test_export_flags_the_slow_seed(workspace, monkeypatch):
         run_mod.execute(_cfg("tune", seed=seed, tag="sigma"), runs, data, CPU, **QUIET)
     rows = _exported(runs, runs.parent).values()
     assert {int(r["seed"]): r["slow_epochs"] for r in rows} == {1: "False", 2: "False", 3: "True"}
+
+
+def test_a_resumed_run_refuses_changed_evaluation_data(workspace):
+    """Validation and test targets live in the full data; a session that sees other targets
+    than the earlier ones would select the checkpoint on two validation sets (D040)."""
+    runs, data = workspace
+
+    def other_full_data():
+        path = runs / "b" / _cfg().run_id / "manifest.json"
+        manifest = json.loads(path.read_text())
+        path.write_text(json.dumps(manifest | {"full_fingerprint": "0" * 16}))
+
+    PopularityModel.crash = "train@2"
+    with pytest.raises(RuntimeError):
+        run_mod.execute(_cfg(), runs, data, CPU, **QUIET)
+    other_full_data()
+    with pytest.raises(run_mod.RunConflict, match="full data changed"):
+        run_mod.execute(_cfg(), runs, data, CPU, **QUIET)

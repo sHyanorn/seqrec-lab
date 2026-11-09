@@ -300,6 +300,11 @@ def execute(
         old = json.loads(manifest_path.read_text(encoding="utf-8"))
         if old["train_fingerprint"] != manifest["train_fingerprint"]:
             raise RunConflict(f"{run_dir}: training data changed since the run started")
+        if (
+            old.get("full_fingerprint", manifest["full_fingerprint"])
+            != manifest["full_fingerprint"]
+        ):
+            raise RunConflict(f"{run_dir}: full data changed since the run started")
         manifest["sessions"] = old.get("sessions", [old["git_commit"]]) + [commit]
     _write_atomic(manifest_path, json.dumps(manifest, indent=1))
 
