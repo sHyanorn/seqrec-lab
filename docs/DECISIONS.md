@@ -370,3 +370,9 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
 - Decision: export marks `slow_epochs` when a run's median training plus validation time per epoch exceeds 1.5 times the median of the other runs with the same batch, dataset, split, shuffle, arm, parameters and tag, that is, its other seeds. Runs without such runs (tuning trials, timing runs) get no value. RQ2 timing analyses treat a flagged run like one with a hardware slowdown: it stays in the primary analysis and is left out of the repeat of METHODS 7.6. The flag tests failed before the change (METHODS 11.5).
 - Rationale: in the pilot, gSASRec seed 2 took 30.6 s per training epoch against 1.7 to 1.9 s for its other seeds and the anchor run, at a higher SM clock (median 2,917 against about 2,000 MHz) and with no hardware slowdown event. Neither flag of METHODS 8 catches such a run, and its times would enter time to target (H2a) unmarked.
 - Limitation: tuning trials have no other seeds, so a slowed trial is not flagged; under the guard (D036) it can be marked truncated and count toward the doubling rule of METHODS 5.2.
+
+## D039 Step-time profiler
+
+- Date: 2026-11-09. Status: accepted. A measurement tool outside METHODS; no analysis uses its output.
+- Decision: `scripts/profile_step.py` trains one arm for a few steps on one prepared dataset through the arm's own epoch loop and prints wall time, process CPU time and GPU kernel time per step. It reads only the training split and writes nothing. `tests/test_profile_step.py` failed before the script existed (METHODS 11.5).
+- Rationale: in the pilot timing runs every arm took about 7 ms per step on Steam and Video_Games, at both configuration sizes, which points to a fixed cost per step outside GPU compute. What a change to the training loop could save depends on how much of a step the GPU is busy, which only the GPU machine can measure.
