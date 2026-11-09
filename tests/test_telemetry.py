@@ -42,3 +42,11 @@ def test_the_sampler_records_device_memory_and_its_peak(monkeypatch):
     assert [s["mem_used_mib"] for s in samples[:3]] == [1024, 2048, 3072]
     summary = telemetry.summarize_samples(nv, samples)
     assert summary["mem_used_mib"]["max"] == 1024 * len(samples)
+
+
+def test_samples_from_before_memory_sampling_still_summarize():
+    """nvml.jsonl collects every session of a run, so a resumed run mixes old and new lines."""
+    old = {"t_s": 0.0, "sm_mhz": 2000, "mem_mhz": 1, "temp_c": 60, "power_w": 80.0,
+           "pstate": 0, "reasons": 0}  # fmt: skip
+    summary = telemetry.summarize_samples(FakeNvml(), [old, old | {"mem_used_mib": 900}])
+    assert summary["mem_used_mib"]["max"] == 900 and summary["samples"] == 2

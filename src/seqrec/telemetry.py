@@ -149,7 +149,7 @@ class NvmlSampler(threading.Thread):
 
 def summarize_samples(nv, samples: list[dict]) -> dict:
     def series(key):
-        return [s[key] for s in samples if isinstance(s[key], int | float)]
+        return [s.get(key) for s in samples if isinstance(s.get(key), int | float)]
 
     def describe(values):
         if not values:
