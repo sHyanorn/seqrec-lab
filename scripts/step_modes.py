@@ -2,16 +2,20 @@
 
 - fixed shapes: the loss runs over every position of the batch with a mask, in place of
   selecting labelled positions by boolean indexing, whose output shape the CPU must read;
-- fused Adam: `torch.optim.Adam(fused=True)`, the same update in one kernel per step;
+- fused Adam: `torch.optim.Adam(fused=True)`, the same update in one call over all parameters;
 - CUDA graph: forward, backward, clipping and the Adam step of a full batch are captured once
   and replayed; batches are built eagerly and copied into static buffers, and the last,
   partial batch of an epoch runs eagerly.
 
 Training runs never use these modes; the losses follow METHODS 4.3 as `seqrec.models.losses`
-does.
+does. Under fixed shapes the loss is computed at all B x L positions, several times the
+number of labelled ones on short sequences, and gBCE scores its negatives in one pass
+without the slices of D042.
 """
 
 from __future__ import annotations
+
+import dataclasses
 
 import torch
 import torch.nn.functional as F
@@ -30,7 +34,8 @@ def masked_mean(per_position: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
 
 def fixed_shape_loss(model, batch) -> torch.Tensor:
     """The arm's loss over all B x L positions, unlabelled ones weighted 0. Equal to
-    `model.loss` given the same negatives; gSASRec draws K negatives for every position."""
+    `model.loss` given the same negatives; gSASRec draws K negatives for every position, so
+    its negatives at the labelled positions differ from the draws of `model.loss`."""
     h = model.net(batch.inputs).flatten(0, 1)
     labels = batch.labels.flatten()
     mask = (labels > 0).to(torch.float32)
@@ -54,10 +59,17 @@ def fixed_shape_loss(model, batch) -> torch.Tensor:
     with torch.autocast(h.device.type, enabled=False):
         h, w = losses._wide(h), losses._wide(w)
         pos = (h * w[y]).sum(-1)
-        neg_logits = losses.negative_logits(h, w, neg)
+        neg_logits = losses._negative_logits(h, w, neg)
     keep = (neg != y[:, None]).to(neg_logits.dtype)
     per_position = beta * F.softplus(-pos) + (keep * F.softplus(neg_logits)).sum(1)
     return masked_mean(per_position / (1 + k), mask)
+
+
+def static_copy(batch):
+    """The buffers a captured graph reads: copies, since a batch's rows are a view of the
+    model's training rows and every later batch is written into them."""
+    copies = {name: getattr(batch, name).clone() for name in ("rows", "inputs", "labels")}
+    return dataclasses.replace(batch, **copies)
 
 
 class Stepper:
@@ -71,6 +83,8 @@ class Stepper:
             raise ValueError("a CUDA graph needs a CUDA device")
         if cuda_graph and not fixed_shapes:
             raise ValueError("a CUDA graph needs fixed shapes")
+        if fixed_shapes and model.hparams.get("ce_chunk"):
+            raise ValueError("fixed shapes do not chunk the logits; set ce_chunk to 0")
         self.model = model
         self.loss_fn = fixed_shape_loss if fixed_shapes else type(model).loss
         if fused_adam or cuda_graph:
@@ -99,9 +113,9 @@ class Stepper:
         return loss.detach()
 
     def _capture(self, batch) -> None:
-        """Warm up on a side stream, then capture one step on static copies of `batch`."""
+        """Warm up on a side stream, then capture one step on a static copy of `batch`."""
         m = self.model
-        self.static = batch
+        self.static = static_copy(batch)
         side = torch.cuda.Stream()
         side.wait_stream(torch.cuda.current_stream())
         with torch.cuda.stream(side):

@@ -1,6 +1,8 @@
 import math
+import os
 import sys
 import time
+import warnings
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -48,7 +50,7 @@ def test_gpu_time_counts_each_gpu_event_once():
         event(DeviceType.CUDA, 5.0),  # a memset
         event(DeviceType.CUDA, 50.0, annotation=True),  # a ProfilerStep range on the GPU
     ]
-    assert profile_step.device_us(events) == 35.0
+    assert profile_step.device_events(events) == (35.0, 2)
 
 
 def test_fewer_than_two_steps_are_refused(tmp_path):
@@ -138,3 +140,91 @@ def test_memory_readings_separate_memory_in_use_from_cached_blocks():
         "device_allocs": 9,
     }
     assert set(profile_step.memory_readings(None).values()) == {None}  # no CUDA device
+
+
+class _ScriptedModel:
+    """Each step warns of `syncs` synchronisations, and each epoch of one more."""
+
+    syncs, loss = 0, 0.5
+    threaded = []
+
+    def __init__(self, cfg, train, device):
+        self.data = SimpleNamespace(rows=torch.zeros(10 * BATCH_SIZE, 2, dtype=torch.long))
+
+    def train_epoch(self, train, epoch):
+        self.threaded.append(torch.autograd.is_multithreading_enabled())
+        for _ in range(bool(self.syncs) + self.syncs * (len(self.data.rows) // BATCH_SIZE)):
+            warnings.warn("called a synchronizing CUDA operation", stacklevel=1)
+        return {"loss": self.loss}
+
+
+def test_synchronisations_are_counted_per_step_on_the_calling_thread(monkeypatch):
+    """Backward nodes of a GPU run on an autograd thread unless multithreading is off, and
+    warnings raised there do not reach the count."""
+    monkeypatch.setattr(torch.cuda, "set_sync_debug_mode", lambda mode: None)
+    monkeypatch.setattr(_ScriptedModel, "syncs", 2)
+    monkeypatch.setattr(_ScriptedModel, "threaded", [])
+    model = _ScriptedModel(None, None, None)
+    assert profile_step.syncs_per_step(model, None, model.data.rows) == 2.0
+    assert model.threaded == [False, False] and torch.autograd.is_multithreading_enabled()
+
+
+def _scripted(tmp_path, monkeypatch):
+    data = tmp_path / "data"
+    build_log(random_frame(users=300)).save(log_path(data, "ml-1m"))
+    load_splits.cache_clear()
+    monkeypatch.setitem(profile_step.ARMS, "scripted", _ScriptedModel)
+    return data, RunConfig("profile", "ml-1m", "loo", "scripted", 0, "tune")
+
+
+def test_a_non_finite_loss_stops_the_measurement(tmp_path, monkeypatch):
+    """A step that produces NaN would otherwise be timed and printed like a working one."""
+    data, cfg = _scripted(tmp_path, monkeypatch)
+    result = profile_step.measure(cfg, data, torch.device("cpu"), steps=3, warmup=1)
+    assert result["loss"] == 0.5
+    monkeypatch.setattr(_ScriptedModel, "loss", float("nan"))
+    with pytest.raises(ValueError, match="loss"):
+        profile_step.measure(cfg, data, torch.device("cpu"), steps=3, warmup=1)
+    load_splits.cache_clear()
+
+
+def test_timings_are_printed_before_the_profiled_pass(tmp_path, monkeypatch, capsys):
+    """The profiled pass can end the process under a CUDA graph; the timings must be out."""
+    data, _ = _scripted(tmp_path, monkeypatch)
+
+    def crash(*args, **kwargs):
+        raise RuntimeError("profiler")
+
+    monkeypatch.setattr(profile_step, "gpu_readings", crash)
+    args = ["--dataset", "ml-1m", "--arm", "scripted", "--steps", "3", "--warmup", "1"]
+    with pytest.raises(RuntimeError, match="profiler"):
+        profile_step.main([*args, "--data-dir", str(data), "--device", "cpu"])
+    load_splits.cache_clear()
+    timing = [x for x in capsys.readouterr().out.splitlines() if x.startswith("timing ")]
+    assert len(timing) == 1 and "wall_ms_per_step" in timing[0] and "loss" in timing[0]
+
+
+def test_gpu_readings_give_time_and_events_per_step(monkeypatch):
+    passes = iter([(100.0, 10)] * 5 + [(2100.0, 50)])  # five one-step epochs, then 5 steps
+    monkeypatch.setattr(profile_step, "_gpu", lambda *args: next(passes))
+    cuda, cpu = torch.device("cuda"), torch.device("cpu")
+    got = profile_step.gpu_readings(None, None, None, 5, 5, wall_ms=1.0, device=cuda)
+    assert got == {"gpu_ms_per_step": 0.5, "gpu_busy_share": 0.5, "gpu_events_per_step": 10.0}
+    none = profile_step.gpu_readings(None, None, None, 5, 5, wall_ms=1.0, device=cpu)
+    assert set(none) == set(got) and set(none.values()) == {None}
+
+
+def test_a_cuda_graph_result_says_what_its_gpu_time_covers():
+    clean = {"gpu_busy_share": 0.2, "epoch_overhead_ms": 1.0, "modes": ["fixed_shapes"]}
+    assert profile_step.notes(clean) == []
+    graph = profile_step.notes(clean | {"modes": ["fixed_shapes", "cuda_graph"]})
+    assert len(graph) == 1 and "gpu_events_per_step" in graph[0]
+
+
+def test_the_profiler_is_set_up_before_a_graph_is_captured(monkeypatch):
+    """Without these the profiler's re-initialisation after a capture can end the process
+    (torch.profiler sets them itself only for compiled graphs)."""
+    monkeypatch.setenv("TEARDOWN_CUPTI", "1")
+    monkeypatch.delenv("DISABLE_CUPTI_LAZY_REINIT", raising=False)
+    profile_step.prepare_profiler_for_graphs()
+    assert os.environ["TEARDOWN_CUPTI"] == "0" and os.environ["DISABLE_CUPTI_LAZY_REINIT"] == "1"
