@@ -119,3 +119,16 @@ def test_gbce_drops_negatives_equal_to_the_positive():
     ]
     expected = (torch.stack(terms) / 4).mean()
     assert losses.gbce(h, w, y, neg, t=0.5, n_items=10).item() == pytest.approx(expected.item())
+
+
+def test_precision_under_bf16_autocast():
+    torch.manual_seed(0)
+    h, w = torch.randn(30, 16), torch.randn(52, 16)
+    y = torch.randint(1, 51, (30,))
+    with torch.autocast("cpu", dtype=torch.bfloat16):
+        shared = losses.sampled_logits(h, w, y, torch.randint(1, 51, (8,)))
+        neg = torch.randint(1, 51, (30, 8))
+        mixed = losses.gbce(h, w, y, neg, t=0.75, n_items=50)
+    assert shared.dtype == torch.bfloat16  # positive and negatives at one precision
+    exact = losses.gbce(h, w, y, neg, t=0.75, n_items=50)
+    assert mixed.dtype == torch.float32 and mixed.item() == pytest.approx(exact.item(), abs=1e-6)

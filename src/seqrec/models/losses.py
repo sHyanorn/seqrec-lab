@@ -50,13 +50,18 @@ def mask_collisions(neg_logits: torch.Tensor, neg: torch.Tensor, y: torch.Tensor
     return neg_logits.masked_fill(neg == y[:, None], float("-inf"))
 
 
+def sampled_logits(h, w, y, neg) -> torch.Tensor:
+    """(M, 1 + K) logits of the positive and the shared negatives. Both come from matrix
+    products, so under autocast they share one precision."""
+    pos = torch.bmm(h[:, None, :], w[y][:, :, None]).squeeze(-1)
+    neg_logits = mask_collisions(h @ w[neg].T, neg[None, :], y)
+    return torch.cat([pos, neg_logits], dim=1)
+
+
 def sampled_softmax(h, w, y, neg) -> torch.Tensor:
     """Softmax over the positive and K negatives shared by all positions (A3). The uniform
     proposal makes the log-Q correction constant, so none is applied."""
-    pos = (h * w[y]).sum(-1, keepdim=True)
-    neg_logits = mask_collisions(h @ w[neg].T, neg[None, :], y)
-    logits = _wide(torch.cat([pos, neg_logits], dim=1))
-    return F.cross_entropy(logits, torch.zeros_like(y))
+    return F.cross_entropy(_wide(sampled_logits(h, w, y, neg)), torch.zeros_like(y))
 
 
 def bce(h, w, y, neg) -> torch.Tensor:
@@ -73,12 +78,15 @@ def gbce_beta(k: int, n_items: int, t: float) -> float:
 
 
 def gbce(h, w, y, neg, t: float, n_items: int) -> torch.Tensor:
-    """gBCE with K uniform negatives per position (A4, [4]). Negatives equal to the positive
-    are dropped. Each position's loss is averaged over its 1 + K terms, as in [33]."""
+    """gBCE with K uniform negatives per position (A4, [4]), computed in fp32 even under
+    autocast (METHODS 4.3). Negatives equal to the positive are dropped. Each position's
+    loss is averaged over its 1 + K terms, as in [33]."""
     k = neg.shape[1]
     beta = gbce_beta(k, n_items, t)
-    pos = _wide((h * w[y]).sum(-1))
-    neg_logits = _wide(torch.einsum("md,mkd->mk", h, w[neg]))
+    with torch.autocast(h.device.type, enabled=False):
+        h, w = _wide(h), _wide(w)
+        pos = (h * w[y]).sum(-1)
+        neg_logits = torch.einsum("md,mkd->mk", h, w[neg])
     keep = (neg != y[:, None]).to(neg_logits.dtype)
     per_position = beta * F.softplus(-pos) + (keep * F.softplus(neg_logits)).sum(1)
     return (per_position / (1 + k)).mean()
