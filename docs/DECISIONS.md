@@ -347,3 +347,10 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
 - Date: 2026-11-09. Status: accepted. No training run compiles code, so no result depends on it.
 - Decision: importing `seqrec` sets `TRITON_DEFAULT_FP_FUSION=1` and overrides any inherited value. Every entry point imports the package before anything is compiled, including the `torch.compile` worker of `scripts/check_env.py`. `tests/test_package.py` failed before the change (METHODS 11.5).
 - Rationale: fusion is already the default of the locked triton-windows 3.9 (D003), so behaviour does not change. Fixing it keeps a later Triton release or a stray environment variable from changing the rounding of compiled kernels unnoticed, which the M4 `torch.compile` measurements (METHODS 9.1) would absorb.
+
+## D038 Slow-run flag
+
+- Date: 2026-11-09. Status: accepted. Adds a flag to METHODS 8 and 7.6. Decided after the pilot timings were seen and before any M3 run.
+- Decision: export marks `slow_epochs` when a run's median training plus validation time per epoch exceeds 1.5 times the median of the other runs with the same batch, dataset, split, shuffle, arm, parameters and tag, that is, its other seeds. Runs without such runs (tuning trials, timing runs) get no value. RQ2 timing analyses treat a flagged run like one with a hardware slowdown: it stays in the primary analysis and is left out of the repeat of METHODS 7.6. The flag tests failed before the change (METHODS 11.5).
+- Rationale: in the pilot, gSASRec seed 2 took 30.6 s per training epoch against 1.7 to 1.9 s for its other seeds and the anchor run, at a higher SM clock (median 2,917 against about 2,000 MHz) and with no hardware slowdown event. Neither flag of METHODS 8 catches such a run, and its times would enter time to target (H2a) unmarked.
+- Limitation: tuning trials have no other seeds, so a slowed trial is not flagged; under the guard (D036) it can be marked truncated and count toward the doubling rule of METHODS 5.2.

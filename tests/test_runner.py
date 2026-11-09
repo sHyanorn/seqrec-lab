@@ -609,3 +609,30 @@ def test_the_guard_counts_training_and_validation_time_only(workspace, monkeypat
     assert summary["stop_reason"] == "patience" and summary["epochs"] == 4
     assert summary["wall_s"] == pytest.approx(4.0) and summary["checkpoint_s"] >= 4 * 3600
 
+
+def _timed_row(seed, train_s, tag="sigma", params="{}", eval_s=0.1):
+    return {
+        "batch": "b", "dataset": "ml-1m", "split": "loo", "shuffle": "none", "arm": "sasrec-ce",
+        "tag": tag, "params": params, "seed": seed, "run_id": f"r{seed}-{tag}-{params}",
+        "epoch_train_s_median": train_s, "epoch_eval_s_median": eval_s,
+    }  # fmt: skip
+
+
+def test_slow_epochs_flags_runs_far_slower_than_the_same_configuration():
+    """D036: a run whose epoch time exceeds 1.5 times the median of its other seeds."""
+    from seqrec.runner.export import flag_slow_epochs
+
+    rows = [_timed_row(1, 1.73), _timed_row(2, 30.56), _timed_row(3, 1.91)]
+    rows += [_timed_row(1, 1.0, tag="t01"), _timed_row(1, 9.0, tag="t02")]  # no other seeds
+    rows += [_timed_row(1, 1.0, params='{"lr": 0.1}'), _timed_row(2, 1.4, params='{"lr": 0.1}')]
+    rows.append(_timed_row(4, None, eval_s=None))  # never finished an epoch
+    flag_slow_epochs(rows)
+    assert [r["slow_epochs"] for r in rows] == [False, True, False, None, None, False, False, None]
+
+
+def test_export_writes_the_slow_epochs_flag(workspace):
+    runs, data = workspace
+    for seed in (1, 2):
+        run_mod.execute(_cfg("tune", seed=seed, tag="sigma"), runs, data, CPU, **QUIET)
+    rows = _exported(runs, runs.parent)
+    assert {r["slow_epochs"] for r in rows.values()} <= {"True", "False"}

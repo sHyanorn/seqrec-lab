@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+import statistics
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -19,6 +20,7 @@ from seqrec.runner.run import MAX_ANCHOR_READS
 HARDWARE_EVENTS = ("hw_slowdown", "hw_thermal", "hw_power_brake")
 TRIAL_TAG = re.compile(r"t\d+")
 STOPPED = ("patience", "max_epochs", "guard")
+SLOW_FACTOR = 1.5  # D036
 
 
 def _load(path: Path) -> dict:
@@ -82,6 +84,27 @@ def _row(run_dir: Path) -> dict:
         if isinstance(values, dict):
             row |= {f"{part}_{k}": v for k, v in values.items() if k != "users"}
     return row
+
+
+def flag_slow_epochs(rows: list[dict]) -> None:
+    """Set `slow_epochs` on every row (D036): True when the run's median training plus
+    validation time per epoch exceeds SLOW_FACTOR times the median of the other runs with
+    the same batch, dataset, split, shuffle, arm, parameters and tag (its other seeds).
+    None when the run has no epoch time or no such other run."""
+    groups = defaultdict(list)
+    for r in rows:
+        r["slow_epochs"] = None
+        if r["epoch_train_s_median"] is not None and r["epoch_eval_s_median"] is not None:
+            key = tuple(
+                r[k] for k in ("batch", "dataset", "split", "shuffle", "arm", "params", "tag")
+            )
+            groups[key].append(r)
+    for runs in groups.values():
+        times = [r["epoch_train_s_median"] + r["epoch_eval_s_median"] for r in runs]
+        for i, r in enumerate(runs):
+            others = times[:i] + times[i + 1 :]
+            if others:
+                r["slow_epochs"] = times[i] > SLOW_FACTOR * statistics.median(others)
 
 
 def access_problems(rows: list[dict]) -> list[str]:
@@ -183,6 +206,7 @@ def export(runs_dir: Path, out_dir: Path) -> list[str]:
     """Write one CSV per batch, overview.csv and, after tuning, tuning_best.csv; return any
     test-access problems."""
     rows = [_row(p.parent) for p in sorted(runs_dir.glob("*/*/config.json"))]
+    flag_slow_epochs(rows)
     for batch in sorted({r["batch"] for r in rows}):
         write_csv(out_dir / f"{batch}.csv", [r for r in rows if r["batch"] == batch])
     if rows:
