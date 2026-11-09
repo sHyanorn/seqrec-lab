@@ -12,6 +12,7 @@ on:
 
 permissions:
   contents: write # the batch job commits aggregate CSVs
+  statuses: write # progress of a running job, readable while it runs
 
 jobs:
   batch:
@@ -28,8 +29,11 @@ jobs:
           uv run --no-sync python -c "import sys, torch; print(sys.version); print(torch.__version__, torch.cuda.is_available())"
           if command -v nvidia-smi >/dev/null; then nvidia-smi; else echo "nvidia-smi: not found"; fi
       - name: Tests
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          echo "::notice title=tests::started"
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" -f state=pending -f context=batch/progress -f description="tests started" --silent
           uv run --no-sync pytest -q
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" -f state=success -f context=batch/progress -f description="tests finished" --silent
       - name: Push access (dry run)
         run: git push --dry-run origin HEAD:main
