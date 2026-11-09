@@ -10,15 +10,21 @@ retried after a failed request (D042). Reads only the training split and writes 
 
     uv run python scripts/profile_step.py --dataset steam --arm sasrec-bce
     uv run python scripts/profile_step.py --from-run runs/m2-anchor/gsasrec-ml-1m-loo-s0-r1
+
+`--fixed-shapes`, `--fused-adam` and `--cuda-graph` time the SASRec arms under the execution
+modes of `step_modes.py`; `--sync-debug` counts the CPU-GPU synchronisations per step, and
+`--check` compares one step under the modes with one step of the arm's own code.
 """
 
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import statistics
 import sys
 import time
+import warnings
 from pathlib import Path
 
 import torch
@@ -30,6 +36,11 @@ from seqrec.data.registry import DATASETS
 from seqrec.models.trainer import BATCH_SIZE
 from seqrec.runner.config import RunConfig
 from seqrec.runner.run import ARMS, _prepare_splits, release_device_memory, seed_everything
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from step_modes import Stepper  # noqa: E402
+
+MODES = ("fixed_shapes", "fused_adam", "cuda_graph")
 
 
 def _steps(model, train, rows: torch.Tensor, n: int) -> None:
@@ -78,16 +89,40 @@ def _gpu_us(model, train, rows, n: int) -> float:
     return device_us(prof.events())
 
 
-def measure(
-    cfg: RunConfig, data_dir: Path, device: torch.device, steps: int, warmup: int, repeats=5
-):
+def syncs_per_step(model, train, rows) -> float:
+    """CPU-GPU synchronisations per step: an epoch of 3 steps against one of 1 step."""
+    counts = []
+    for n in (1, 3):
+        torch.cuda.set_sync_debug_mode("warn")
+        try:
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                _steps(model, train, rows, n)
+        finally:
+            torch.cuda.set_sync_debug_mode(0)
+        counts.append(sum("synchroniz" in str(w.message) for w in caught))
+    return (counts[1] - counts[0]) / 2
+
+
+def build(cfg: RunConfig, data_dir: Path, device: torch.device, modes: dict):
     seed_everything(cfg.seed)
+    splits, _ = _prepare_splits(cfg, data_dir)  # phase "tune": the test split stays sealed
+    model = ARMS[cfg.arm](cfg, splits.train, device)
+    if any(modes.values()):
+        model.train_epoch = Stepper(model, **modes).train_epoch
+    return model, splits
+
+
+def measure(
+    cfg: RunConfig, data_dir: Path, device: torch.device, steps: int, warmup: int, repeats=5,
+    modes: dict | None = None, sync_debug: bool = False,
+):  # fmt: skip
+    modes = modes or {}
     release_device_memory(device)
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats(device)
         torch.cuda.reset_accumulated_memory_stats(device)
-    splits, _ = _prepare_splits(cfg, data_dir)  # phase "tune": the test split stays sealed
-    model = ARMS[cfg.arm](cfg, splits.train, device)
+    model, splits = build(cfg, data_dir, device, modes)
     rows = model.data.rows
     available = len(rows) // BATCH_SIZE  # full batches: a partial one has another shape
     steps, warmup = min(steps, available), min(warmup, available)
@@ -109,14 +144,46 @@ def measure(
     if device.type == "cuda":  # separate, profiled passes: the profiler slows the CPU side
         gpu_1 = statistics.median(_gpu_us(model, splits.train, rows, 1) for _ in range(repeats))
         gpu_ms = (_gpu_us(model, splits.train, rows, steps) - gpu_1) / 1000 / (steps - 1)
+    syncs = syncs_per_step(model, splits.train, rows) if sync_debug and gpu_ms is not None else None
     return {
         "dataset": cfg.dataset, "arm": cfg.arm, "params": cfg.params, "steps": steps,
+        "modes": [m for m in MODES if modes.get(m)], "syncs_per_step": syncs,
         "wall_ms_per_step": round(wall_ms, 3),
         "cpu_ms_per_step": round(cpu_ms, 3),
         "gpu_ms_per_step": None if gpu_ms is None else round(gpu_ms, 3),
         "gpu_busy_share": None if gpu_ms is None else round(gpu_ms / wall_ms, 3),
         "epoch_overhead_ms": round(wall_1 * 1000 - wall_ms, 3),
     } | memory_readings(stats)  # fmt: skip
+
+
+def check(cfg: RunConfig, data_dir: Path, device: torch.device, modes: dict) -> dict:
+    """Four steps on one fixed batch with dropout 0, under the modes and under the arm's own
+    code, from the same initial state; the largest differences of the last loss and of the
+    weights. gSASRec draws negatives for every position under fixed shapes, so its reference
+    keeps fixed shapes and checks only fused Adam and the CUDA graph."""
+    cfg = dataclasses.replace(cfg, params=cfg.params | {"dropout": 0.0})
+    ref_modes = {"fixed_shapes": modes["fixed_shapes"] and cfg.arm == "gsasrec"}
+    out = []
+    for m in (ref_modes, modes):
+        model, _ = build(cfg, data_dir, device, {})
+        stepper = Stepper(model, **m)
+        batch = model.make_batch(model.data.rows[:BATCH_SIZE], model.gen)
+        model.net.train()
+        torch.set_float32_matmul_precision("high")
+        if m.get("cuda_graph"):  # the capture runs three eager steps, then one replay
+            loss = stepper.step(batch)
+        else:
+            for _ in range(4):
+                loss = stepper.eager_step(batch)
+        out.append((loss.float(), [p.detach().float() for p in model.net.parameters()]))
+    (loss_a, params_a), (loss_b, params_b) = out
+    return {
+        "check_reference": [k for k, v in ref_modes.items() if v],
+        "check_loss_diff": abs(loss_a - loss_b).item(),
+        "check_weight_diff": max(
+            (a - b).abs().max().item() for a, b in zip(params_a, params_b, strict=True)
+        ),
+    }
 
 
 def notes(result: dict) -> list[str]:
@@ -157,7 +224,14 @@ def main(argv=None) -> int:
     parser.add_argument("--warmup", type=int, default=20)
     parser.add_argument("--data-dir", type=Path, default=Path("data"))
     parser.add_argument("--device", default=None)
+    parser.add_argument("--fixed-shapes", action="store_true", help="loss over all positions")
+    parser.add_argument("--fused-adam", action="store_true")
+    parser.add_argument("--cuda-graph", action="store_true", help="needs --fixed-shapes")
+    parser.add_argument("--sync-debug", action="store_true", help="count syncs per step")
+    parser.add_argument("--check", action="store_true", help="compare with the arm's own code")
     args = parser.parse_args(argv)
+    if args.cuda_graph and not args.fixed_shapes:
+        parser.error("--cuda-graph needs --fixed-shapes")
     if args.steps < 2:
         parser.error("--steps must be at least 2")
     given = [f for f in ("dataset", "arm", "params") if getattr(args, f) is not None]
@@ -171,7 +245,12 @@ def main(argv=None) -> int:
     else:
         params = json.loads(args.params or "{}")
         cfg = RunConfig("profile", args.dataset, "loo", args.arm, 0, "tune", params=params)
-    result = measure(cfg, args.data_dir, device, args.steps, args.warmup)
+    modes = {m: getattr(args, m) for m in MODES}
+    if args.check:
+        print(json.dumps(check(cfg, args.data_dir, device, modes)))
+        return 0
+    result = measure(cfg, args.data_dir, device, args.steps, args.warmup, modes=modes,
+                     sync_debug=args.sync_debug)  # fmt: skip
     print(f"steps {result['steps']}")
     for note in notes(result):
         print(f"note: {note}")
