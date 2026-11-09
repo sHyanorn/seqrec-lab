@@ -1,0 +1,36 @@
+# Anchors on MovieLens-1M (METHODS 11.5, D026): each source's hyperparameters and
+# training length, one anchor read per arm. Bands: METHODS 11.5.
+batch = "m2-anchor"
+warmup_s = 180
+order = "listed"
+
+[defaults]
+dataset = "ml-1m"
+split = "loo"
+phase = "anchor"
+seeds = [0]
+tag = "r1"
+
+[[runs]]  # [5]: published NDCG@10 0.1821, band 0.172 to 0.192
+arm = "sasrec-ce"
+max_epochs = 100
+patience = 10
+params = { lr = 0.001, dim = 64, blocks = 2, heads = 1, dropout = 0.1, weight_decay = 0.0, shared_output = true }
+
+[[runs]]  # [5]: published NDCG@10 0.1341, band 0.124 to 0.144
+arm = "sasrec-bce"
+max_epochs = 100
+patience = 10
+params = { lr = 0.001, dim = 64, blocks = 2, heads = 1, dropout = 0.1, weight_decay = 0.0, shared_output = true }
+
+[[runs]]  # [5]: published NDCG@10 0.1537, band 0.144 to 0.164
+arm = "bert4rec"
+max_epochs = 200
+patience = 20
+params = { lr = 0.001, dim = 64, blocks = 2, heads = 2, dropout = 0.1, weight_decay = 0.0, mask_prob = 0.2 }
+
+[[runs]]  # [33]: published NDCG@10 0.1726, band 0.163 to 0.183
+arm = "gsasrec"
+max_epochs = 10000
+patience = 200
+params = { lr = 0.001, dim = 128, blocks = 2, heads = 1, dropout = 0.5, weight_decay = 0.0, shared_output = false, negatives = 256, t = 0.75 }

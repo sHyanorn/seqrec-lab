@@ -1,0 +1,12 @@
+# Checks the tuning harness on the GPU machine: SQLite storage, pruning and resumption.
+batch = "m2-tune-smoke"
+warmup_s = 0
+
+[defaults]
+dataset = "ml-1m"
+trials = 3
+max_epochs = 5
+patience = 5
+
+[[studies]]
+arm = "sasrec-ce"
