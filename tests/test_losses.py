@@ -132,3 +132,54 @@ def test_precision_under_bf16_autocast():
     assert shared.dtype == torch.bfloat16  # positive and negatives at one precision
     exact = losses.gbce(h, w, y, neg, t=0.75, n_items=50)
     assert mixed.dtype == torch.float32 and mixed.item() == pytest.approx(exact.item(), abs=1e-6)
+
+
+class _LargestTensor(torch.utils._python_dispatch.TorchDispatchMode):
+    """Records the most elements of any tensor an operation returns."""
+
+    largest = 0
+
+    def __torch_dispatch__(self, func, types, args=(), kwargs=None):
+        out = func(*args, **(kwargs or {}))
+        for t in torch.utils._pytree.tree_leaves(out):
+            if isinstance(t, torch.Tensor):
+                self.largest = max(self.largest, t.numel())
+        return out
+
+
+def gbce_inputs(m, k, n, d):
+    h, w, y = tensors(m=m, n=n, d=d, requires_grad=True)
+    neg = torch.randint(1, n + 1, (m, k))
+    neg[0, 0] = y[0]  # one collision
+    return h, w, y, neg
+
+
+@pytest.mark.parametrize("n", [50, 300])  # w.shape[0] at most K x d (gather), or above it
+def test_gbce_never_holds_a_negative_embedding_per_position(n, monkeypatch):
+    """D042: the (M, K, d) tensor of gathered negative embeddings, whose size changed with
+    every batch, filled the device. Both paths stay within the chunk budget."""
+    m, k, d = 64, 8, 16
+    monkeypatch.setattr(losses, "GBCE_CHUNK_ELEMENTS", 4 * k * d)
+    h, w, y, neg = gbce_inputs(m, k, n, d)
+    with _LargestTensor() as mode:
+        losses.gbce(h, w, y, neg, t=0.75, n_items=n).backward()
+    assert mode.largest < m * k * d
+
+
+@pytest.mark.parametrize("n", [50, 300])
+@pytest.mark.parametrize("budget", [2**26, 512])  # one slice, or several
+def test_gbce_paths_match_the_gathered_form_in_value_and_gradient(n, budget, monkeypatch):
+    m, k, d = 64, 8, 16
+    monkeypatch.setattr(losses, "GBCE_CHUNK_ELEMENTS", budget)
+    h, w, y, neg = gbce_inputs(m, k, n, d)
+    beta = losses.gbce_beta(k, n, 0.75)
+    pos = (h * w[y]).sum(-1)
+    keep = (neg != y[:, None]).double()
+    neg_logits = torch.einsum("md,mkd->mk", h, w[neg])
+    want = ((beta * F.softplus(-pos) + (keep * F.softplus(neg_logits)).sum(1)) / (1 + k)).mean()
+    want_grads = torch.autograd.grad(want, (h, w))
+    got = losses.gbce(h, w, y, neg, t=0.75, n_items=n)
+    got_grads = torch.autograd.grad(got, (h, w))
+    assert got.item() == pytest.approx(want.item(), abs=1e-12)
+    for g, e in zip(got_grads, want_grads, strict=True):
+        torch.testing.assert_close(g, e, rtol=0, atol=1e-12)

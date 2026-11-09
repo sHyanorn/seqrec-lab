@@ -77,6 +77,31 @@ def gbce_beta(k: int, n_items: int, t: float) -> float:
     return alpha * (t * (1 - 1 / alpha) + 1 / alpha)
 
 
+GBCE_CHUNK_ELEMENTS = 2**26  # largest intermediate of the negative logits, 256 MiB in fp32
+
+
+def _negative_logits(h, w, neg):
+    """(M, K) scores of each position's own negatives, through whichever intermediate is
+    smaller: all item scores (M, rows of w), or the negatives' embeddings (M, K, d)."""
+    if w.shape[0] <= neg.shape[1] * h.shape[1]:
+        return (h @ w.T).gather(1, neg)
+    return torch.einsum("md,mkd->mk", h, w[neg])
+
+
+def negative_logits(h, w, neg) -> torch.Tensor:
+    """`_negative_logits` over slices of positions whose intermediates hold at most
+    GBCE_CHUNK_ELEMENTS elements, recomputed in the backward pass, so their size no longer
+    grows with the number of positions in a batch (D042)."""
+    width = min(w.shape[0], neg.shape[1] * h.shape[1])
+    chunk = max(1, GBCE_CHUNK_ELEMENTS // width)
+    if len(h) <= chunk:
+        return _negative_logits(h, w, neg)
+    return torch.cat([
+        checkpoint(_negative_logits, h[s : s + chunk], w, neg[s : s + chunk], use_reentrant=False)
+        for s in range(0, len(h), chunk)
+    ])  # fmt: skip
+
+
 def gbce(h, w, y, neg, t: float, n_items: int) -> torch.Tensor:
     """gBCE with K uniform negatives per position (A4, [4]), computed in fp32 even under
     autocast (METHODS 4.3). Negatives equal to the positive are dropped. Each position's
@@ -86,7 +111,7 @@ def gbce(h, w, y, neg, t: float, n_items: int) -> torch.Tensor:
     with torch.autocast(h.device.type, enabled=False):
         h, w = _wide(h), _wide(w)
         pos = (h * w[y]).sum(-1)
-        neg_logits = torch.einsum("md,mkd->mk", h, w[neg])
+        neg_logits = negative_logits(h, w, neg)
     keep = (neg != y[:, None]).to(neg_logits.dtype)
     per_position = beta * F.softplus(-pos) + (keep * F.softplus(neg_logits)).sum(1)
     return (per_position / (1 + k)).mean()
