@@ -63,6 +63,7 @@ Before M3 tuning starts
 - [ ] The known-answer test for the shuffled-order transform (METHODS 3.3) is weak; test exact orders on a hand-made case
 - [ ] The anchor-read limit is enforced in `test_run`, not in `read_test`; move it into the reader so every caller is bound by it
 - [ ] Median pruning starts after 10% of the epoch cap (30 epochs), inside the gSASRec plateau before the start rule (D035) fires, where every trial sits near MostPop and pruning acts on noise. Decide, against the source's practice and Optuna's pruner options, whether pruning counts from a trial's start epoch; a change deviates from METHODS 5.4
+- [ ] Training steps of small configurations on Steam and Video_Games are bound by kernel launches (about 6.3 ms per step against 1.1 to 1.8 ms of GPU work, D039), so wall-clock time to target (H2a) mostly measures launch overhead. Decide the execution mode before any M3 run, applied to every arm: fixed shapes (loss over all positions with a mask instead of boolean indexing), fused Adam, then CUDA Graphs, with a prototype in `scripts/profile_step.py` measuring the gain first. Record the effect on RQ2 and repeat the pilot timings and the D034 projection afterwards
 
 ## M3 RQ1 and RQ2 runs (6 h / 128 to 163 h plus seed reserve / about 3 weeks of laptop time)
 
