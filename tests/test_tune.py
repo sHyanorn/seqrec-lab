@@ -112,6 +112,7 @@ def test_trials_cannot_reach_test_data(workspace, monkeypatch):
 def test_pruned_trials_count_toward_the_budget(workspace, monkeypatch):
     root, plan = workspace
     monkeypatch.setattr(optuna.trial.Trial, "should_prune", lambda self: True)
+    monkeypatch.setattr(run_mod, "START_FACTOR", -1.0)  # every trial starts at epoch 0 (D044)
     opt = run_plan(root, plan)
     assert len(opt.trials) == 6
     assert {t.state for t in opt.trials} == {optuna.trial.TrialState.PRUNED}
@@ -157,6 +158,45 @@ def test_pruner_waits_for_five_complete_trials_and_the_warm_up():
     complete_trial()
     assert not worse_trial_prunes_at(29)  # inside the warm-up of 10% of the cap
     assert worse_trial_prunes_at(30)
+
+
+def test_a_trial_that_never_starts_completes_without_pruning_steps(workspace, monkeypatch):
+    """D044: before a trial beats 1.5 times MostPop (D035) it reports nothing, so it cannot
+    be pruned and has no value in the median at any step."""
+    root, plan = workspace
+    monkeypatch.setattr(run_mod, "START_FACTOR", 1e9)
+    opt = run_plan(root, plan)
+    assert {t.state for t in opt.trials} == {optuna.trial.TrialState.COMPLETE}
+    assert all(t.intermediate_values == {} for t in opt.trials)
+    summary = json.loads(
+        (root / "runs" / "t" / "sasrec-ce-ml-1m-loo-s0-t05" / "summary.json").read_text()
+    )
+    assert summary["start_epoch"] is None and summary["epochs"] == 3
+
+
+def test_trials_that_never_started_enable_pruning_but_stay_out_of_the_median():
+    """Optuna's median is taken over the complete trials that reported the step; the count
+    of 5 complete trials includes those that reported nothing (D044)."""
+
+    def study(reporting: int, silent: int) -> optuna.Study:
+        opt = optuna.create_study(direction="maximize", pruner=tune.pruner(cap=300))
+        for i in range(reporting + silent):
+            trial = opt.ask()
+            if i < reporting:
+                for step in range(40):
+                    trial.report(1.0, step)
+            opt.tell(trial, 1.0 if i < reporting else 0.0)
+        return opt
+
+    def middling_trial_is_pruned(opt) -> bool:
+        trial = opt.ask()
+        trial.report(0.5, 30)
+        return trial.should_prune()
+
+    assert not middling_trial_is_pruned(study(reporting=2, silent=2))  # 4 complete trials
+    # with the silent trials at their final 0.0 the median would be 0.0 and nothing pruned
+    assert middling_trial_is_pruned(study(reporting=2, silent=3))
+    assert not middling_trial_is_pruned(study(reporting=0, silent=5))  # no value at the step
 
 
 def _crash_once(monkeypatch, tag):

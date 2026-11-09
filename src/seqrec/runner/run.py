@@ -205,6 +205,15 @@ def _set_rng_state(state: dict) -> None:
         torch.cuda.set_rng_state_all(state["cuda"])
 
 
+def _pruning_step(epoch: int, state: dict) -> int | None:
+    """Epochs since the run started, the step at which tuning compares trials (D044); None
+    before the start. A run without the start rule (D035) counts from epoch 0."""
+    if not state.get("started", True):
+        return None
+    step = epoch - (state.get("start_epoch") or 0)
+    return step if step >= 0 else None
+
+
 def _stop_reason(state: dict, cfg: RunConfig) -> str | None:
     if state.get("stop"):  # decided inside the loop (pruned, diverged, converged) and saved
         return state["stop"]
@@ -298,8 +307,9 @@ def execute(
 ) -> dict:
     """Train until a stop rule fires and write summary.json. No test data are read here.
 
-    `report(epoch, validation NDCG@10)` is called after every epoch; returning True stops
-    the run as pruned (tuning, METHODS 5.4)."""
+    `report(step, validation NDCG@10)` is called after every epoch from the run's start
+    epoch on, with the epochs since then as the step; returning True stops the run as
+    pruned (tuning, METHODS 5.4, D044)."""
     run_dir = run_dir_of(cfg, runs_dir)
     summary_path = run_dir / "summary.json"
     cfg = _claim(cfg, run_dir)
@@ -366,10 +376,11 @@ def execute(
         )  # fmt: skip
         state["checkpoint_s"] += time.perf_counter() - t0
 
-    if report is not None and metrics_path.exists():  # a resumed trial re-reports its epochs
+    if report is not None and metrics_path.exists():  # a resumed trial re-reports its steps
         for line in metrics_path.read_text(encoding="utf-8").splitlines():
             record = json.loads(line)
-            report(record["epoch"], record["val_ndcg@10"])
+            if (step := _pruning_step(record["epoch"], state)) is not None:
+                report(step, record["val_ndcg@10"])
 
     sampler = NvmlSampler(interval_s=1.0) if device.type == "cuda" else None
     if sampler and sampler.available:
@@ -417,9 +428,10 @@ def execute(
                 f.write(json.dumps(record) + "\n")
                 f.flush()
                 os.fsync(f.fileno())
+            step = _pruning_step(record["epoch"], state)
             if stats.get("converged"):  # models without training, e.g. the floor baselines
                 state["stop"] = "converged"
-            elif report is not None and report(record["epoch"], ndcg):
+            elif report is not None and step is not None and report(step, ndcg):
                 state["stop"] = "pruned"
             checkpoint()  # with the stop decision, so that a retry does not train on
             if state.get("stop"):

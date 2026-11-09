@@ -15,9 +15,10 @@ sealed and the run directory records every parameter. Studies are stored in
 runs/<batch>/optuna.sqlite3. After an interruption a running trial resumes from its
 checkpoint with its own parameters. TPE is reseeded from (sampler seed, trials so far)
 before every proposal, so an interrupted study proposes what an uninterrupted one would.
-Failed and pruned trials count toward the trial budget; a trial interrupted before all its
-parameters were stored is marked failed. A trial whose training raises is retried once
-before it counts as failed (D031).
+A trial is compared with others by epochs since its start epoch and cannot be pruned before
+it starts (D044). Failed and pruned trials count toward the trial budget; a trial
+interrupted before all its parameters were stored is marked failed. A trial whose training
+raises is retried once before it counts as failed (D031).
 """
 
 from __future__ import annotations
@@ -95,7 +96,8 @@ def load_tuning_plan(path: Path) -> tuple[str, float, list[Study]]:
 
 
 def pruner(cap: int) -> optuna.pruners.BasePruner:
-    """Median pruning after 5 complete trials, from epoch index cap // 10 on (METHODS 5.4)."""
+    """Median pruning after 5 complete trials, from step cap // 10 on (METHODS 5.4). A step
+    is an epoch counted from the trial's start epoch (D044)."""
     return optuna.pruners.MedianPruner(STARTUP_TRIALS, n_warmup_steps=cap // 10)
 
 
@@ -109,10 +111,10 @@ def _run_trial(study, opt: optuna.Study, trial: optuna.Trial, runs_dir, data_dir
     cfg = study.config(trial.number, dict(trial.params))
     trial.set_user_attr("run_id", cfg.run_id)
 
-    def report(epoch: int, value: float) -> bool:
-        with warnings.catch_warnings():  # a resumed trial re-reports finished epochs
+    def report(step: int, value: float) -> bool:
+        with warnings.catch_warnings():  # a resumed trial re-reports finished steps
             warnings.simplefilter("ignore", UserWarning)
-            trial.report(value, epoch)
+            trial.report(value, step)
         return trial.should_prune()
 
     def train():

@@ -646,6 +646,46 @@ def test_patience_waits_until_a_run_beats_popularity(workspace):
     assert floor["start_reference"] is None and floor["stop_reason"] == "converged"
 
 
+def _reported(runs, data, cfg):
+    steps = []
+
+    def report(step, value):
+        steps.append((step, value))
+        return False
+
+    run_mod.execute(cfg, runs, data, CPU, report=report, **QUIET)
+    return steps
+
+
+def _validation(runs, cfg):
+    lines = (runs / cfg.batch / cfg.run_id / "metrics.jsonl").read_text().splitlines()
+    return [json.loads(x)["val_ndcg@10"] for x in lines]
+
+
+def test_pruning_steps_count_from_the_start_epoch(workspace):
+    """D044: nothing is reported before a run starts, and its start epoch is step 0."""
+    runs, data = workspace
+    PopularityModel.peak = 6
+    reported = _reported(runs, data, _cfg())
+    assert reported == list(enumerate(_validation(runs, _cfg())[6:])) and len(reported) == 4
+    PopularityModel.peak = 1000  # never starts
+    assert _reported(runs, data, _cfg(start_limit=8, tag="stuck")) == []
+    PopularityModel.peak = 6  # without the start rule a run counts from epoch 0
+    off = _cfg(start_limit=0, tag="off")
+    assert _reported(runs, data, off) == list(enumerate(_validation(runs, off)))
+
+
+def test_a_resumed_run_reports_its_earlier_steps_again(workspace):
+    """D044: after an interruption the pruner gets the steps since the start, not epochs."""
+    runs, data = workspace
+    PopularityModel.peak = 6
+    PopularityModel.crash = "train@8"
+    with pytest.raises(RuntimeError):
+        run_mod.execute(_cfg(), runs, data, CPU, report=lambda step, value: False, **QUIET)
+    reported = _reported(runs, data, _cfg())
+    assert reported == list(enumerate(_validation(runs, _cfg())[6:])) and len(reported) == 4
+
+
 def test_a_run_that_never_beats_popularity_stops_at_its_start_limit(workspace):
     runs, data = workspace
     PopularityModel.peak = 1000
