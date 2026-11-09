@@ -256,3 +256,23 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
 
 - Date: 2026-11-09. Status: accepted.
 - Decision: Optuna 5.0 (MIT; released 2026-09-07; with SQLAlchemy, Alembic, Mako and colorlog, all MIT) for tuning, and SciPy 1.18 (BSD-3-Clause) for the noncentral t power of METHODS 7.5.
+
+## D030 Truncation share for the cap-doubling rule
+
+- Date: 2026-11-09. Status: accepted. Clarifies METHODS 5.2. Decided before any tuning trial ran and before any result on real data was seen.
+- Decision:
+  - "More than 20% of an arm's tuning trials on a dataset are truncated" is computed per study over the trials that stopped by patience, the epoch cap or the 8-hour guard. Pruned, diverged and failed trials are left out of both counts. "More than" is strict: 4 of 20 does not double the limits.
+  - Export writes the share per study as `truncated_share` in `tuning_best.csv`, next to the counts `stopped` and `truncated`; the rule reads that column. The overview uses the same definition.
+- Rationale: pruned and diverged trials stop before any limit can apply, so including them would make the share depend on how often the pruner fires or training diverges. The rule asks whether the limits cut short the trials that could reach them.
+- Amends D028: the overview no longer gives a share over all finished trials.
+
+## D031 Failed attempts
+
+- Date: 2026-11-09. Status: accepted. Not covered by METHODS. Decided before any tuning trial ran and before any result on real data was seen.
+- Decision:
+  - A run or tuning trial whose training raises an exception is retried once, whatever the cause, and resumes from its last checkpoint. A second failure is final: the run is not trained again, and a trial counts toward the trial budget (D028). A trial that succeeds on its retry uses no extra budget.
+  - The retry runs in the same process if the GPU still runs a kernel after the failure. Otherwise (for example after a driver reset) the command stops with status 1 and rerunning it performs the retry; a tuning trial stays running in its study until then.
+  - Every failed attempt is appended to the run's `failures.jsonl` (time, step, exception type and first line, commit), and exports count them in a `failures` column. A run that succeeds on its retry keeps the status from its summary.
+  - Test reads are not retried. A final run whose test read started but did not complete is refused a second read (METHODS 11.6), and the case is decided individually. A failed anchor read still counts toward the three anchor reads (METHODS 11.5). Exports flag every incomplete read.
+  - Interruptions without an exception (a closed terminal, sleep, power loss) are resumptions, not failures (D028).
+- Rationale: judging after the fact whether a failure was anomalous (memory fragmentation, a driver reset) or caused by the configuration leaves room for choice; a deterministic error fails again on its retry and is recorded as failed either way. Before this change, a run that succeeded on a rerun was exported as failed, which would have dropped it from the σ estimate (METHODS 7.5) without notice.

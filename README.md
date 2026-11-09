@@ -49,7 +49,7 @@ uv run seqrec seeds results/runs/<batch>.csv   # seed count from pilot validatio
 
 Arms: `sasrec-bce`, `sasrec-ce`, `sasrec-ss`, `gsasrec`, `bert4rec`, `mostpop`, `transition`.
 
-Test data are read only by `seqrec test`, once per final run, through a logged reader. `export` writes the aggregates, lists any test-access count that breaks the protocol (METHODS 11.6) and then exits with status 1.
+If training raises, the run is retried once; if the GPU stops responding, the command exits with status 1 and rerunning it continues (D031). Test data are read only by `seqrec test`, once per final run, through a logged reader. `export` writes the aggregates, lists any test-access count that breaks the protocol (METHODS 11.6) and then exits with status 1.
 
 ## License
 
