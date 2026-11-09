@@ -168,6 +168,19 @@ def check_split(splits: SplitSet, log: Log | None = None, k: int = 5) -> list[st
     return passed
 
 
+def check_batch_positions(splits: SplitSet, positions: np.ndarray) -> list[str]:
+    """A sampled training batch uses training rows only (METHODS 11.1). The test split may
+    be sealed here; check_split already showed that training rows hold no test target."""
+    passed: list[str] = []
+    _require(np.isin(positions, splits.train.seqs.pos).all(), "batch: training rows only", passed)
+    _require(
+        not np.isin(positions, splits.validation.target_pos).any(),
+        "batch: no validation targets",
+        passed,
+    )
+    return passed
+
+
 @dataclass(frozen=True)
 class ItemCounts:
     """A statistic computed from a training split, tagged with that split's fingerprint."""
