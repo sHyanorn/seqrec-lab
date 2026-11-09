@@ -2,8 +2,9 @@
 # 1. Seed variance on MovieLens-1M: the anchor configurations under the METHODS 5.2 caps,
 #    seeds 1 to 3 (tag "sigma"); A3 uses the A2 configuration with K = 256.
 # 2. Floor baselines on MovieLens-1M, validation only (tag "floor").
-# 3. Epoch time on every dataset: 2 epochs, each with full validation, at the anchor size
-#    (tag "time-small") and at the largest size of the search space (tag "time-large").
+# 3. Epoch time on every dataset: 3 epochs, each with full validation, so the median skips a
+#    slow first epoch; at the anchor size (tag "time-small") and at the largest size of the
+#    search space (tag "time-large").
 batch = "m2-pilot"
 warmup_s = 180
 order = "listed"
@@ -64,8 +65,8 @@ dataset = "ml-1m"
 arm = "sasrec-bce"
 seeds = [0]
 tag = "time-small"
-max_epochs = 2
-patience = 2
+max_epochs = 3
+patience = 3
 params = { lr = 0.001, dim = 64, blocks = 2, heads = 1, dropout = 0.1, weight_decay = 0.0, shared_output = true }
 
 [[runs]]
@@ -73,8 +74,8 @@ dataset = "ml-1m"
 arm = "sasrec-ce"
 seeds = [0]
 tag = "time-small"
-max_epochs = 2
-patience = 2
+max_epochs = 3
+patience = 3
 params = { lr = 0.001, dim = 64, blocks = 2, heads = 1, dropout = 0.1, weight_decay = 0.0, shared_output = true }
 
 [[runs]]
@@ -82,8 +83,8 @@ dataset = "ml-1m"
 arm = "sasrec-ss"
 seeds = [0]
 tag = "time-small"
-max_epochs = 2
-patience = 2
+max_epochs = 3
+patience = 3
 params = { lr = 0.001, dim = 64, blocks = 2, heads = 1, dropout = 0.1, weight_decay = 0.0, shared_output = true, negatives = 256 }
 
 [[runs]]
@@ -91,8 +92,8 @@ dataset = "ml-1m"
 arm = "gsasrec"
 seeds = [0]
 tag = "time-small"
-max_epochs = 2
-patience = 2
+max_epochs = 3
+patience = 3
 params = { lr = 0.001, dim = 128, blocks = 2, heads = 1, dropout = 0.5, weight_decay = 0.0, shared_output = false, negatives = 256, t = 0.75 }
 
 [[runs]]
@@ -100,8 +101,8 @@ dataset = "ml-1m"
 arm = "bert4rec"
 seeds = [0]
 tag = "time-small"
-max_epochs = 2
-patience = 2
+max_epochs = 3
+patience = 3
 params = { lr = 0.001, dim = 64, blocks = 2, heads = 2, dropout = 0.1, weight_decay = 0.0, mask_prob = 0.2 }
 
 [[runs]]
@@ -109,8 +110,8 @@ dataset = "ml-1m"
 arm = "sasrec-bce"
 seeds = [0]
 tag = "time-large"
-max_epochs = 2
-patience = 2
+max_epochs = 3
+patience = 3
 params = { lr = 0.001, dim = 256, blocks = 3, heads = 2, dropout = 0.1, weight_decay = 0.0, shared_output = false }
 
 [[runs]]
@@ -118,8 +119,8 @@ dataset = "ml-1m"
 arm = "sasrec-ce"
 seeds = [0]
 tag = "time-large"
-max_epochs = 2
-patience = 2
+max_epochs = 3
+patience = 3
 params = { lr = 0.001, dim = 256, blocks = 3, heads = 2, dropout = 0.1, weight_decay = 0.0, shared_output = false }
 
 [[runs]]
@@ -127,8 +128,8 @@ dataset = "ml-1m"
 arm = "sasrec-ss"
 seeds = [0]
 tag = "time-large"
-max_epochs = 2
-patience = 2
+max_epochs = 3
+patience = 3
 params = { lr = 0.001, dim = 256, blocks = 3, heads = 2, dropout = 0.1, weight_decay = 0.0, shared_output = false, negatives = 4096 }
 
 [[runs]]
@@ -136,8 +137,8 @@ dataset = "ml-1m"
 arm = "gsasrec"
 seeds = [0]
 tag = "time-large"
-max_epochs = 2
-patience = 2
+max_epochs = 3
+patience = 3
 params = { lr = 0.001, dim = 256, blocks = 3, heads = 2, dropout = 0.5, weight_decay = 0.0, shared_output = false, negatives = 256, t = 0.75 }
 
 [[runs]]
@@ -145,8 +146,8 @@ dataset = "ml-1m"
 arm = "bert4rec"
 seeds = [0]
 tag = "time-large"
-max_epochs = 2
-patience = 2
+max_epochs = 3
+patience = 3
 params = { lr = 0.001, dim = 256, blocks = 3, heads = 2, dropout = 0.1, weight_decay = 0.0, mask_prob = 0.2 }
 
 [[runs]]
@@ -154,8 +155,8 @@ dataset = "video-games"
 arm = "sasrec-bce"
 seeds = [0]
 tag = "time-small"
-max_epochs = 2
-patience = 2
+max_epochs = 3
+patience = 3
 params = { lr = 0.001, dim = 64, blocks = 2, heads = 1, dropout = 0.1, weight_decay = 0.0, shared_output = true }
 
 [[runs]]
@@ -163,8 +164,8 @@ dataset = "video-games"
 arm = "sasrec-ce"
 seeds = [0]
 tag = "time-small"
-max_epochs = 2
-patience = 2
+max_epochs = 3
+patience = 3
 params = { lr = 0.001, dim = 64, blocks = 2, heads = 1, dropout = 0.1, weight_decay = 0.0, shared_output = true }
 
 [[runs]]
@@ -172,8 +173,8 @@ dataset = "video-games"
 arm = "sasrec-ss"
 seeds = [0]
 tag = "time-small"
-max_epochs = 2
-patience = 2
+max_epochs = 3
+patience = 3
 params = { lr = 0.001, dim = 64, blocks = 2, heads = 1, dropout = 0.1, weight_decay = 0.0, shared_output = true, negatives = 256 }
 
 [[runs]]
@@ -181,8 +182,8 @@ dataset = "video-games"
 arm = "gsasrec"
 seeds = [0]
 tag = "time-small"
-max_epochs = 2
-patience = 2
+max_epochs = 3
+patience = 3
 params = { lr = 0.001, dim = 128, blocks = 2, heads = 1, dropout = 0.5, weight_decay = 0.0, shared_output = false, negatives = 256, t = 0.75 }
 
 [[runs]]
@@ -190,8 +191,8 @@ dataset = "video-games"
 arm = "bert4rec"
 seeds = [0]
 tag = "time-small"
-max_epochs = 2
-patience = 2
+max_epochs = 3
+patience = 3
 params = { lr = 0.001, dim = 64, blocks = 2, heads = 2, dropout = 0.1, weight_decay = 0.0, mask_prob = 0.2 }
 
 [[runs]]
@@ -199,8 +200,8 @@ dataset = "video-games"
 arm = "sasrec-bce"
 seeds = [0]
 tag = "time-large"
-max_epochs = 2
-patience = 2
+max_epochs = 3
+patience = 3
 params = { lr = 0.001, dim = 256, blocks = 3, heads = 2, dropout = 0.1, weight_decay = 0.0, shared_output = false }
 
 [[runs]]
@@ -208,8 +209,8 @@ dataset = "video-games"
 arm = "sasrec-ce"
 seeds = [0]
 tag = "time-large"
-max_epochs = 2
-patience = 2
+max_epochs = 3
+patience = 3
 params = { lr = 0.001, dim = 256, blocks = 3, heads = 2, dropout = 0.1, weight_decay = 0.0, shared_output = false }
 
 [[runs]]
@@ -217,8 +218,8 @@ dataset = "video-games"
 arm = "sasrec-ss"
 seeds = [0]
 tag = "time-large"
-max_epochs = 2
-patience = 2
+max_epochs = 3
+patience = 3
 params = { lr = 0.001, dim = 256, blocks = 3, heads = 2, dropout = 0.1, weight_decay = 0.0, shared_output = false, negatives = 4096 }
 
 [[runs]]
@@ -226,8 +227,8 @@ dataset = "video-games"
 arm = "gsasrec"
 seeds = [0]
 tag = "time-large"
-max_epochs = 2
-patience = 2
+max_epochs = 3
+patience = 3
 params = { lr = 0.001, dim = 256, blocks = 3, heads = 2, dropout = 0.5, weight_decay = 0.0, shared_output = false, negatives = 256, t = 0.75 }
 
 [[runs]]
@@ -235,8 +236,8 @@ dataset = "video-games"
 arm = "bert4rec"
 seeds = [0]
 tag = "time-large"
-max_epochs = 2
-patience = 2
+max_epochs = 3
+patience = 3
 params = { lr = 0.001, dim = 256, blocks = 3, heads = 2, dropout = 0.1, weight_decay = 0.0, mask_prob = 0.2 }
 
 [[runs]]
@@ -244,8 +245,8 @@ dataset = "steam"
 arm = "sasrec-bce"
 seeds = [0]
 tag = "time-small"
-max_epochs = 2
-patience = 2
+max_epochs = 3
+patience = 3
 params = { lr = 0.001, dim = 64, blocks = 2, heads = 1, dropout = 0.1, weight_decay = 0.0, shared_output = true }
 
 [[runs]]
@@ -253,8 +254,8 @@ dataset = "steam"
 arm = "sasrec-ce"
 seeds = [0]
 tag = "time-small"
-max_epochs = 2
-patience = 2
+max_epochs = 3
+patience = 3
 params = { lr = 0.001, dim = 64, blocks = 2, heads = 1, dropout = 0.1, weight_decay = 0.0, shared_output = true }
 
 [[runs]]
@@ -262,8 +263,8 @@ dataset = "steam"
 arm = "sasrec-ss"
 seeds = [0]
 tag = "time-small"
-max_epochs = 2
-patience = 2
+max_epochs = 3
+patience = 3
 params = { lr = 0.001, dim = 64, blocks = 2, heads = 1, dropout = 0.1, weight_decay = 0.0, shared_output = true, negatives = 256 }
 
 [[runs]]
@@ -271,8 +272,8 @@ dataset = "steam"
 arm = "gsasrec"
 seeds = [0]
 tag = "time-small"
-max_epochs = 2
-patience = 2
+max_epochs = 3
+patience = 3
 params = { lr = 0.001, dim = 128, blocks = 2, heads = 1, dropout = 0.5, weight_decay = 0.0, shared_output = false, negatives = 256, t = 0.75 }
 
 [[runs]]
@@ -280,8 +281,8 @@ dataset = "steam"
 arm = "bert4rec"
 seeds = [0]
 tag = "time-small"
-max_epochs = 2
-patience = 2
+max_epochs = 3
+patience = 3
 params = { lr = 0.001, dim = 64, blocks = 2, heads = 2, dropout = 0.1, weight_decay = 0.0, mask_prob = 0.2 }
 
 [[runs]]
@@ -289,8 +290,8 @@ dataset = "steam"
 arm = "sasrec-bce"
 seeds = [0]
 tag = "time-large"
-max_epochs = 2
-patience = 2
+max_epochs = 3
+patience = 3
 params = { lr = 0.001, dim = 256, blocks = 3, heads = 2, dropout = 0.1, weight_decay = 0.0, shared_output = false }
 
 [[runs]]
@@ -298,8 +299,8 @@ dataset = "steam"
 arm = "sasrec-ce"
 seeds = [0]
 tag = "time-large"
-max_epochs = 2
-patience = 2
+max_epochs = 3
+patience = 3
 params = { lr = 0.001, dim = 256, blocks = 3, heads = 2, dropout = 0.1, weight_decay = 0.0, shared_output = false }
 
 [[runs]]
@@ -307,8 +308,8 @@ dataset = "steam"
 arm = "sasrec-ss"
 seeds = [0]
 tag = "time-large"
-max_epochs = 2
-patience = 2
+max_epochs = 3
+patience = 3
 params = { lr = 0.001, dim = 256, blocks = 3, heads = 2, dropout = 0.1, weight_decay = 0.0, shared_output = false, negatives = 4096 }
 
 [[runs]]
@@ -316,8 +317,8 @@ dataset = "steam"
 arm = "gsasrec"
 seeds = [0]
 tag = "time-large"
-max_epochs = 2
-patience = 2
+max_epochs = 3
+patience = 3
 params = { lr = 0.001, dim = 256, blocks = 3, heads = 2, dropout = 0.5, weight_decay = 0.0, shared_output = false, negatives = 256, t = 0.75 }
 
 [[runs]]
@@ -325,8 +326,8 @@ dataset = "steam"
 arm = "bert4rec"
 seeds = [0]
 tag = "time-large"
-max_epochs = 2
-patience = 2
+max_epochs = 3
+patience = 3
 params = { lr = 0.001, dim = 256, blocks = 3, heads = 2, dropout = 0.1, weight_decay = 0.0, mask_prob = 0.2 }
 
 [[runs]]
@@ -334,8 +335,8 @@ dataset = "ml-20m"
 arm = "sasrec-bce"
 seeds = [0]
 tag = "time-small"
-max_epochs = 2
-patience = 2
+max_epochs = 3
+patience = 3
 params = { lr = 0.001, dim = 64, blocks = 2, heads = 1, dropout = 0.1, weight_decay = 0.0, shared_output = true }
 
 [[runs]]
@@ -343,8 +344,8 @@ dataset = "ml-20m"
 arm = "sasrec-ce"
 seeds = [0]
 tag = "time-small"
-max_epochs = 2
-patience = 2
+max_epochs = 3
+patience = 3
 params = { lr = 0.001, dim = 64, blocks = 2, heads = 1, dropout = 0.1, weight_decay = 0.0, shared_output = true }
 
 [[runs]]
@@ -352,8 +353,8 @@ dataset = "ml-20m"
 arm = "sasrec-ss"
 seeds = [0]
 tag = "time-small"
-max_epochs = 2
-patience = 2
+max_epochs = 3
+patience = 3
 params = { lr = 0.001, dim = 64, blocks = 2, heads = 1, dropout = 0.1, weight_decay = 0.0, shared_output = true, negatives = 256 }
 
 [[runs]]
@@ -361,8 +362,8 @@ dataset = "ml-20m"
 arm = "gsasrec"
 seeds = [0]
 tag = "time-small"
-max_epochs = 2
-patience = 2
+max_epochs = 3
+patience = 3
 params = { lr = 0.001, dim = 128, blocks = 2, heads = 1, dropout = 0.5, weight_decay = 0.0, shared_output = false, negatives = 256, t = 0.75 }
 
 [[runs]]
@@ -370,8 +371,8 @@ dataset = "ml-20m"
 arm = "bert4rec"
 seeds = [0]
 tag = "time-small"
-max_epochs = 2
-patience = 2
+max_epochs = 3
+patience = 3
 params = { lr = 0.001, dim = 64, blocks = 2, heads = 2, dropout = 0.1, weight_decay = 0.0, mask_prob = 0.2 }
 
 [[runs]]
@@ -379,8 +380,8 @@ dataset = "ml-20m"
 arm = "sasrec-bce"
 seeds = [0]
 tag = "time-large"
-max_epochs = 2
-patience = 2
+max_epochs = 3
+patience = 3
 params = { lr = 0.001, dim = 256, blocks = 3, heads = 2, dropout = 0.1, weight_decay = 0.0, shared_output = false }
 
 [[runs]]
@@ -388,8 +389,8 @@ dataset = "ml-20m"
 arm = "sasrec-ce"
 seeds = [0]
 tag = "time-large"
-max_epochs = 2
-patience = 2
+max_epochs = 3
+patience = 3
 params = { lr = 0.001, dim = 256, blocks = 3, heads = 2, dropout = 0.1, weight_decay = 0.0, shared_output = false }
 
 [[runs]]
@@ -397,8 +398,8 @@ dataset = "ml-20m"
 arm = "sasrec-ss"
 seeds = [0]
 tag = "time-large"
-max_epochs = 2
-patience = 2
+max_epochs = 3
+patience = 3
 params = { lr = 0.001, dim = 256, blocks = 3, heads = 2, dropout = 0.1, weight_decay = 0.0, shared_output = false, negatives = 4096 }
 
 [[runs]]
@@ -406,8 +407,8 @@ dataset = "ml-20m"
 arm = "gsasrec"
 seeds = [0]
 tag = "time-large"
-max_epochs = 2
-patience = 2
+max_epochs = 3
+patience = 3
 params = { lr = 0.001, dim = 256, blocks = 3, heads = 2, dropout = 0.5, weight_decay = 0.0, shared_output = false, negatives = 256, t = 0.75 }
 
 [[runs]]
@@ -415,6 +416,6 @@ dataset = "ml-20m"
 arm = "bert4rec"
 seeds = [0]
 tag = "time-large"
-max_epochs = 2
-patience = 2
+max_epochs = 3
+patience = 3
 params = { lr = 0.001, dim = 256, blocks = 3, heads = 2, dropout = 0.1, weight_decay = 0.0, mask_prob = 0.2 }
