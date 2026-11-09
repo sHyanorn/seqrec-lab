@@ -10,6 +10,7 @@ from __future__ import annotations
 import csv
 import math
 from collections import defaultdict
+from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
@@ -21,6 +22,23 @@ F1_TESTS = 24  # the strictest Holm step in F1 uses alpha / 24
 N_RANGE = range(5, 11)
 TARGET = 0.8
 NEURAL_ARMS = ("sasrec-bce", "sasrec-ce", "sasrec-ss", "gsasrec", "bert4rec")
+REPLACE_KEY = ("tag", "dataset", "split", "shuffle", "arm")
+
+Exports = Path | Sequence[Path]
+
+
+def read_exports(paths: Exports) -> list[dict]:
+    """Rows of one or more exported batch CSVs. The rows of a later file replace the rows of
+    earlier files with the same tag, dataset, split, shuffle and arm, so a rerun stands in
+    for the runs it repeats (D035)."""
+    merged: dict[tuple, list[dict]] = {}
+    for path in [paths] if isinstance(paths, Path) else paths:
+        groups = defaultdict(list)
+        with Path(path).open(encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                groups[tuple(row[k] for k in REPLACE_KEY)].append(row)
+        merged |= groups
+    return [row for rows in merged.values() for row in rows]
 
 
 def _se_df(sigma: float, n: int) -> tuple[float, int]:
@@ -59,30 +77,29 @@ def pooled_sd(groups: list[np.ndarray]) -> float:
 
 
 def sigma_from_export(
-    path: Path, tag: str, dataset: str, split: str = "loo"
+    paths: Exports, tag: str, dataset: str, split: str = "loo"
 ) -> tuple[float, dict[str, list[float]]]:
     """Pooled SD of log validation NDCG@10 within arms, over the trained, unshuffled runs of
-    one tag, dataset and split in an export."""
+    one tag, dataset and split in one or more exports (`read_exports`)."""
     groups: dict[str, list[float]] = defaultdict(list)
-    with path.open(encoding="utf-8") as f:
-        for row in csv.DictReader(f):
-            value = row.get("validation_ndcg@10")
-            if (
-                row["tag"] == tag
-                and row["dataset"] == dataset
-                and row["split"] == split
-                and row["shuffle"] == "none"
-                and row["arm"] in NEURAL_ARMS
-                and row["status"] in ("trained", "tested")
-                and value
-            ):
-                groups[row["arm"]].append(math.log(float(value)))
+    for row in read_exports(paths):
+        value = row.get("validation_ndcg@10")
+        if (
+            row["tag"] == tag
+            and row["dataset"] == dataset
+            and row["split"] == split
+            and row["shuffle"] == "none"
+            and row["arm"] in NEURAL_ARMS
+            and row["status"] in ("trained", "tested")
+            and value
+        ):
+            groups[row["arm"]].append(math.log(float(value)))
     sigma = pooled_sd([np.asarray(v) for v in groups.values()])
     return sigma, dict(groups)
 
 
-def report(path: Path, tag: str, dataset: str) -> str:
-    sigma, groups = sigma_from_export(path, tag, dataset)
+def report(paths: Exports, tag: str, dataset: str) -> str:
+    sigma, groups = sigma_from_export(paths, tag, dataset)
     n = seed_count(sigma)
     lines = [
         f"{arm}: {len(v)} runs, sd {np.std(v, ddof=1):.5f}" for arm, v in sorted(groups.items())

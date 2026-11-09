@@ -346,10 +346,11 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
   - A run that has not started after `start_limit` epochs (default 200) stops with reason `no_start`. It counts as truncated, so the doubling rule of METHODS 5.2 (D030) covers it, and doubling also doubles the start limit. It keeps its best checkpoint and enters every analysis like any other run.
   - The rule applies to all neural arms (A1 to A5). The floor baselines do not train and have start limit 0. Median pruning in tuning stays as in METHODS 5.4.
 - Effect on existing runs: a run that passed the threshold before patience fired follows the same path under the rule. All twelve seed-variance runs of A1 to A3 and A5, and gSASRec seed 2, ended above 0.14 against a threshold of 0.031, so their results stand. gSASRec seeds 1 to 3 are rerun under the rule in batch `m2-gsasrec`, whose runs replace the pilot's gSASRec seed-variance runs in D033 and D034.
+- Analysis inputs: `seqrec seeds`, `seqrec budget` and `seqrec anchors --pilot` accept several exports, and runs in a later file replace earlier runs with the same tag, dataset, split, shuffle and arm. D033 and D034 read `results/runs/m2-pilot.csv` followed by `results/runs/m2-gsasrec.csv`.
 - Factor: the stuck runs sat at 1.04 times MostPop; after three epochs SASRec-BCE and SASRec-SS stood at 2.3 times and SASRec-CE at 4.8 times, and converged runs at 7 to 9 times. A wrong factor costs epochs but never removes a run.
 - Cost: if every gSASRec run starts as seed 2 and the anchor run did, the central D034 projection grows by about 53 GPU hours (gSASRec on MovieLens-1M from 117 to 234 epochs per run).
 - Alternatives: the anchor limits for gSASRec (10,000 epochs, patience 200) add about 164 hours and stretch the pruning warm-up to 1,000 epochs; a lower t is already tuned over [0.5, 1.0], and changing it in the seed-variance runs would leave the anchor configuration; dropping stuck runs selects on the outcome.
-- Tests: the start-rule tests in `tests/test_runner.py` failed before the change (METHODS 11.5).
+- Tests: the start-rule tests in `tests/test_runner.py` and `test_a_later_export_replaces_the_runs_it_repeats` failed before their changes (METHODS 11.5).
 
 ## D036 Time counted by the guard
 

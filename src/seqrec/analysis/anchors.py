@@ -11,7 +11,7 @@ from pathlib import Path
 
 import numpy as np
 
-from seqrec.analysis.power import DELTA, sigma_from_export
+from seqrec.analysis.power import DELTA, Exports, read_exports, sigma_from_export
 from seqrec.analysis.table import format_table
 from seqrec.runner.config import Plan, RunConfig, load_plan
 
@@ -148,7 +148,7 @@ def stop_conditions(table: list[dict], plan: Plan) -> list[str]:
     return issues
 
 
-def cap_cost(anchor_csv: Path, pilot_csv: Path, tag: str = "sigma") -> tuple[float, list[dict]]:
+def cap_cost(anchor_csv: Path, pilot_csv: Exports, tag: str = "sigma") -> tuple[float, list[dict]]:
     """Per arm: validation NDCG@10 of the seed-variance runs (METHODS 5.2 limits) against the
     latest trained anchor run (the source's limits). z divides the log difference by its
     standard error under the pooled sigma: sqrt(1 + 1/k) sigma for one anchor and k runs."""
@@ -159,7 +159,7 @@ def cap_cost(anchor_csv: Path, pilot_csv: Path, tag: str = "sigma") -> tuple[flo
         if trained and _num(r, "validation_ndcg@10") is not None:
             anchors[r["arm"]] = _num(r, "validation_ndcg@10")  # sorted by tag: latest wins
     runs = [
-        r for r in _read(pilot_csv)
+        r for r in read_exports(pilot_csv)
         if r["tag"] == tag and r["dataset"] == "ml-1m" and r["split"] == "loo"
         and r["shuffle"] == "none" and r["status"] in ("trained", "tested")
     ]  # fmt: skip
@@ -185,7 +185,7 @@ def cap_cost(anchor_csv: Path, pilot_csv: Path, tag: str = "sigma") -> tuple[flo
     return sigma, out
 
 
-def report(anchor_csv: Path, plan_path: Path, pilot_csv: Path | None = None) -> str:
+def report(anchor_csv: Path, plan_path: Path, pilot_csv: Exports | None = None) -> str:
     table = anchor_table(anchor_csv)
     parts = [
         format_table(table, [

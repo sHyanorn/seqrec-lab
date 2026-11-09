@@ -266,3 +266,30 @@ def test_only_the_latest_anchor_run_of_an_arm_is_checked(tmp_path):
     issues = anchors.stop_conditions(table, load_plan(plan))
     assert not any(i.startswith("sasrec-bce") or "commits" in i for i in issues)
     assert len(issues) == 3  # the three arms without an anchor run
+
+
+def test_a_later_export_replaces_the_runs_it_repeats(tmp_path, capsys):
+    """D035: the gSASRec rerun stands in for the pilot's gSASRec runs of the same tag."""
+    stuck = {"best_epoch": 13, "epochs": 44}
+    rows = [r for r in pilot_rows() if not (r["arm"] == "gsasrec" and r["tag"] == "sigma")]
+    rows += [run_row("gsasrec", "sigma", v, **stuck) for v in (0.0216, 0.1841, 0.0216)]
+    pilot = write(tmp_path / "m2-pilot.csv", rows)
+    rerun_rows = [run_row("gsasrec", "sigma", v, best_epoch=220) for v in (0.183, 0.185, 0.184)]
+    rerun = write(tmp_path / "m2-gsasrec.csv", rerun_rows)
+    write(tmp_path / "overview.csv", [{"batch": "m2-pilot", "gpu_hours": 1}])
+
+    sigma, groups = power.sigma_from_export([pilot, rerun], "sigma", "ml-1m")
+    assert groups["gsasrec"] == pytest.approx([math.log(v) for v in (0.183, 0.185, 0.184)])
+    assert len(groups["sasrec-ce"]) == 3 and sigma < 0.01
+    anchor = write(tmp_path / "m2-anchor.csv", [anchor_row("gsasrec", 0.17, 0.1828)])
+    gsasrec = {r["arm"]: r for r in anchors.cap_cost(anchor, [pilot, rerun])[1]}["gsasrec"]
+    assert not gsasrec["raise_cap"]
+    loaded = budget.load_pilot([pilot, rerun], tmp_path / "overview.csv")
+    assert loaded.best_epoch["gsasrec"] == 221
+    assert loaded.epoch_s == budget.load_pilot(pilot, tmp_path / "overview.csv").epoch_s
+
+    assert cli_main(["seeds", str(pilot), str(rerun), "--tag", "sigma"]) == 0
+    assert "gsasrec: 3 runs, sd 0.00543" in capsys.readouterr().out
+    args = ["anchors", str(anchor), "--plan", str(ANCHOR_PLAN), "--pilot", str(pilot), str(rerun)]
+    assert cli_main(args) == 0
+    assert cli_main(["budget", str(pilot), str(rerun), "--seeds", "6"]) == 0

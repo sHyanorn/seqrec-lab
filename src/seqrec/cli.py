@@ -36,7 +36,11 @@ def main(argv=None) -> int:
 
     seeds = sub.add_parser("seeds", help="seed count from pilot validation scores (METHODS 7.5)")
     seeds.add_argument(
-        "csv", type=Path, help="an exported batch CSV, e.g. results/runs/m2-pilot.csv"
+        "csv",
+        type=Path,
+        nargs="+",
+        help="exported batch CSVs, e.g. results/runs/m2-pilot.csv; runs in a later file replace "
+        "earlier runs with the same tag, dataset, split, shuffle and arm",
     )
     seeds.add_argument("--tag", default="sigma")
     seeds.add_argument("--dataset", default="ml-1m")
@@ -45,12 +49,22 @@ def main(argv=None) -> int:
     anchors.add_argument(
         "csv", type=Path, help="the anchor export, e.g. results/runs/m2-anchor.csv"
     )
-    anchors.add_argument("--pilot", type=Path, help="the pilot export, to compare limits (D033)")
+    anchors.add_argument(
+        "--pilot",
+        type=Path,
+        nargs="+",
+        help="pilot exports, to compare limits (D033); as for seeds",
+    )
     anchors.add_argument("--plan", type=Path, default=Path("configs/plans/m2-anchor.toml"))
 
     budget = sub.add_parser("budget", help="GPU-hour projection from the pilot (D034)")
-    budget.add_argument("csv", type=Path, help="the pilot export, e.g. results/runs/m2-pilot.csv")
-    budget.add_argument("--overview", type=Path, help="default: overview.csv next to the pilot")
+    budget.add_argument(
+        "csv",
+        type=Path,
+        nargs="+",
+        help="pilot exports, e.g. results/runs/m2-pilot.csv; as for seeds",
+    )
+    budget.add_argument("--overview", type=Path, help="default: overview.csv next to the first")
     budget.add_argument("--seeds", type=int, help="default: the METHODS 7.5 rule on the pilot")
 
     exp = sub.add_parser("export", help="aggregate finished runs into results/runs")
@@ -85,7 +99,9 @@ def main(argv=None) -> int:
         from seqrec.analysis.budget import report as budget_report
 
         print(
-            budget_report(args.csv, args.overview or args.csv.with_name("overview.csv"), args.seeds)
+            budget_report(
+                args.csv, args.overview or args.csv[0].with_name("overview.csv"), args.seeds
+            )
         )
         return 0
     from seqrec.runner.export import export

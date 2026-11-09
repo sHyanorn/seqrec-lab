@@ -49,6 +49,8 @@ uv run seqrec anchors results/runs/m2-anchor.csv  # anchors against their bands 
 uv run seqrec budget results/runs/m2-pilot.csv   # GPU-hour projection (D034)
 ```
 
+`seeds`, `budget` and `anchors --pilot` accept several exports; runs in a later file replace earlier runs with the same tag, dataset, split, shuffle and arm (D035).
+
 Arms: `sasrec-bce`, `sasrec-ce`, `sasrec-ss`, `gsasrec`, `bert4rec`, `mostpop`, `transition`.
 
 If training raises, the run is retried once; if the GPU stops responding, the command exits with status 1 and rerunning it continues (D031). Test data are read only by `seqrec test`, once per final run, through a logged reader. `export` writes the aggregates, lists any test-access count that breaks the protocol (METHODS 11.6) and then exits with status 1.

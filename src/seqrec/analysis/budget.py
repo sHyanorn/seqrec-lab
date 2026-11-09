@@ -20,7 +20,7 @@ from pathlib import Path
 
 import numpy as np
 
-from seqrec.analysis.power import NEURAL_ARMS, seed_count, sigma_from_export
+from seqrec.analysis.power import NEURAL_ARMS, Exports, read_exports, seed_count, sigma_from_export
 from seqrec.analysis.table import format_table
 from seqrec.runner.config import default_limits
 
@@ -59,9 +59,9 @@ class Pilot:
     spent_hours: float  # GPU hours of the M2 batches
 
 
-def load_pilot(pilot_csv: Path, overview_csv: Path, tag: str = "sigma") -> Pilot:
-    with pilot_csv.open(encoding="utf-8") as f:
-        rows = [r for r in csv.DictReader(f) if r["split"] == "loo" and r["shuffle"] == "none"]
+def load_pilot(pilot_csv: Exports, overview_csv: Path, tag: str = "sigma") -> Pilot:
+    """Pilot timings and best epochs from one or more exports (`read_exports`)."""
+    rows = [r for r in read_exports(pilot_csv) if r["split"] == "loo" and r["shuffle"] == "none"]
     epoch_s, best = {}, defaultdict(list)
     for r in rows:
         if r["status"] not in ("trained", "tested"):
@@ -196,11 +196,11 @@ def cuts(pilot: Pilot, scope: Scope, scenario: Scenario = SCENARIOS[0]) -> tuple
     return scope, steps
 
 
-def seeds_from_pilot(pilot_csv: Path, tag: str = "sigma") -> int:
+def seeds_from_pilot(pilot_csv: Exports, tag: str = "sigma") -> int:
     return seed_count(sigma_from_export(pilot_csv, tag, "ml-1m")[0])
 
 
-def report(pilot_csv: Path, overview_csv: Path, seeds: int | None = None) -> str:
+def report(pilot_csv: Exports, overview_csv: Path, seeds: int | None = None) -> str:
     pilot = load_pilot(pilot_csv, overview_csv)
     n = seeds or seeds_from_pilot(pilot_csv)
     central, ml1m, upper = SCENARIOS
