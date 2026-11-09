@@ -222,6 +222,15 @@ def _keep_metrics_before(path: Path, epoch: int) -> None:
         _write_atomic(path, "".join(line + "\n" for line in kept))
 
 
+def _first_epoch_above(path: Path, threshold: float) -> int | None:
+    if path.exists():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            record = json.loads(line)
+            if record["val_ndcg@10"] > threshold:
+                return record["epoch"]
+    return None
+
+
 def _weights(model: Model) -> dict:
     """What a restored checkpoint needs: inference weights if the model separates them."""
     return model.weights() if hasattr(model, "weights") else model.state_dict()
@@ -308,9 +317,12 @@ def execute(
         _set_rng_state(saved["rng"])
         log(f"[run] {cfg.run_id}: resuming at epoch {state['epoch']}")
     state.setdefault("checkpoint_s", 0.0)
-    if reference is not None and "started" not in state:  # a resumed run keeps its own
-        state |= {"started": False, "start_reference": reference, "start_epoch": None}
     _keep_metrics_before(metrics_path, state["epoch"])
+    if reference is not None and "started" not in state:  # a resumed run keeps its own
+        # New, or saved before the start rule (D040): started if an epoch beat the threshold.
+        start = _first_epoch_above(metrics_path, START_FACTOR * reference)
+        started = start is not None or state["best"] > START_FACTOR * reference
+        state |= {"started": started, "start_reference": reference, "start_epoch": start}
 
     def checkpoint() -> None:
         t0 = time.perf_counter()
@@ -397,6 +409,7 @@ def execute(
         "best_epoch": state["best_epoch"],
         "stop_reason": stop,
         "truncated": stop in ("max_epochs", "guard", "no_start"),
+        "start_limit": cfg.start_limit,
         "start_reference": state.get("start_reference"),
         "start_epoch": state.get("start_epoch"),
         "train_s": round(state["train_s"], 2),

@@ -722,3 +722,39 @@ def test_a_changed_default_start_limit_stops_an_interrupted_run(workspace, monke
 def test_a_negative_start_limit_is_rejected():
     with pytest.raises(ValueError, match="start_limit"):
         _cfg(start_limit=-1)
+
+
+def _crash_then_resume(runs, data, cfg, crash_epoch, edit_state=None):
+    PopularityModel.crash = f"train@{crash_epoch}"
+    with pytest.raises(RuntimeError):
+        run_mod.execute(cfg, runs, data, CPU, **QUIET)
+    if edit_state is not None:
+        last = runs / cfg.batch / cfg.run_id / "last.pt"
+        saved = torch.load(last, weights_only=False)
+        edit_state(saved["state"])
+        torch.save(saved, last)
+    return run_mod.execute(cfg, runs, data, CPU, **QUIET)
+
+
+def test_an_interrupted_run_keeps_its_start_rule_state(workspace):
+    """D035: interrupted before it started, a run resumes as if uninterrupted."""
+    runs, data = workspace
+    PopularityModel.peak = 6
+    summary = _crash_then_resume(runs, data, _cfg(), crash_epoch=3)
+    assert summary["stop_reason"] == "patience" and summary["epochs"] == 10
+    assert summary["start_epoch"] == 6 and summary["best_epoch"] == 6
+
+
+def test_a_state_saved_before_the_start_rule_resumes_as_started(workspace):
+    """A last.pt from before D035 has no start record; a run that already beat the threshold
+    is started, at the first epoch above it in metrics.jsonl (D040)."""
+    runs, data = workspace
+    PopularityModel.peak = 2
+
+    def drop_start_record(state):
+        for key in ("started", "start_reference", "start_epoch"):
+            del state[key]
+
+    summary = _crash_then_resume(runs, data, _cfg(), crash_epoch=4, edit_state=drop_start_record)
+    assert summary["stop_reason"] == "patience" and summary["epochs"] == 6
+    assert summary["start_epoch"] == 2 and summary["start_limit"] == 200

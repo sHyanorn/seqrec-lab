@@ -61,7 +61,7 @@ def _row(run_dir: Path) -> dict:
         "params": json.dumps(cfg["params"], sort_keys=True),
         "max_epochs": cfg.get("max_epochs"),
         "patience": cfg.get("patience"),
-        "start_limit": cfg.get("start_limit"),
+        "start_limit": summary.get("start_limit", cfg.get("start_limit")),
         "guard_hours": cfg.get("guard_hours"),
         "status": status,
         "failures": n_failures,  # failed attempts, retries included (D031)
