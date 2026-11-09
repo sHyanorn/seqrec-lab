@@ -1,0 +1,5 @@
+batch,dataset,split,arm,phase,runs,unfinished_or_failed,pruned,truncated_share,truncated_share_unpruned,gpu_hours
+m2-anchor,ml-1m,loo,bert4rec,anchor,1,0,0,1.0,1.0,0.028
+m2-anchor,ml-1m,loo,gsasrec,anchor,1,0,0,0.0,0.0,1.075
+m2-anchor,ml-1m,loo,sasrec-bce,anchor,1,0,0,0.0,0.0,0.01
+m2-anchor,ml-1m,loo,sasrec-ce,anchor,1,0,0,0.0,0.0,0.012
