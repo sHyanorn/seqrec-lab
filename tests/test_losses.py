@@ -16,7 +16,7 @@ def tensors(m=10, n=7, d=4, requires_grad=False):
     return h, w, y
 
 
-def test_full_ce_matches_naive_softmax_over_items_only():
+def check_full_ce_matches_naive_softmax_over_items_only():
     h, w, y = tensors()
     bias = torch.randn(9, dtype=torch.float64)
     w[0] = 50.0  # padding and mask rows must not enter the softmax
@@ -32,6 +32,10 @@ def test_full_ce_matches_naive_softmax_over_items_only():
         assert got.item() == pytest.approx(sum(naive) / len(naive), abs=1e-6)
 
 
+def test_full_ce_matches_naive_softmax_over_items_only():
+    check_full_ce_matches_naive_softmax_over_items_only()
+
+
 def test_chunked_ce_has_the_same_loss_and_gradients():
     h, w, y = tensors(m=11, requires_grad=True)
     bias = torch.randn(9, dtype=torch.float64, requires_grad=True)
@@ -43,7 +47,7 @@ def test_chunked_ce_has_the_same_loss_and_gradients():
         torch.testing.assert_close(a, b, atol=1e-6, rtol=0)
 
 
-def test_sampled_softmax_drops_negatives_equal_to_the_positive():
+def check_sampled_softmax_drops_negatives_equal_to_the_positive():
     h, w, y = tensors(m=3)
     y = torch.tensor([2, 5, 2])
     neg = torch.tensor([2, 4, 6])  # equals the positive of rows 0 and 2
@@ -54,6 +58,10 @@ def test_sampled_softmax_drops_negatives_equal_to_the_positive():
         logits = torch.stack([h[i] @ w[y[i]]] + [h[i] @ w[j] for j in kept])
         naive.append(-torch.log_softmax(logits, 0)[0])
     assert got.item() == pytest.approx(torch.stack(naive).mean().item(), abs=1e-9)
+
+
+def test_sampled_softmax_drops_negatives_equal_to_the_positive():
+    check_sampled_softmax_drops_negatives_equal_to_the_positive()
 
 
 def test_bce_is_the_sasrec_code_formula():

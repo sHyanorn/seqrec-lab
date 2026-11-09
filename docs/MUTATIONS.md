@@ -25,8 +25,11 @@ Each row is a silent bug injected by a test in `tests/test_mutations.py` (METHOD
 
 Added in M2, with the models:
 
-| Mutation | Planned detector |
-|---|---|
-| SASRec labels equal to the inputs (no shift) | label-shift assertion in the training batch builder |
-| BCE negatives drawn excluding the full history, test item included | negative sampler accepts only the training split |
-| SASRec causal mask removed | causality perturbation test |
+| Mutation | Test | Caught by |
+|---|---|---|
+| SASRec labels equal to the inputs (no shift) | `test_sasrec_labels_not_shifted` | batch check: labels are the inputs shifted by one position |
+| BCE negatives drawn excluding the full history, test item included | `test_bce_negatives_exclude_the_full_history` | sampler fingerprint differs from the training split |
+| SASRec causal mask removed | `test_sasrec_causal_mask_removed` | causality perturbation (`tests/test_sasrec.py::assert_causal`) |
+| Softmax over the padding id as well as the items | `test_softmax_includes_the_padding_id` | naive softmax over items 1..N |
+| Sampled-softmax negatives equal to the positive kept | `test_sampled_softmax_keeps_collisions` | loss with the colliding column removed |
+| BERT4Rec scored without an appended mask token | `tests/test_known_answers.py::test_bert4rec_scored_without_its_mask_token_fails` | planted-rule NDCG@10 below 0.95 |

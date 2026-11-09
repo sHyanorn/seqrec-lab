@@ -3,7 +3,13 @@
 import numpy as np
 import pytest
 import torch
+import torch.nn.functional as F
 from conftest import frame, random_frame
+from test_losses import (
+    check_full_ce_matches_naive_softmax_over_items_only,
+    check_sampled_softmax_drops_negatives_equal_to_the_positive,
+)
+from test_sasrec import assert_causal, net
 
 from seqrec.data import splits as splits_mod
 from seqrec.data.invariants import InvariantError, item_popularity, require_from_train
@@ -11,6 +17,9 @@ from seqrec.data.preprocess import build_log
 from seqrec.data.splits import Sequences, TrainSplit
 from seqrec.data.store import build_splits
 from seqrec.eval import ranking
+from seqrec.models import batches, losses, sasrec
+from seqrec.runner.config import RunConfig
+from seqrec.runner.run import ARMS
 
 
 @pytest.fixture
@@ -165,3 +174,66 @@ def test_scores_in_bf16(log, monkeypatch):
     )
     with pytest.raises(InvariantError, match="fp32"):
         ranking.evaluate(_uniform_scorer(split.n_items), split, max_len=50)
+
+
+# Added in M2, with the models.
+
+
+def _sasrec(arm, train):
+    torch.manual_seed(0)
+    cfg = RunConfig("b", "ml-1m", "loo", arm, 1, "tune", params={"dim": 16}, max_len=8)
+    return ARMS[arm](cfg, train, torch.device("cpu"))
+
+
+def test_sasrec_labels_not_shifted(log, monkeypatch):
+    splits, _ = build_splits(log, "loo")
+    original = batches.sasrec_batch
+
+    def unshifted(data, rows, length):
+        b = original(data, rows, length)
+        return batches.Batch(b.rows, b.inputs, b.inputs, b.window)
+
+    monkeypatch.setattr(batches, "sasrec_batch", unshifted)
+    with pytest.raises(InvariantError, match="shifted by one"):
+        _sasrec("sasrec-ce", splits.train).train_epoch(splits.train, 0)
+
+
+def test_bce_negatives_exclude_the_full_history(log, monkeypatch):
+    splits, _ = build_splits(log, "loo")
+    full = splits.full
+    everything = TrainSplit(
+        full.n_items, Sequences(full.indptr, full.items, full.ts, np.arange(len(full.items)))
+    )  # includes the validation and test items
+    original = batches.HistoryExcludingSampler
+    monkeypatch.setattr(
+        batches, "HistoryExcludingSampler", lambda train, device: original(everything, device)
+    )
+    model = _sasrec("sasrec-bce", splits.train)
+    with pytest.raises(InvariantError, match="not computed from this training split"):
+        model.train_epoch(splits.train, 0)
+
+
+def test_sasrec_causal_mask_removed(monkeypatch):
+    def bidirectional(real):
+        n = real.shape[1]
+        return (real[:, None, :] | torch.eye(n, dtype=torch.bool))[:, None].expand(-1, 1, n, n)
+
+    monkeypatch.setattr(sasrec, "attention_mask", bidirectional)
+    with pytest.raises(AssertionError):
+        assert_causal(net(), torch.randint(1, 31, (4, 8)), 3)
+
+
+def test_softmax_includes_the_padding_id(monkeypatch):
+    def with_padding(h, w, y, bias=None, n_items=None, chunk=0):
+        logits = h @ w[: n_items + 1].T + (0 if bias is None else bias[: n_items + 1])
+        return F.cross_entropy(logits, y)
+
+    monkeypatch.setattr(losses, "full_ce", with_padding)
+    with pytest.raises(AssertionError):
+        check_full_ce_matches_naive_softmax_over_items_only()
+
+
+def test_sampled_softmax_keeps_collisions(monkeypatch):
+    monkeypatch.setattr(losses, "mask_collisions", lambda neg_logits, neg, y: neg_logits)
+    with pytest.raises(AssertionError):
+        check_sampled_softmax_drops_negatives_equal_to_the_positive()
