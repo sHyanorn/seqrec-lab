@@ -307,3 +307,14 @@ def test_a_rerun_with_an_unfinished_run_is_refused(tmp_path, capsys):
     assert cli_main(["seeds", str(pilot), str(rerun)]) == 1
     assert "g2 is failed" in capsys.readouterr().err
     assert len(power.read_exports(pilot)) == len(pilot_rows())  # the first file is not checked
+
+
+def test_a_rerun_missing_a_seed_is_refused(tmp_path):
+    """A seed whose run never started has no row; the replaced group must keep its seeds."""
+    rows = [r for r in pilot_rows() if not (r["arm"] == "gsasrec" and r["tag"] == "sigma")]
+    rows += [run_row("gsasrec", "sigma", 0.0216, seed=s) for s in (1, 2, 3)]
+    pilot = write(tmp_path / "m2-pilot.csv", rows)
+    rerun_rows = [run_row("gsasrec", "sigma", v, seed=s) for s, v in ((1, 0.18), (2, 0.19))]
+    rerun = write(tmp_path / "m2-gsasrec.csv", rerun_rows)
+    with pytest.raises(power.IncompleteRerun, match="seeds 1, 2, 3 with 1, 2"):
+        power.read_exports([pilot, rerun])

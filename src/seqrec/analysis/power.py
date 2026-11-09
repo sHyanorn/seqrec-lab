@@ -34,11 +34,16 @@ class IncompleteRerun(ValueError):
     """A later export holds a run that did not finish training."""
 
 
+def _seeds(rows: list[dict]) -> str:
+    return ", ".join(sorted((str(r.get("seed", "")) for r in rows), key=lambda x: (len(x), x)))
+
+
 def read_exports(paths: Exports) -> list[dict]:
     """Rows of one or more exported batch CSVs. The rows of a later file replace the rows of
     earlier files with the same tag, dataset, split, shuffle and arm, so a rerun stands in
-    for the runs it repeats (D035). Every run of a later file must have finished training:
-    a failed seed would otherwise shrink the group without notice (D040)."""
+    for the runs it repeats (D035). Every run of a later file must have finished training,
+    and a replacing group must hold the same seeds as the group it replaces: a failed or
+    missing seed would otherwise shrink the group without notice (D040)."""
     merged: dict[tuple, list[dict]] = {}
     for i, path in enumerate([paths] if isinstance(paths, Path) else paths):
         groups = defaultdict(list)
@@ -50,6 +55,12 @@ def read_exports(paths: Exports) -> list[dict]:
                         "replaces earlier runs only when all its runs finished training"
                     )
                 groups[tuple(row[k] for k in REPLACE_KEY)].append(row)
+        for key, rows in groups.items():
+            before, after = (_seeds(merged[key]), _seeds(rows)) if key in merged else ((), ())
+            if before != after:
+                raise IncompleteRerun(
+                    f"{path}: {'/'.join(key)} replaces seeds {before} with {after}"
+                )
         merged |= groups
     return [row for rows in merged.values() for row in rows]
 
