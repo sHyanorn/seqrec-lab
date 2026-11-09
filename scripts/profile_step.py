@@ -7,6 +7,7 @@ epoch of n steps and an epoch of one step, divided by n - 1, so the fixed cost o
 Reads only the training split and writes nothing.
 
     uv run python scripts/profile_step.py --dataset steam --arm sasrec-bce
+    uv run python scripts/profile_step.py --from-run runs/m2-anchor/gsasrec-ml-1m-loo-s0-r1
 """
 
 from __future__ import annotations
@@ -93,11 +94,23 @@ def measure(
     }  # fmt: skip
 
 
+def config_from_run(run_dir: Path) -> RunConfig:
+    """The configuration of an existing run, as a training-only profiling run."""
+    c = json.loads((run_dir / "config.json").read_text(encoding="utf-8"))
+    return RunConfig(
+        "profile", c["dataset"], c["split"], c["arm"], c["seed"], "tune",
+        shuffle=c.get("shuffle", "none"), params=c["params"], max_len=c.get("max_len"),
+    )  # fmt: skip
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--dataset", choices=list(DATASETS), required=True)
-    parser.add_argument("--arm", required=True)
-    parser.add_argument("--params", default="{}", help="JSON, e.g. '{\"dim\": 256}'")
+    parser.add_argument(
+        "--from-run", type=Path, help="a run directory; its config.json replaces the next three"
+    )
+    parser.add_argument("--dataset", choices=list(DATASETS))
+    parser.add_argument("--arm")
+    parser.add_argument("--params", help="JSON, e.g. '{\"dim\": 256}'")
     parser.add_argument("--steps", type=int, default=200, help="at least 2")
     parser.add_argument("--warmup", type=int, default=20)
     parser.add_argument("--data-dir", type=Path, default=Path("data"))
@@ -105,10 +118,17 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     if args.steps < 2:
         parser.error("--steps must be at least 2")
+    given = [f for f in ("dataset", "arm", "params") if getattr(args, f) is not None]
+    if args.from_run and given:
+        parser.error(f"--from-run takes the place of --{', --'.join(given)}")
+    if not args.from_run and not (args.dataset and args.arm):
+        parser.error("give --from-run, or --dataset and --arm")
     device = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
-    cfg = RunConfig(
-        "profile", args.dataset, "loo", args.arm, 0, "tune", params=json.loads(args.params)
-    )
+    if args.from_run:
+        cfg = config_from_run(args.from_run)
+    else:
+        params = json.loads(args.params or "{}")
+        cfg = RunConfig("profile", args.dataset, "loo", args.arm, 0, "tune", params=params)
     result = measure(cfg, args.data_dir, device, args.steps, args.warmup)
     print(f"steps {result['steps']}")
     print(json.dumps(result))

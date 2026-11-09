@@ -76,3 +76,26 @@ def test_time_per_step_leaves_out_the_cost_per_epoch(tmp_path, monkeypatch):
     load_splits.cache_clear()
     assert result["wall_ms_per_step"] == pytest.approx(2.0, abs=1.5)
     assert result["epoch_overhead_ms"] == pytest.approx(60.0, abs=10.0)
+
+
+def test_a_run_directory_supplies_the_configuration(tmp_path, capsys):
+    """--from-run reads dataset, arm and parameters from a run's config.json, so commands
+    need no JSON on the command line."""
+    import json
+
+    data = tmp_path / "data"
+    build_log(random_frame(users=300)).save(log_path(data, "ml-1m"))
+    params = {"dim": 32, "blocks": 1, "heads": 1, "dropout": 0.2}
+    cfg = RunConfig("m2-anchor", "ml-1m", "loo", "sasrec-ce", 0, "anchor", params=params)
+    run_dir = tmp_path / "runs" / cfg.batch / cfg.run_id
+    run_dir.mkdir(parents=True)
+    (run_dir / "config.json").write_text(cfg.to_json())
+    load_splits.cache_clear()
+    args = ["--from-run", str(run_dir), "--steps", "2", "--warmup", "1"]
+    assert profile_step.main([*args, "--data-dir", str(data), "--device", "cpu"]) == 0
+    load_splits.cache_clear()
+    result = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert (result["dataset"], result["arm"], result["params"]) == ("ml-1m", "sasrec-ce", params)
+    assert not (run_dir / "test_access.jsonl").exists()
+    with pytest.raises(SystemExit):
+        profile_step.main(["--from-run", str(run_dir), "--arm", "sasrec-bce"])
