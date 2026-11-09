@@ -1,0 +1,33 @@
+name: batch
+
+# Manual runs only: nothing here is triggered by pushes or pull requests.
+on:
+  workflow_dispatch:
+    inputs:
+      extra:
+        description: torch build to install
+        type: choice
+        options: [cpu]
+        default: cpu
+
+permissions:
+  contents: write # the batch job commits aggregate CSVs
+
+jobs:
+  batch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+      - name: Sync
+        run: uv sync --locked --extra "${{ inputs.extra }}"
+      - name: Environment
+        run: |
+          uv run --no-sync python -c "import sys, torch; print(sys.version); print(torch.__version__, torch.cuda.is_available())"
+          if command -v nvidia-smi >/dev/null; then nvidia-smi; else echo "nvidia-smi: not found"; fi
+      - name: Tests
+        run: uv run --no-sync pytest -q
+      - name: Push access (dry run)
+        run: git push --dry-run origin HEAD:main
