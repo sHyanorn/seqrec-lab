@@ -25,24 +25,25 @@ def _load(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
 
 
-def _status(summary: dict, test: dict, steps: list[str]) -> str:
+def _status(summary: dict, test: dict, failed: bool, incomplete_read: bool) -> str:
     if test:
         return "tested"
-    if "test" in steps:
+    if incomplete_read:  # a test read started and never finished
         return "test_failed"
     if summary:
         return summary["status"]
-    return "failed" if steps else "unfinished"
+    return "failed" if failed else "unfinished"
 
 
 def _row(run_dir: Path) -> dict:
     cfg = _load(run_dir / "config.json")
     summary, test = _load(run_dir / "summary.json"), _load(run_dir / "test.json")
     reads = count_reads(run_dir / "test_access.jsonl")
-    steps = [f["step"] for f in failures(run_dir)]
-    if not steps and (run_dir / "error.txt").exists():  # recorded before failures.jsonl
-        steps = ["unknown"]
-    status = _status(summary, test, steps)
+    n_failures = len(failures(run_dir))
+    if not n_failures and (run_dir / "error.txt").exists():  # written before failures.jsonl
+        n_failures = 1
+    incomplete = reads["final"] + reads["anchor"] > reads["completed"]
+    status = _status(summary, test, n_failures > 0, incomplete)
     nvml = summary.get("nvml") or {}
     shares = nvml.get("share_of_samples_with_reason", {})
     row = {
@@ -56,8 +57,11 @@ def _row(run_dir: Path) -> dict:
         "shuffle": cfg["shuffle"],
         "tag": cfg.get("tag", ""),
         "params": json.dumps(cfg["params"], sort_keys=True),
+        "max_epochs": cfg.get("max_epochs"),
+        "patience": cfg.get("patience"),
+        "guard_hours": cfg.get("guard_hours"),
         "status": status,
-        "failures": len(steps),  # failed attempts, retries included (D031)
+        "failures": n_failures,  # failed attempts, retries included (D031)
         "epochs": summary.get("epochs"),
         "best_epoch": summary.get("best_epoch"),
         "stop_reason": summary.get("stop_reason"),
@@ -65,6 +69,7 @@ def _row(run_dir: Path) -> dict:
         "train_s": summary.get("train_s"),
         "epoch_train_s_median": summary.get("epoch_train_s_median"),
         "epoch_eval_s_median": summary.get("epoch_eval_s_median"),
+        "checkpoint_s": summary.get("checkpoint_s"),
         "gpu_hours": round(summary["wall_s"] / 3600, 4) if "wall_s" in summary else None,
         "git_commit": summary.get("git_commit", "")[:12],
         "sm_mhz_median": (nvml.get("sm_mhz") or {}).get("median"),
@@ -123,14 +128,15 @@ def _stop_counts(rows: list[dict]) -> dict:
 
 def _overview(rows: list[dict]) -> list[dict]:
     groups = defaultdict(list)
-    for r in rows:
-        groups[(r["batch"], r["dataset"], r["split"], r["arm"], r["phase"])].append(r)
+    for r in rows:  # tuning trials form one group; other tags (e.g. sigma, time-small) their own
+        tag = "trials" if TRIAL_TAG.fullmatch(r["tag"]) else r["tag"]
+        groups[(r["batch"], r["dataset"], r["split"], r["arm"], r["phase"], tag)].append(r)
     out = []
-    for (batch, dataset, split, arm, phase), rs in sorted(groups.items()):
+    for (batch, dataset, split, arm, phase, tag), rs in sorted(groups.items()):
         out.append(
             {
                 "batch": batch, "dataset": dataset, "split": split, "arm": arm, "phase": phase,
-                "runs": len(rs),
+                "tag": tag, "runs": len(rs),
                 "unfinished_or_failed": sum(
                     r["status"] in ("unfinished", "failed", "test_failed") for r in rs
                 ),

@@ -101,16 +101,33 @@ def run_dir_of(cfg: RunConfig, runs_dir: Path) -> Path:
     return runs_dir / cfg.batch / cfg.run_id
 
 
+def _replace(tmp: Path, path: Path, attempts: int = 5) -> None:
+    for attempt in range(attempts):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:  # Windows: a virus scanner or indexer can hold a file briefly
+            if attempt == attempts - 1:
+                raise
+            time.sleep(0.2 * 2**attempt)
+
+
 def _write_atomic(path: Path, text: str) -> None:
     tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(text, encoding="utf-8")
-    os.replace(tmp, path)
+    with tmp.open("w", encoding="utf-8") as f:
+        f.write(text)
+        f.flush()
+        os.fsync(f.fileno())  # survives a power loss as a whole file or not at all
+    _replace(tmp, path)
 
 
 def _save_atomic(obj, path: Path) -> None:
     tmp = path.with_name(path.name + ".tmp")
-    torch.save(obj, tmp)
-    os.replace(tmp, path)
+    with tmp.open("wb") as f:
+        torch.save(obj, f)
+        f.flush()
+        os.fsync(f.fileno())
+    _replace(tmp, path)
 
 
 def _claim(cfg: RunConfig, run_dir: Path) -> None:
@@ -154,6 +171,8 @@ def _set_rng_state(state: dict) -> None:
 
 
 def _stop_reason(state: dict, cfg: RunConfig) -> str | None:
+    if state.get("stop"):  # decided inside the loop (pruned, diverged, converged) and saved
+        return state["stop"]
     if state["bad"] >= cfg.patience:
         return "patience"
     if state["wall_s"] >= cfg.guard_hours * 3600:
@@ -245,7 +264,18 @@ def execute(
         best_weights, state = saved["best_model"], saved["state"]
         _set_rng_state(saved["rng"])
         log(f"[run] {cfg.run_id}: resuming at epoch {state['epoch']}")
+    state.setdefault("checkpoint_s", 0.0)
     _keep_metrics_before(metrics_path, state["epoch"])
+
+    def checkpoint() -> None:
+        t0 = time.perf_counter()
+        _save_atomic(
+            {"model": model.state_dict(), "best_model": best_weights, "state": state,
+             "rng": _rng_state()},
+            last_path,
+        )  # fmt: skip
+        state["checkpoint_s"] += time.perf_counter() - t0
+
     if report is not None and metrics_path.exists():  # a resumed trial re-reports its epochs
         for line in metrics_path.read_text(encoding="utf-8").splitlines():
             record = json.loads(line)
@@ -269,7 +299,8 @@ def execute(
             try:
                 val = evaluate(model.score, splits.validation, max_len, device)
             except NonFiniteScores:
-                stop = "diverged"
+                state["stop"] = "diverged"
+                checkpoint()  # so that a retry does not train on
                 break
             t_evaluated = time.perf_counter()
             state["train_s"] += t_trained - t_start
@@ -294,20 +325,15 @@ def execute(
             # the resume drops its line before repeating it.
             with metrics_path.open("a", encoding="utf-8") as f:
                 f.write(json.dumps(record) + "\n")
-            _save_atomic(
-                {
-                    "model": model.state_dict(),
-                    "best_model": best_weights,
-                    "state": state,
-                    "rng": _rng_state(),
-                },  # fmt: skip
-                last_path,
-            )
+                f.flush()
+                os.fsync(f.fileno())
+            checkpoint()
             if stats.get("converged"):  # models without training, e.g. the floor baselines
-                stop = "converged"
-                break
-            if report is not None and report(record["epoch"], ndcg):
-                stop = "pruned"
+                state["stop"] = "converged"
+            elif report is not None and report(record["epoch"], ndcg):
+                state["stop"] = "pruned"
+            if state.get("stop"):
+                checkpoint()  # so that a retry does not train on
                 break
     finally:
         samples = sampler.stop() if sampler and sampler.available else []
@@ -315,6 +341,7 @@ def execute(
             with (run_dir / "nvml.jsonl").open("a", encoding="utf-8") as f:
                 f.writelines(json.dumps(s) + "\n" for s in samples)
 
+    stop = _stop_reason(state, cfg)
     summary = {
         "run_id": cfg.run_id,
         "config": json.loads(cfg.to_json()),
@@ -326,6 +353,7 @@ def execute(
         "truncated": stop in ("max_epochs", "guard"),
         "train_s": round(state["train_s"], 2),
         "wall_s": round(state["wall_s"], 2),
+        "checkpoint_s": round(state["checkpoint_s"], 2),  # outside wall_s; kept for budgeting
     } | _epoch_times(metrics_path)
     if best_weights is not None:
         best_path = run_dir / "best.pt"
@@ -342,9 +370,12 @@ def execute(
         summary["nvml"] = summarize_samples(sampler.nv, all_samples)
     _write_atomic(run_dir / "summary.json", json.dumps(summary, indent=1))
     # The resume state is no longer needed; tuning checkpoints are never tested (disk space).
-    last_path.unlink(missing_ok=True)
-    if cfg.phase == "tune":
-        (run_dir / "best.pt").unlink(missing_ok=True)
+    # Best effort: the run is complete once summary.json exists.
+    for path in [last_path] + [run_dir / "best.pt"] * (cfg.phase == "tune"):
+        try:
+            path.unlink(missing_ok=True)
+        except OSError as err:
+            log(f"[run] {cfg.run_id}: could not remove {path.name} ({err})")
     log(f"[run] {cfg.run_id}: {stop} after {state['epoch']} epochs")
     return summary
 

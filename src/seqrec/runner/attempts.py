@@ -1,9 +1,10 @@
 """Failure records and the one-retry rule for training (D031).
 
-Every failed attempt appends a line to failures.jsonl in the run directory; error.txt keeps
-the latest traceback. Training is retried once whatever the cause: in the same process while
-the device still works, otherwise when the command is rerun. A second failure is final.
-Test reads are never retried here (METHODS 11.6).
+Every failed attempt appends a line, with its traceback, to failures.jsonl in the run
+directory; error.txt keeps the latest traceback. Training is retried once whatever the
+cause: in the same process while the device still works, otherwise when the command is
+rerun. A second failure is final. A run directory that belongs to another configuration
+(RunConflict) is not a failed attempt. Test reads are never retried here (METHODS 11.6).
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ from pathlib import Path
 
 import torch
 
-from seqrec.runner.run import git_commit
+from seqrec.runner.run import RunConflict, git_commit
 
 TRAIN_ATTEMPTS = 2
 
@@ -39,7 +40,13 @@ def failures(run_dir: Path) -> list[dict]:
     path = run_dir / "failures.jsonl"
     if not path.exists():
         return []
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    out = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        try:
+            out.append(json.loads(line))
+        except json.JSONDecodeError:  # a record torn by a power loss
+            continue
+    return out
 
 
 def train_failures(run_dir: Path) -> int:
@@ -55,6 +62,7 @@ def record_failure(run_dir: Path, step: str) -> None:
         "step": step,
         "error": f"{type(exc).__name__}: {message[0] if message else ''}",
         "git_commit": git_commit(),
+        "traceback": traceback.format_exc(),
     }
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "error.txt").write_text(traceback.format_exc(), encoding="utf-8")
@@ -79,13 +87,18 @@ def device_usable(device: torch.device) -> bool:
 def train_with_retry[T](train: Callable[[], T], run_dir: Path, device: torch.device, log) -> T:
     """Call `train`; after a failure, retry once (training resumes from its last checkpoint)."""
     while True:
-        if train_failures(run_dir) >= TRAIN_ATTEMPTS:
+        finished = (run_dir / "summary.json").exists()  # train() returns the summary
+        if not finished and train_failures(run_dir) >= TRAIN_ATTEMPTS:
             raise TrainingFailed(f"{run_dir.name}: training failed {TRAIN_ATTEMPTS} times")
         try:
             return train()
+        except RunConflict:
+            raise
         except Exception:
             record_failure(run_dir, "train")
             log(f"[retry] {run_dir.name}: training failed; see error.txt")
         # Outside the except block, so the failed attempt's frames and tensors can be freed.
-        if train_failures(run_dir) < TRAIN_ATTEMPTS and not device_usable(device):
+        # A lost device stops the command even after a final failure, so that the next run
+        # is not charged an attempt for it.
+        if not device_usable(device):
             raise DeviceLost(run_dir.name)

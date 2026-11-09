@@ -2,21 +2,23 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import torch
 
-from seqrec.data.store import load_splits
+from seqrec.data.store import load_splits, log_path
 from seqrec.runner.attempts import (
     TRAIN_ATTEMPTS,
     DeviceLost,
     TrainingFailed,
+    device_usable,
     record_failure,
     train_failures,
     train_with_retry,
 )
 from seqrec.runner.config import Plan, load_plan
-from seqrec.runner.run import ARMS, execute, run_dir_of, test_run
+from seqrec.runner.run import ARMS, RunConflict, execute, run_dir_of, test_run
 from seqrec.runner.tune import load_tuning_plan, run_study
 from seqrec.telemetry import warmup_gpu
 
@@ -27,6 +29,19 @@ def _check_arms(plan: Plan) -> None:
         raise ValueError(f"unknown arms in plan: {unknown}")
 
 
+def require_data(datasets, data_dir: Path) -> None:
+    """Fail before any attempt when a dataset has not been prepared."""
+    missing = sorted({d for d in datasets if not log_path(data_dir, d).exists()})
+    if missing:
+        raise FileNotFoundError(
+            f"not prepared in {data_dir}: {', '.join(missing)} (run `seqrec data prepare`)"
+        )
+
+
+def _given_up(cfg, runs_dir: Path) -> bool:
+    return train_failures(run_dir_of(cfg, runs_dir)) >= TRAIN_ATTEMPTS
+
+
 def _train(cfg, runs_dir: Path, data_dir: Path, device, log) -> None:
     run_dir = run_dir_of(cfg, runs_dir)
     train_with_retry(
@@ -34,13 +49,17 @@ def _train(cfg, runs_dir: Path, data_dir: Path, device, log) -> None:
     )
 
 
-def _test(cfg, runs_dir: Path, data_dir: Path, device, log, failed: list[str]) -> None:
+def _test(cfg, runs_dir: Path, data_dir: Path, device, log) -> bool:
+    """Read test data for one run; a refusal is reported but not recorded as a failure."""
     try:
         test_run(cfg, runs_dir, data_dir, device, log=log)
+        return True
+    except (PermissionError, RunConflict) as err:
+        log(f"[batch] {cfg.run_id}: test read refused: {err}")
     except Exception:
-        failed.append(cfg.run_id)
         record_failure(run_dir_of(cfg, runs_dir), "test")
         log(f"[batch] {cfg.run_id}: test read failed; see error.txt")
+    return False
 
 
 def _warm_up(warmup_s: float, dataset: str, split: str, data_dir: Path, device, log) -> None:
@@ -54,9 +73,8 @@ def run_batch(plan_path: Path, runs_dir: Path, data_dir: Path, device: torch.dev
     plan = load_plan(plan_path)
     _check_arms(plan)
     pending = [r for r in plan.runs if not (run_dir_of(r, runs_dir) / "summary.json").exists()]
-    failed = [
-        r.run_id for r in pending if train_failures(run_dir_of(r, runs_dir)) >= TRAIN_ATTEMPTS
-    ]
+    require_data({r.dataset for r in pending}, data_dir)
+    failed = [r.run_id for r in pending if _given_up(r, runs_dir)]
     pending = [r for r in pending if r.run_id not in failed]
     log(f"[batch] {plan.batch}: {len(pending)} of {len(plan.runs)} runs pending")
     for run_id in failed:
@@ -68,6 +86,9 @@ def run_batch(plan_path: Path, runs_dir: Path, data_dir: Path, device: torch.dev
             _train(cfg, runs_dir, data_dir, device, log)
         except TrainingFailed:
             failed.append(cfg.run_id)
+        except RunConflict as err:  # the plan changed under an existing run directory
+            failed.append(cfg.run_id)
+            log(f"[batch] {err}")
         except DeviceLost as err:
             failed.append(err.run_id)
             log(f"[batch] {err}")
@@ -77,18 +98,35 @@ def run_batch(plan_path: Path, runs_dir: Path, data_dir: Path, device: torch.dev
 
 
 def test_batch(plan_path: Path, runs_dir: Path, data_dir: Path, device: torch.device, log=print):
-    """Refuses until every run of the plan has finished training (METHODS 5.5)."""
+    """Refuses until every run of the plan has finished training (METHODS 5.5); a run whose
+    training failed twice has finished (D031) and is not tested, nor is a diverged run."""
     plan = load_plan(plan_path)
     _check_arms(plan)
+    require_data({r.dataset for r in plan.runs}, data_dir)
+    summaries = {r.run_id: run_dir_of(r, runs_dir) / "summary.json" for r in plan.runs}
     untrained = [
-        r.run_id for r in plan.runs if not (run_dir_of(r, runs_dir) / "summary.json").exists()
+        r.run_id
+        for r in plan.runs
+        if not summaries[r.run_id].exists() and not _given_up(r, runs_dir)
     ]
     if untrained:
         raise RuntimeError(f"{len(untrained)} runs are not trained yet, e.g. {untrained[0]}")
     failed: list[str] = []
     for cfg in plan.runs:
-        if cfg.phase in ("final", "anchor"):
-            _test(cfg, runs_dir, data_dir, device, log, failed)
+        if cfg.phase not in ("final", "anchor"):
+            continue
+        if not summaries[cfg.run_id].exists():
+            log(f"[batch] {cfg.run_id}: training failed twice; not tested")
+            continue
+        status = json.loads(summaries[cfg.run_id].read_text(encoding="utf-8"))["status"]
+        if status != "trained":
+            log(f"[batch] {cfg.run_id}: {status}; not tested")
+            continue
+        if not _test(cfg, runs_dir, data_dir, device, log):
+            failed.append(cfg.run_id)
+            if not device_usable(device):
+                log("[batch] the GPU stopped working; rerun the same command to continue")
+                break
     log(f"[batch] testing done; {len(failed)} failed")
     return failed
 
@@ -96,6 +134,7 @@ def test_batch(plan_path: Path, runs_dir: Path, data_dir: Path, device: torch.de
 def tune_batch(plan_path: Path, runs_dir: Path, data_dir: Path, device: torch.device, log=print):
     """Run every study of a tuning plan to its trial budget; resumes after interruption."""
     batch, warmup_s, studies = load_tuning_plan(plan_path)
+    require_data({s.dataset for s in studies}, data_dir)
     if studies:
         _warm_up(warmup_s, studies[0].dataset, "loo", data_dir, device, log)
     failed: list[str] = []

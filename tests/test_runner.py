@@ -336,3 +336,171 @@ def test_a_final_run_whose_test_read_failed_is_not_read_again(workspace, monkeyp
     run_mod.test_run(anchor, runs, data, CPU, **QUIET)  # anchor: counted, allowed
     problems = export(runs, runs.parent / "results")
     assert sum("a test read did not complete" in p for p in problems) == 2
+
+
+def test_a_pruned_stop_survives_a_failure_before_the_summary(workspace, monkeypatch):
+    """A retry after the loop has ended must not train further epochs."""
+    runs, data = workspace
+    original = run_mod._save_atomic
+    calls = {"best": 0}
+
+    def fail_best_once(obj, path):
+        if path.name == "best.pt" and not calls["best"]:
+            calls["best"] += 1
+            raise OSError("simulated failure while saving best.pt")
+        original(obj, path)
+
+    monkeypatch.setattr(run_mod, "_save_atomic", fail_best_once)
+    cfg = _cfg("tune")
+
+    def prune_after_epoch_1(epoch, value):
+        return epoch >= 1
+
+    with pytest.raises(OSError):
+        run_mod.execute(cfg, runs, data, CPU, report=prune_after_epoch_1, **QUIET)
+    summary = run_mod.execute(cfg, runs, data, CPU, report=prune_after_epoch_1, **QUIET)
+    assert summary["stop_reason"] == "pruned" and summary["epochs"] == 2
+
+
+def test_cleanup_after_the_summary_is_best_effort(workspace, monkeypatch):
+    runs, data = workspace
+    original = run_mod.Path.unlink
+
+    def locked(self, missing_ok=False):
+        if self.name == "best.pt":
+            raise PermissionError("file in use")
+        return original(self, missing_ok=missing_ok)
+
+    monkeypatch.setattr(run_mod.Path, "unlink", locked)
+    summary = run_mod.execute(_cfg("tune"), runs, data, CPU, **QUIET)
+    assert summary["status"] == "trained" and summary["checkpoint_s"] >= 0
+
+
+def test_a_transient_lock_on_replace_is_retried(tmp_path, monkeypatch):
+    original, calls = run_mod.os.replace, {"n": 0}
+
+    def locked_once(src, dst):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise PermissionError("file in use")
+        original(src, dst)
+
+    monkeypatch.setattr(run_mod.os, "replace", locked_once)
+    monkeypatch.setattr(run_mod.time, "sleep", lambda s: None)
+    run_mod._write_atomic(tmp_path / "x.json", "{}")
+    assert (tmp_path / "x.json").read_text() == "{}" and calls["n"] == 2
+
+
+def test_a_config_conflict_is_not_a_failed_attempt(workspace):
+    from seqrec.runner.batch import run_batch
+
+    runs, data = workspace
+    run_mod._claim(_cfg("tune"), runs / "b" / _cfg("tune").run_id)
+    plan = _plan(runs.parent)
+    plan.write_text(plan.read_text().replace('arm = "pop"', 'arm = "pop"\npatience = 3'))
+    assert run_batch(plan, runs, data, CPU, **QUIET) == [_cfg("tune").run_id]
+    assert _failures(runs / "b" / _cfg("tune").run_id) == []
+
+
+def test_a_missing_dataset_stops_the_batch_before_any_attempt(workspace):
+    from seqrec.runner.batch import run_batch
+
+    runs, data = workspace
+    plan = _plan(runs.parent)
+    plan.write_text(plan.read_text().replace('"ml-1m"', '"steam"'))
+    with pytest.raises(FileNotFoundError, match="steam"):
+        run_batch(plan, runs, data, CPU, **QUIET)
+    assert not runs.exists() or not any(runs.rglob("failures.jsonl"))
+
+
+def test_a_lost_device_after_the_final_failure_still_stops_the_batch(workspace, monkeypatch):
+    from seqrec.runner import attempts
+    from seqrec.runner.batch import run_batch
+
+    runs, data = workspace
+
+    def always_fail(self, train, epoch):
+        raise RuntimeError("deterministic failure")
+
+    checks = iter([True, False])
+    monkeypatch.setattr(PopularityModel, "train_epoch", always_fail)
+    monkeypatch.setattr(attempts, "device_usable", lambda device: next(checks))
+    first, second = (_cfg("tune", seed=s).run_id for s in (1, 2))
+    assert run_batch(_plan(runs.parent, seeds=(1, 2)), runs, data, CPU, **QUIET) == [first]
+    assert len(_failures(runs / "b" / first)) == 2
+    assert not (runs / "b" / second).exists()
+
+
+def test_testing_skips_runs_that_failed_twice_or_diverged(workspace, monkeypatch):
+    from seqrec.runner.batch import run_batch, test_batch
+
+    runs, data = workspace
+    plan = _plan(runs.parent, seeds=(1, 2, 3), phase="final")
+    failed, diverged = (runs / "b" / _cfg(seed=s).run_id for s in (1, 3))
+    run_mod._claim(_cfg(seed=1), failed)
+    (failed / "failures.jsonl").write_text('{"step": "train"}\n{"step": "train"}\n')
+    original = PopularityModel.score
+
+    def nan_for_seed_3(self, inputs):
+        scores = original(self, inputs)
+        return scores * float("nan") if self.seed == 3 else scores
+
+    monkeypatch.setattr(PopularityModel, "seed", 0, raising=False)
+    original_init = PopularityModel.__init__
+
+    def init(self, cfg, train, device):
+        original_init(self, cfg, train, device)
+        self.seed = cfg.seed
+
+    monkeypatch.setattr(PopularityModel, "__init__", init)
+    monkeypatch.setattr(PopularityModel, "score", nan_for_seed_3)
+    assert run_batch(plan, runs, data, CPU, **QUIET) == [_cfg(seed=1).run_id]
+    assert test_batch(plan, runs, data, CPU, **QUIET) == []
+    rows = _exported(runs, runs.parent)
+    assert rows[_cfg(seed=2).run_id]["status"] == "tested"
+    assert rows[_cfg(seed=3).run_id]["status"] == "diverged"
+    assert rows[_cfg(seed=3).run_id]["failures"] == "0"
+    assert rows[_cfg(seed=1).run_id]["status"] == "failed"
+
+
+def test_a_refused_test_read_is_not_recorded_as_a_failure(workspace):
+    from seqrec.runner.batch import test_batch
+
+    runs, data = workspace
+    for tag in "abc":
+        cfg = _cfg("anchor", tag=tag)
+        run_mod.execute(cfg, runs, data, CPU, **QUIET)
+        run_mod.test_run(cfg, runs, data, CPU, **QUIET)
+    plan = runs.parent / "anchor.toml"
+    plan.write_text(
+        'batch = "b"\n[defaults]\ndataset = "ml-1m"\nsplit = "loo"\nphase = "anchor"\n'
+        'max_epochs = 50\npatience = 3\n[[runs]]\narm = "pop"\nseeds = [1]\ntag = "d"\n',
+        encoding="utf-8",
+    )
+    run_mod.execute(_cfg("anchor", tag="d"), runs, data, CPU, **QUIET)
+    assert test_batch(plan, runs, data, CPU, **QUIET) == [_cfg("anchor", tag="d").run_id]
+    assert _failures(runs / "b" / _cfg("anchor", tag="d").run_id) == []
+    assert _exported(runs, runs.parent)[_cfg("anchor", tag="d").run_id]["status"] == "trained"
+
+
+def test_export_groups_trials_apart_from_other_tags_and_lists_limits(workspace):
+    runs, data = workspace
+    run_mod.execute(_cfg("tune", tag="sigma"), runs, data, CPU, **QUIET)
+    run_mod.execute(_cfg("tune", tag="time-small", max_epochs=1, patience=1), runs, data, CPU,
+                    **QUIET)  # fmt: skip
+    export(runs, runs.parent / "results")
+    import csv
+
+    with (runs.parent / "results" / "overview.csv").open() as f:
+        groups = {r["tag"]: r for r in csv.DictReader(f)}
+    assert groups["sigma"]["truncated_share"] == "0.0"
+    assert groups["time-small"]["truncated_share"] == "1.0"
+    row = _exported(runs, runs.parent)[_cfg("tune", tag="sigma").run_id]
+    assert row["max_epochs"] == "50" and row["patience"] == "3"
+
+
+def test_a_torn_last_failure_record_is_ignored(tmp_path):
+    from seqrec.runner.attempts import failures
+
+    (tmp_path / "failures.jsonl").write_text('{"step": "train"}\n{"step": "tr')
+    assert failures(tmp_path) == [{"step": "train"}]
