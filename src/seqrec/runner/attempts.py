@@ -10,7 +10,6 @@ rerun. A second failure is final. A run directory that belongs to another config
 from __future__ import annotations
 
 import datetime as dt
-import gc
 import json
 import sys
 import traceback
@@ -19,7 +18,7 @@ from pathlib import Path
 
 import torch
 
-from seqrec.runner.run import RunConflict, git_commit
+from seqrec.runner.run import RunConflict, git_commit, release_device_memory
 
 TRAIN_ATTEMPTS = 2
 
@@ -74,11 +73,10 @@ def record_failure(run_dir: Path, step: str) -> None:
 
 def device_usable(device: torch.device) -> bool:
     """Free what the failed attempt held, then check that the device still runs a kernel."""
-    gc.collect()
-    if device.type != "cuda":
-        return True
     try:
-        torch.cuda.empty_cache()
+        release_device_memory(device)
+        if device.type != "cuda":
+            return True
         torch.ones(1, device=device).add_(1).item()
         torch.cuda.synchronize(device)
         return True

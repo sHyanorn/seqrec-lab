@@ -17,6 +17,7 @@ Test data are read by `test_run` only after every run of its plan has finished t
 
 from __future__ import annotations
 
+import gc
 import hashlib
 import json
 import os
@@ -243,6 +244,15 @@ def _epoch_times(metrics_path: Path) -> dict:
     }  # fmt: skip
 
 
+def release_device_memory(device: torch.device) -> None:
+    """Drop unreachable objects and return the allocator's cached blocks to the driver.
+    Where the driver may place memory in system RAM once device memory is full (Windows),
+    cached blocks would otherwise push new allocations there (D041)."""
+    gc.collect()
+    if device.type == "cuda":
+        torch.cuda.empty_cache()
+
+
 def epoch_memory(device: torch.device) -> dict:
     """Peak memory PyTorch allocated and reserved since the last reset; the reserved peak also
     counts blocks the allocator keeps cached (D041)."""
@@ -296,6 +306,7 @@ def execute(
     if summary_path.exists():
         return json.loads(summary_path.read_text(encoding="utf-8"))
 
+    release_device_memory(device)  # blocks an earlier run of this process left cached (D041)
     commit = git_commit()
     seed_everything(cfg.seed)
     splits, checks = _prepare_splits(cfg, data_dir)

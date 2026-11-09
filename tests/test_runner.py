@@ -920,3 +920,24 @@ def test_runs_without_memory_records_summarize_to_none(workspace):
     summary = run_mod.execute(_cfg("tune"), runs, data, CPU, **QUIET)
     assert summary["train_peak_reserved_gib_max"] is None
     assert _exported(runs, runs.parent)[_cfg().run_id]["torch_reserved_gib_max"] == ""
+
+
+def test_each_run_releases_cached_device_memory_before_it_builds_its_model(workspace, monkeypatch):
+    """D041: blocks cached by an earlier run in the same process are freed first, so they
+    cannot push the new run's allocations out of device memory."""
+    runs, data = workspace
+    calls = []
+    monkeypatch.setattr(run_mod, "release_device_memory", lambda device: calls.append("free"))
+    model = run_mod.ARMS["pop"]
+    monkeypatch.setitem(run_mod.ARMS, "pop", lambda *a: calls.append("model") or model(*a))
+    run_mod.execute(_cfg(), runs, data, CPU, **QUIET)
+    assert calls[:2] == ["free", "model"]
+
+
+def test_releasing_device_memory_empties_the_cuda_cache_only(monkeypatch):
+    emptied = []
+    monkeypatch.setattr(torch.cuda, "empty_cache", lambda: emptied.append(True))
+    run_mod.release_device_memory(CPU)
+    assert emptied == []
+    run_mod.release_device_memory(torch.device("cuda"))
+    assert emptied == [True]
