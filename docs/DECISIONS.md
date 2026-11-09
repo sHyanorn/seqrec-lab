@@ -215,6 +215,7 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
 - Intentionally different from the sources: [5] pads on the right and masks no padded keys, and pmixer masks none either; [5]'s softmax includes the padding id; [5] excludes only the user's last 201 items from BCE negatives, while the paper [1] excludes all of the user's items; [33] keeps negatives equal to the positive; [5]'s BERT4Rec has no output transform or bias; [32] trains on sliding windows with ten masked copies (METHODS 4.2).
 - Licences: kang205/SASRec, pmixer/SASRec.pytorch, FeiSun/BERT4Rec and gSASRec-pytorch are Apache-2.0; RecBole is MIT; the repositories of [5] and [3] have no licence file.
 - Rationale: [31], pmixer before 2025, [5] and [33] share the same SASRec block, and the anchors come from [5] and [33]. Matching their block removes one cause of anchor misses. The gBCE normalisation follows [33] for the same reason.
+- Amendment 2026-11-09 (review fixes, before any GPU run): gBCE scores are computed in fp32 with autocast off, as METHODS 4.3 requires; the sampled-softmax positive and negative logits both come from matrix products and share the autocast precision. Best checkpoints hold network weights only, `last.pt` is removed when training ends, and tuning runs keep no checkpoint, which bounds disk use over about 350 tuning runs.
 
 ## D026 Anchor runs
 
@@ -237,6 +238,7 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
   - The shuffled-order test uses a second dataset: training transitions follow the permutation with probability 0.2 and otherwise go to a random unseen item, while validation and test targets always follow it. SASRec-CE must reach test NDCG@10 ≥ 0.95 with order and at most 0.10 with training and evaluation order shuffled.
   - The gSASRec test uses K = 4 and t = 0.5. With K = 16 or more on 200 items, gBCE first settles on a score offset shared by all items and learns the rule only much later; the reference gSASRec code trained on the same data shows the same (validation NDCG@10 about 0.02 after 30 epochs with K = 16, t = 0.75).
 - Results on the test data: with the rule as written, test NDCG@10 is 1.000 (SASRec-CE, SASRec-BCE, gSASRec), 0.994 (SASRec-SS) and 0.985 (BERT4Rec), against 0.049 for MostPop. On the second dataset SASRec-CE scores 0.996 with order and 0.026 shuffled, against 0.028 for MostPop.
+- Limitation: the rule is first order, so these tests cannot show that SASRec uses items before the last one. The exact attention-mask test, the left-padding test and the comparison with pmixer's model cover that.
 - Rationale: on walks that always follow the rule, the set of input items reveals the target. In a simulation with the same generator, a scorer that sees only item co-occurrence reached NDCG@10 0.77 against 0.04 for MostPop, so "metrics fall to about the popularity baseline" cannot hold. With probability 0.2 the simulation gave 1.00 for a first-order transition scorer, 0.037 for the co-occurrence scorer and 0.023 for MostPop.
 
 ## D028 Tuning harness
@@ -248,8 +250,9 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
   - A trial interrupted by a crash resumes from its last checkpoint with its own parameters. TPE is reseeded from (sampler seed, trials so far) before every proposal, so a resumed study proposes the same parameters as an uninterrupted one (tested).
   - Failed and pruned trials count toward the trial budget, so every arm gets the same number of trials. Export writes `tuning_best.csv`: per study, the best trial that finished without pruning, ties to the earlier trial.
 - Rationale: METHODS 5.4 fixes the sampler, pruner and budget; these choices make resumption and budget accounting exact.
+- Amendment 2026-11-09 (review fixes, before any tuning): a trial interrupted before all its parameters were stored is marked failed rather than trained with defaults; a resumed trial re-reports its finished epochs to the pruner; `seqrec tune` exits with status 1 when a trial fails. The overview gives the truncated share both over all finished trials and over unpruned trials; which one the METHODS 5.2 rule uses is decided before tuning starts.
 
 ## D029 Dependencies for M2
 
 - Date: 2026-11-09. Status: accepted.
-- Decision: Optuna 5.0 (MIT; released 2026-09-07; with SQLAlchemy and Alembic, both MIT) for tuning, and SciPy 1.18 (BSD-3-Clause) for the noncentral t power of METHODS 7.5.
+- Decision: Optuna 5.0 (MIT; released 2026-09-07; with SQLAlchemy, Alembic, Mako and colorlog, all MIT) for tuning, and SciPy 1.18 (BSD-3-Clause) for the noncentral t power of METHODS 7.5.
