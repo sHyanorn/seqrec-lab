@@ -1,10 +1,17 @@
+import math
 import sys
+import time
 from pathlib import Path
+from types import SimpleNamespace
 
+import pytest
+import torch
 from conftest import random_frame
 
 from seqrec.data.preprocess import build_log
 from seqrec.data.store import load_splits, log_path
+from seqrec.models.trainer import BATCH_SIZE
+from seqrec.runner.config import RunConfig
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
@@ -22,3 +29,50 @@ def test_profile_step_reports_time_per_step(tmp_path, capsys):
     for field in ("wall_ms_per_step", "cpu_ms_per_step", "gpu_kernel_ms_per_step", "steps 2"):
         assert field in out
     assert not list(tmp_path.glob("runs*"))  # writes nothing
+
+
+def test_gpu_time_counts_each_kernel_once():
+    """CPU ops also report the device time of the kernels they launch, and GPU user
+    annotations span other events; only the kernels themselves are summed."""
+    from torch.autograd import DeviceType
+
+    def event(device, us, annotation=False):
+        return SimpleNamespace(device_type=device, device_time_total=us,
+                               is_user_annotation=annotation)  # fmt: skip
+
+    events = [
+        event(DeviceType.CPU, 30.0),  # aten::mm, which launched the kernel below
+        event(DeviceType.CUDA, 30.0),  # the kernel
+        event(DeviceType.CUDA, 5.0),  # a memset
+        event(DeviceType.CUDA, 50.0, annotation=True),  # a ProfilerStep range on the GPU
+    ]
+    assert profile_step.device_us(events) == 35.0
+
+
+def test_fewer_than_two_steps_are_refused(tmp_path):
+    for steps in ("0", "1"):
+        with pytest.raises(SystemExit):
+            profile_step.main(["--dataset", "ml-1m", "--arm", "sasrec-bce", "--steps", steps])
+
+
+class _FixedCostModel:
+    """Sleeps 60 ms per epoch plus 2 ms per step."""
+
+    def __init__(self, cfg, train, device):
+        self.data = SimpleNamespace(rows=torch.zeros(10 * BATCH_SIZE, 2, dtype=torch.long))
+
+    def train_epoch(self, train, epoch):
+        time.sleep(0.06 + 0.002 * math.ceil(len(self.data.rows) / BATCH_SIZE))
+        return {"loss": 0.0}
+
+
+def test_time_per_step_leaves_out_the_cost_per_epoch(tmp_path, monkeypatch):
+    data = tmp_path / "data"
+    build_log(random_frame(users=300)).save(log_path(data, "ml-1m"))
+    load_splits.cache_clear()
+    monkeypatch.setitem(profile_step.ARMS, "fixed", _FixedCostModel)
+    cfg = RunConfig("profile", "ml-1m", "loo", "fixed", 0, "tune")
+    result = profile_step.measure(cfg, data, torch.device("cpu"), steps=8, warmup=1)
+    load_splits.cache_clear()
+    assert result["wall_ms_per_step"] == pytest.approx(2.0, abs=1.5)
+    assert result["epoch_overhead_ms"] == pytest.approx(60.0, abs=10.0)
