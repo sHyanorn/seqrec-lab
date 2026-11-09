@@ -38,7 +38,7 @@ DEFAULT_LIMITS = (300, 30)
 
 # Epochs a run may take to beat 1.5 times MostPop's validation NDCG@10 before patience
 # counts (D035); the floor baselines do not train, so the rule is off for them.
-START_LIMIT = 200
+START_LIMIT = 300
 FLOOR_ARMS = ("mostpop", "transition")
 
 

@@ -657,7 +657,7 @@ def test_a_run_that_never_beats_popularity_stops_at_its_start_limit(workspace):
 
 
 def test_start_limits_default_by_arm_and_can_be_set():
-    assert _cfg(arm="gsasrec").start_limit == 200 and _cfg(arm="bert4rec").start_limit == 200
+    assert _cfg(arm="gsasrec").start_limit == 300 and _cfg(arm="bert4rec").start_limit == 300
     assert _cfg(arm="mostpop").start_limit == 0 and _cfg(arm="transition").start_limit == 0
     assert _cfg(arm="gsasrec", start_limit=400).start_limit == 400
 
@@ -709,8 +709,8 @@ def test_a_changed_default_start_limit_stops_an_interrupted_run(workspace, monke
     PopularityModel.crash = "train@2"
     with pytest.raises(RuntimeError):
         run_mod.execute(_cfg(), runs, data, CPU, **QUIET)
-    monkeypatch.setattr(config, "START_LIMIT", 300)
-    with pytest.raises(run_mod.RunConflict, match="start_limit 200, now 300"):
+    monkeypatch.setattr(config, "START_LIMIT", 400)
+    with pytest.raises(run_mod.RunConflict, match="start_limit 300, now 400"):
         run_mod.execute(_cfg(), runs, data, CPU, **QUIET)
 
 
