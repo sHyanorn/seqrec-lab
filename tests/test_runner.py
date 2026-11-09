@@ -767,3 +767,25 @@ def test_export_lists_peak_device_memory(workspace):
     summary = json.loads(path.read_text())
     path.write_text(json.dumps(summary | {"nvml": {"mem_used_mib": {"max": 15500}}}))
     assert _exported(runs, runs.parent)[_cfg().run_id]["nvml_mem_used_mib_max"] == "15500"
+
+
+@pytest.mark.parametrize("field", ["train_fingerprint", "full_fingerprint"])
+def test_a_run_is_not_tested_on_data_other_than_it_trained_on(workspace, field):
+    """METHODS 11.6: the test read uses the data recorded in the manifest, or none."""
+    runs, data = workspace
+    run_mod.execute(_cfg(), runs, data, CPU, **QUIET)
+    path = runs / "b" / _cfg().run_id / "manifest.json"
+    manifest = json.loads(path.read_text())
+    path.write_text(json.dumps(manifest | {field: "0" * 16}))
+    with pytest.raises(run_mod.TestRefused, match="data differ"):
+        run_mod.test_run(_cfg(), runs, data, CPU, **QUIET)
+    assert not (path.parent / "test_access.jsonl").exists()
+
+
+def test_a_rebuilt_dataset_is_refused_before_the_test_read(workspace):
+    runs, data = workspace
+    run_mod.execute(_cfg(), runs, data, CPU, **QUIET)
+    build_log(random_frame(seed=1)).save(log_path(data, "ml-1m"))
+    load_splits.cache_clear()
+    with pytest.raises(run_mod.TestRefused, match="data differ"):
+        run_mod.test_run(_cfg(), runs, data, CPU, **QUIET)

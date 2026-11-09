@@ -477,6 +477,11 @@ def test_run(cfg: RunConfig, runs_dir: Path, data_dir: Path, device: torch.devic
         raise TestRefused(f"{cfg.run_id}: checkpoint changed after training")
     seed_everything(cfg.seed)
     splits, _ = _prepare_splits(cfg, data_dir)
+    manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+    current = {"train_fingerprint": splits.train.fingerprint,
+               "full_fingerprint": splits.full.fingerprint()}  # fmt: skip
+    if changed := [k for k, v in current.items() if manifest.get(k) != v]:
+        raise TestRefused(f"{cfg.run_id}: data differ from training ({', '.join(changed)})")
     model = ARMS[cfg.arm](cfg, splits.train, device)
     model.load_state_dict(torch.load(best_path, weights_only=False))
     test = read_test(

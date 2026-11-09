@@ -29,7 +29,8 @@ FULL_USES = {
     "data/invariants.py": 2,  # invariant checks
     "data/stats.py": 1,  # dataset statistics
     "data/store.py": 1,  # preprocessing checks
-    "runner/run.py": 2,  # data fingerprint in the manifest; item count for the test shuffle
+    "runner/run.py": 3,  # data fingerprint in the manifest and before the test read;
+    # item count for the test shuffle
 }
 
 
