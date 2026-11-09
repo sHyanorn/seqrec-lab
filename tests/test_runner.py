@@ -630,14 +630,6 @@ def test_slow_epochs_flags_runs_far_slower_than_the_same_configuration():
     assert [r["slow_epochs"] for r in rows] == [False, True, False, None, None, False, False, None]
 
 
-def test_export_writes_the_slow_epochs_flag(workspace):
-    runs, data = workspace
-    for seed in (1, 2):
-        run_mod.execute(_cfg("tune", seed=seed, tag="sigma"), runs, data, CPU, **QUIET)
-    rows = _exported(runs, runs.parent)
-    assert {r["slow_epochs"] for r in rows.values()} <= {"True", "False"}
-
-
 def test_patience_waits_until_a_run_beats_popularity(workspace):
     """D035: before validation NDCG@10 exceeds 1.5 x MostPop's, patience does not count."""
     import seqrec.models  # noqa: F401  registers mostpop
@@ -789,3 +781,68 @@ def test_a_rebuilt_dataset_is_refused_before_the_test_read(workspace):
     load_splits.cache_clear()
     with pytest.raises(run_mod.TestRefused, match="data differ"):
         run_mod.test_run(_cfg(), runs, data, CPU, **QUIET)
+
+
+def _fake_clock(monkeypatch):
+    import time as real_time
+    from types import SimpleNamespace
+
+    clock = [0.0]
+    monkeypatch.setattr(
+        run_mod, "time", SimpleNamespace(perf_counter=lambda: clock[0], sleep=real_time.sleep)
+    )
+    return clock
+
+
+def test_the_guard_leaves_out_set_up_and_adds_up_sessions(workspace, monkeypatch):
+    """D036: each session's set-up (data, invariants, model) takes an hour of the fake clock
+    and is not counted; epoch time from before an interruption is."""
+    runs, data = workspace
+    clock = _fake_clock(monkeypatch)
+    init = PopularityModel.__init__
+
+    def slow_init(self, cfg, train, device):
+        clock[0] += 3600.0
+        init(self, cfg, train, device)
+
+    def epoch_of_1000_seconds(self, train, epoch):
+        if epoch == 2 and not getattr(PopularityModel, "crashed", False):
+            PopularityModel.crashed = True
+            raise RuntimeError("simulated crash")
+        clock[0] += 1000.0
+        self.epochs = epoch + 1
+        return {"loss": 0.0}
+
+    monkeypatch.setattr(PopularityModel, "__init__", slow_init)
+    monkeypatch.setattr(PopularityModel, "train_epoch", epoch_of_1000_seconds)
+    monkeypatch.setattr(PopularityModel, "crashed", False, raising=False)
+    cfg = _cfg(guard_hours=1.0, patience=50)
+    with pytest.raises(RuntimeError):
+        run_mod.execute(cfg, runs, data, CPU, **QUIET)
+    summary = run_mod.execute(cfg, runs, data, CPU, **QUIET)
+    assert summary["stop_reason"] == "guard" and summary["truncated"]
+    assert summary["epochs"] == 4 and summary["wall_s"] == pytest.approx(4000.0)
+
+
+def test_export_flags_the_slow_seed(workspace, monkeypatch):
+    """D038: of three seeds with epochs of 1, 1 and 10 s, only the last is flagged."""
+    runs, data = workspace
+    clock = _fake_clock(monkeypatch)
+    seconds = {1: 1.0, 2: 1.0, 3: 10.0}
+    init = PopularityModel.__init__
+
+    def init_with_seed(self, cfg, train, device):
+        init(self, cfg, train, device)
+        self.seed = cfg.seed
+
+    def timed_epoch(self, train, epoch):
+        clock[0] += seconds[self.seed]
+        self.epochs = epoch + 1
+        return {"loss": 0.0}
+
+    monkeypatch.setattr(PopularityModel, "__init__", init_with_seed)
+    monkeypatch.setattr(PopularityModel, "train_epoch", timed_epoch)
+    for seed in seconds:
+        run_mod.execute(_cfg("tune", seed=seed, tag="sigma"), runs, data, CPU, **QUIET)
+    rows = _exported(runs, runs.parent).values()
+    assert {int(r["seed"]): r["slow_epochs"] for r in rows} == {1: "False", 2: "False", 3: "True"}
