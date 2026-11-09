@@ -11,6 +11,7 @@ dependencies = [
     "torch==2.15.*",
     "nvidia-ml-py>=13",
     "optuna>=5,<6",
+    "scipy>=1.14",
 ]
 
 [project.scripts]

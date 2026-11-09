@@ -1,4 +1,5 @@
-"""Command line: `seqrec data prepare`, `seqrec run|test|tune PLAN`, `seqrec export`."""
+"""Command line: `seqrec data prepare`, `seqrec run|test|tune PLAN`, `seqrec seeds CSV`, and
+`seqrec export`."""
 
 from __future__ import annotations
 
@@ -33,6 +34,12 @@ def main(argv=None) -> int:
         cmd.add_argument("--data-dir", type=Path, default=Path("data"))
         cmd.add_argument("--device", default=None)
 
+    seeds = sub.add_parser("seeds", help="seed count from pilot validation scores (METHODS 7.5)")
+    seeds.add_argument(
+        "csv", type=Path, help="an exported batch CSV, e.g. results/runs/m2-pilot.csv"
+    )
+    seeds.add_argument("--tag", default="sigma")
+
     exp = sub.add_parser("export", help="aggregate finished runs into results/runs")
     exp.add_argument("--runs-dir", type=Path, default=Path("runs"))
     exp.add_argument("--out-dir", type=Path, default=Path("results/runs"))
@@ -51,6 +58,11 @@ def main(argv=None) -> int:
         step = {"run": run_batch, "test": test_batch, "tune": tune_batch}[args.command]
         failed = step(args.plan, args.runs_dir, args.data_dir, device)
         return 1 if failed else 0
+    if args.command == "seeds":
+        from seqrec.analysis.power import report
+
+        print(report(args.csv, args.tag))
+        return 0
     from seqrec.runner.export import export
 
     problems = export(args.runs_dir, args.out_dir)
