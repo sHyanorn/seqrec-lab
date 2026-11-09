@@ -79,3 +79,12 @@ def test_trains_with_finite_loss(train):
     m = model(train, dim=16, heads=2, mask_prob=0.3)
     assert np.isfinite(m.train_epoch(train, 0)["loss"])
     assert m.hparams["mask_prob"] == 0.3
+
+
+def test_left_padding_does_not_change_real_positions(train):
+    m = model(train, dim=16, heads=2).net.eval()
+    items = torch.tensor([[4, 9, 2, 7, 41]])
+    with torch.no_grad():
+        long = m(torch.cat([torch.zeros(1, 3, dtype=torch.long), items], 1))[:, 3:]
+        short = m(torch.cat([torch.zeros(1, 1, dtype=torch.long), items], 1))[:, 1:]
+    torch.testing.assert_close(long, short, atol=1e-5, rtol=0)

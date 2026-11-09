@@ -157,3 +157,12 @@ def test_unknown_hyperparameters_are_rejected(train):
         ARMS["sasrec-ce"](cfg(negatives=5), train, CPU)
     with pytest.raises(ValueError, match="divisible"):
         ARMS["sasrec-ce"](cfg(dim=10, heads=3), train, CPU)
+
+
+def test_left_padding_does_not_change_real_positions():
+    model = net()
+    items = torch.tensor([[4, 9, 2, 7, 5]])
+    with torch.no_grad():
+        long = model(torch.cat([torch.zeros(1, 3, dtype=torch.long), items], 1))[:, 3:]
+        short = model(torch.cat([torch.zeros(1, 1, dtype=torch.long), items], 1))[:, 1:]
+    torch.testing.assert_close(long, short, atol=1e-6, rtol=0)
