@@ -10,6 +10,7 @@ dependencies = [
     "pandas>=2.2",
     "torch==2.15.*",
     "nvidia-ml-py>=13",
+    "optuna>=5,<6",
 ]
 
 [project.scripts]

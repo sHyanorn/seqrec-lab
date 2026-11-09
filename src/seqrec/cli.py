@@ -1,4 +1,4 @@
-"""Command line: `seqrec data prepare`, `seqrec run PLAN`, `seqrec test PLAN`, `seqrec export`."""
+"""Command line: `seqrec data prepare`, `seqrec run|test|tune PLAN`, `seqrec export`."""
 
 from __future__ import annotations
 
@@ -25,6 +25,7 @@ def main(argv=None) -> int:
     for name, text in (
         ("run", "train every pending run of a plan"),
         ("test", "read test data once for each trained final or anchor run of a plan"),
+        ("tune", "run the Optuna studies of a tuning plan"),
     ):
         cmd = sub.add_parser(name, help=text)
         cmd.add_argument("plan", type=Path)
@@ -42,12 +43,12 @@ def main(argv=None) -> int:
 
         prepare(args.datasets, args.data_dir, args.results_dir)
         return 0
-    if args.command in ("run", "test"):
+    if args.command in ("run", "test", "tune"):
         from seqrec import models  # noqa: F401  registers the arms
-        from seqrec.runner.batch import run_batch, test_batch
+        from seqrec.runner.batch import run_batch, test_batch, tune_batch
 
         device = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
-        step = run_batch if args.command == "run" else test_batch
+        step = {"run": run_batch, "test": test_batch, "tune": tune_batch}[args.command]
         failed = step(args.plan, args.runs_dir, args.data_dir, device)
         return 1 if failed else 0
     from seqrec.runner.export import export

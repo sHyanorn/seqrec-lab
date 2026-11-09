@@ -33,3 +33,4 @@ Added in M2, with the models:
 | Softmax over the padding id as well as the items | `test_softmax_includes_the_padding_id` | naive softmax over items 1..N |
 | Sampled-softmax negatives equal to the positive kept | `test_sampled_softmax_keeps_collisions` | loss with the colliding column removed |
 | BERT4Rec scored without an appended mask token | `tests/test_known_answers.py::test_bert4rec_scored_without_its_mask_token_fails` | planted-rule NDCG@10 below 0.95 |
+| Tuning trial evaluates on test data | `tests/test_tune.py::test_trials_cannot_reach_test_data` | the sealed stand-in raises inside a trial, which fails |

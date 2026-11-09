@@ -168,14 +168,33 @@ def _keep_metrics_before(path: Path, epoch: int) -> None:
         _write_atomic(path, "".join(line + "\n" for line in kept))
 
 
+def _epoch_times(metrics_path: Path) -> dict:
+    """Median seconds per epoch for training and for validation scoring."""
+    lines = metrics_path.read_text(encoding="utf-8").splitlines() if metrics_path.exists() else []
+    records = [json.loads(line) for line in lines]
+    return {
+        f"{key}_median": round(float(np.median([r[key] for r in records])), 3)
+        if records else None
+        for key in ("epoch_train_s", "epoch_eval_s")
+    }  # fmt: skip
+
+
 def max_len_of(cfg: RunConfig) -> int:
     return cfg.max_len or DATASETS[cfg.dataset].max_len
 
 
 def execute(
-    cfg: RunConfig, runs_dir: Path, data_dir: Path, device: torch.device, log=print
+    cfg: RunConfig,
+    runs_dir: Path,
+    data_dir: Path,
+    device: torch.device,
+    log=print,
+    report: Callable[[int, float], bool] | None = None,
 ) -> dict:
-    """Train until a stop rule fires and write summary.json. No test data are read here."""
+    """Train until a stop rule fires and write summary.json. No test data are read here.
+
+    `report(epoch, validation NDCG@10)` is called after every epoch; returning True stops
+    the run as pruned (tuning, METHODS 5.4)."""
     run_dir = run_dir_of(cfg, runs_dir)
     summary_path = run_dir / "summary.json"
     _claim(cfg, run_dir)
@@ -240,8 +259,9 @@ def execute(
             except NonFiniteScores:
                 stop = "diverged"
                 break
+            t_evaluated = time.perf_counter()
             state["train_s"] += t_trained - t_start
-            state["wall_s"] += time.perf_counter() - t_start
+            state["wall_s"] += t_evaluated - t_start
             ndcg = val.metrics["ndcg@10"]
             if ndcg > state["best"]:
                 state |= {"best": ndcg, "best_epoch": state["epoch"], "bad": 0}
@@ -254,6 +274,8 @@ def execute(
                 "val_ndcg@10": ndcg,
                 "val_hr@10": val.metrics["hr@10"],
                 "val_tie_rate": val.tie_rate,
+                "epoch_train_s": round(t_trained - t_start, 3),
+                "epoch_eval_s": round(t_evaluated - t_trained, 3),
             } | stats
             state["epoch"] += 1
             # Checkpoint first, then log: a crash in between repeats the epoch cleanly.
@@ -270,6 +292,9 @@ def execute(
                 f.write(json.dumps(record) + "\n")
             if stats.get("converged"):  # models without training, e.g. the floor baselines
                 stop = "converged"
+                break
+            if report is not None and report(record["epoch"], ndcg):
+                stop = "pruned"
                 break
     finally:
         samples = sampler.stop() if sampler and sampler.available else []
@@ -288,7 +313,7 @@ def execute(
         "truncated": stop in ("max_epochs", "guard"),
         "train_s": round(state["train_s"], 2),
         "wall_s": round(state["wall_s"], 2),
-    }
+    } | _epoch_times(metrics_path)
     if best_weights is not None:
         best_path = run_dir / "best.pt"
         _save_atomic(best_weights, best_path)
