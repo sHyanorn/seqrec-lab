@@ -25,6 +25,7 @@ from seqrec.models import batches, losses
 from seqrec.models.trainer import BATCH_SIZE, CLIP_NORM
 
 ARMS = ("sasrec-bce", "sasrec-ce", "sasrec-ss", "gsasrec")
+CAPTURE_WARMUP_STEPS = 3  # eager steps on the first batch before its step is captured
 
 
 def masked_mean(per_position: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
@@ -119,7 +120,7 @@ class Stepper:
         side = torch.cuda.Stream()
         side.wait_stream(torch.cuda.current_stream())
         with torch.cuda.stream(side):
-            for _ in range(3):
+            for _ in range(CAPTURE_WARMUP_STEPS):
                 self.eager_step(self.static)
         torch.cuda.current_stream().wait_stream(side)
         self.graph = torch.cuda.CUDAGraph()

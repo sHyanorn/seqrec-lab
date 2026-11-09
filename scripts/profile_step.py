@@ -14,9 +14,11 @@ retried after a failed request (D042). Reads only the training split and writes 
 `--fixed-shapes`, `--fused-adam` and `--cuda-graph` time the SASRec arms under the execution
 modes of `step_modes.py`; `--sync-debug` counts the CPU-GPU synchronisations per step, and
 `--check` compares steps on several batches under the modes with the same steps of the arm's
-own code. The timings are printed in a `timing` line before the profiled pass that measures
-GPU time. Under a CUDA graph the GPU time covers only the kernels the profiler reports, so
-`gpu_events_per_step` is printed next to it.
+own code; its loss difference is the one to read, since Adam turns rounding differences in
+near-zero gradients into weight differences up to the size of the learning rate. The timings
+are printed in a `timing` line before the profiled pass that measures GPU time. Under a CUDA
+graph the GPU time covers only the kernels the profiler reports, so `gpu_events_per_step` is
+printed next to it.
 """
 
 from __future__ import annotations
@@ -44,11 +46,10 @@ from seqrec.runner.config import RunConfig
 from seqrec.runner.run import ARMS, _prepare_splits, release_device_memory, seed_everything
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from step_modes import Stepper  # noqa: E402
+from step_modes import CAPTURE_WARMUP_STEPS, Stepper  # noqa: E402
 
 MODES = ("fixed_shapes", "fused_adam", "cuda_graph")
 CHECK_BATCHES = 3
-GRAPH_WARMUP_STEPS = 3  # eager steps `Stepper` takes on the first batch before it captures
 
 
 def _steps(model, train, rows: torch.Tensor, n: int) -> float:
@@ -96,39 +97,48 @@ def _wall_cpu(model, train, rows, n: int) -> tuple[float, float, float]:
     return time.perf_counter() - wall, time.process_time() - cpu, loss
 
 
-def _gpu(model, train, rows, n: int) -> tuple[float, int]:
+def _gpu(model, train, rows, n: int) -> tuple[float, int, bool]:
+    """GPU time and events of n steps, and whether the profiler stopped collecting GPU events
+    before the steps ended (a full buffer), which leaves both too low."""
     with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
         _steps(model, train, rows, n)
-    return device_events(prof.events())
+        stopped = torch.autograd._is_kineto_stopped()
+    return *device_events(prof.events()), stopped
 
 
 def gpu_readings(model, train, rows, steps: int, repeats: int, wall_ms: float, device) -> dict:
     """GPU time and GPU events per step from separate, profiled passes: the profiler slows
     the CPU side."""
+    keys = ("gpu_ms_per_step", "gpu_busy_share", "gpu_events_per_step", "gpu_trace_truncated")
     if device.type != "cuda":
-        return {"gpu_ms_per_step": None, "gpu_busy_share": None, "gpu_events_per_step": None}
+        return dict.fromkeys(keys)
     one = [_gpu(model, train, rows, 1) for _ in range(repeats)]
-    us_1, events_1 = (statistics.median(x) for x in zip(*one, strict=True))
-    us_n, events_n = _gpu(model, train, rows, steps)
+    us_1, events_1, _ = (statistics.median(x) for x in zip(*one, strict=True))
+    us_n, events_n, stopped = _gpu(model, train, rows, steps)
     gpu_ms = (us_n - us_1) / 1000 / (steps - 1)
-    return {
-        "gpu_ms_per_step": round(gpu_ms, 3),
-        "gpu_busy_share": round(gpu_ms / wall_ms, 3),
-        "gpu_events_per_step": round((events_n - events_1) / (steps - 1), 1),
-    }
+    readings = (
+        round(gpu_ms, 3),
+        round(gpu_ms / wall_ms, 3),
+        round((events_n - events_1) / (steps - 1), 1),
+        stopped or any(x[2] for x in one),
+    )
+    return dict(zip(keys, readings, strict=True))
 
 
 def prepare_profiler_for_graphs() -> None:
-    """What `torch.profiler` does for compiled CUDA graphs, for a graph captured by hand: the
-    profiler is initialised before the capture and keeps CUPTI loaded between sessions."""
+    """PyTorch's workaround for compiled CUDA graphs on CUDA before 12.6, applied on every
+    version to a graph captured by hand: the profiler is initialised before the capture and
+    keeps CUPTI loaded between sessions."""
     os.environ["DISABLE_CUPTI_LAZY_REINIT"] = "1"
     os.environ["TEARDOWN_CUPTI"] = "0"
     _init_for_cuda_graphs()
 
 
-def syncs_per_step(model, train, rows) -> float:
+def syncs_per_step(model, train, rows) -> tuple[float, int]:
     """CPU-GPU synchronisations per step: an epoch of 3 steps against one of 1 step. The
-    backward pass runs on the calling thread meanwhile, where its warnings are counted."""
+    backward pass runs on the calling thread meanwhile, where its warnings are counted. Also
+    returns the count of the one-step epoch: every epoch reads its loss, so 0 there means
+    that no warning reached the count."""
     counts = []
     for n in (1, 3):
         torch.cuda.set_sync_debug_mode("warn")
@@ -142,7 +152,7 @@ def syncs_per_step(model, train, rows) -> float:
         finally:
             torch.cuda.set_sync_debug_mode(0)
         counts.append(sum("synchroniz" in str(w.message) for w in caught))
-    return (counts[1] - counts[0]) / 2
+    return (counts[1] - counts[0]) / 2, counts[0]
 
 
 def build(cfg: RunConfig, data_dir: Path, device: torch.device, modes: dict):
@@ -172,7 +182,8 @@ def measure(
     steps, warmup = min(steps, available), min(warmup, available)
     if steps < 2:
         raise ValueError(f"{cfg.dataset} has {available} full batches; at least 2 are needed")
-    _steps(model, splits.train, rows, warmup)
+    if warmup:  # an epoch over no rows is one empty batch, whose loss is NaN
+        _steps(model, splits.train, rows, warmup)
 
     # The median of several one-step epochs, against one epoch of `steps` steps.
     one = [_wall_cpu(model, splits.train, rows, 1) for _ in range(repeats)]
@@ -185,6 +196,7 @@ def measure(
 
     stats = torch.cuda.memory_stats(device) if device.type == "cuda" else None
     result = {
+        "device": torch.cuda.get_device_name(device) if device.type == "cuda" else "cpu",
         "dataset": cfg.dataset, "arm": cfg.arm, "params": cfg.params, "steps": steps,
         "modes": [m for m in MODES if modes.get(m)], "loss": loss,
         "wall_ms_per_step": round(wall_ms, 3),
@@ -194,8 +206,8 @@ def measure(
     log(result)
     result |= gpu_readings(model, splits.train, rows, steps, repeats, wall_ms, device)
     count_syncs = sync_debug and device.type == "cuda"
-    result["syncs_per_step"] = syncs_per_step(model, splits.train, rows) if count_syncs else None
-    return result
+    syncs = syncs_per_step(model, splits.train, rows) if count_syncs else (None, None)
+    return result | dict(zip(("syncs_per_step", "syncs_one_step_epoch"), syncs, strict=True))
 
 
 def largest_diff(params_a, params_b) -> float:
@@ -216,7 +228,7 @@ def _check_run(cfg: RunConfig, data_dir: Path, device: torch.device, modes: dict
     model.net.train()
     torch.set_float32_matmul_precision("high")
     if not modes.get("cuda_graph"):
-        for _ in range(GRAPH_WARMUP_STEPS):
+        for _ in range(CAPTURE_WARMUP_STEPS):
             stepper.eager_step(made[0])
     losses = torch.stack([stepper.step(batch).float() for batch in made])
     return losses, [p.detach().float() for p in model.net.parameters()]
@@ -259,6 +271,22 @@ def notes(result: dict) -> list[str]:
         out.append(
             "a one-step epoch was faster than a step of the long epoch (a higher clock after an "
             "idle GPU, or a slowdown during the long epoch); epoch_overhead_ms is not meaningful"
+        )
+    events = result.get("gpu_events_per_step")
+    if events is not None and events <= 0:
+        out.append(
+            "the profiler reported no GPU events for the added steps; gpu_ms_per_step and "
+            "gpu_busy_share are not measurements"
+        )
+    if result.get("gpu_trace_truncated"):
+        out.append(
+            "the profiler stopped collecting GPU events before the steps ended; GPU time and "
+            "events per step are too low. Repeat with fewer steps"
+        )
+    if result.get("syncs_one_step_epoch") == 0:
+        out.append(
+            "no synchronisation was counted in an epoch that reads its loss, so the count does "
+            "not work here; syncs_per_step is not a measurement"
         )
     if "cuda_graph" in result.get("modes", ()):
         out.append(
@@ -303,6 +331,8 @@ def main(argv=None) -> int:
         parser.error("--cuda-graph needs --fixed-shapes")
     if args.steps < 2:
         parser.error("--steps must be at least 2")
+    if args.warmup < 0:
+        parser.error("--warmup must be 0 or more")
     given = [f for f in ("dataset", "arm", "params") if getattr(args, f) is not None]
     if args.from_run and given:
         parser.error(f"--from-run takes the place of --{', --'.join(given)}")

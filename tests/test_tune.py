@@ -9,6 +9,7 @@ from seqrec import models  # noqa: F401  registers the arms
 from seqrec.cli import main as cli_main
 from seqrec.data.preprocess import build_log
 from seqrec.data.store import load_splits, log_path
+from seqrec.runner import config as config_mod
 from seqrec.runner import run as run_mod
 from seqrec.runner import tune
 from seqrec.runner.export import export
@@ -172,6 +173,21 @@ def test_a_trial_that_never_starts_completes_without_pruning_steps(workspace, mo
         (root / "runs" / "t" / "sasrec-ce-ml-1m-loo-s0-t05" / "summary.json").read_text()
     )
     assert summary["start_epoch"] is None and summary["epochs"] == 3
+
+
+def test_a_trial_stopped_at_its_start_limit_is_a_complete_trial(workspace, monkeypatch):
+    """D044: a trial that ends with `no_start` counts toward the trial budget and the 5 trials
+    that enable pruning, with the value of its best checkpoint and no pruning step."""
+    root, plan = workspace
+    monkeypatch.setattr(run_mod, "START_FACTOR", 1e9)
+    monkeypatch.setattr(config_mod, "default_start_limit", lambda arm: 2)
+    opt = run_plan(root, plan)
+    assert {t.state for t in opt.trials} == {optuna.trial.TrialState.COMPLETE}
+    assert all(t.intermediate_values == {} and t.value > 0 for t in opt.trials)
+    for number in range(len(opt.trials)):
+        run_dir = root / "runs" / "t" / f"sasrec-ce-ml-1m-loo-s0-t{number:02d}"
+        summary = json.loads((run_dir / "summary.json").read_text())
+        assert summary["stop_reason"] == "no_start" and summary["epochs"] == 2
 
 
 def test_trials_that_never_started_enable_pruning_but_stay_out_of_the_median():
