@@ -13,6 +13,7 @@ from pathlib import Path
 
 from seqrec.data.stats import write_csv
 from seqrec.eval.test_access import count_reads
+from seqrec.runner.attempts import failures
 from seqrec.runner.run import MAX_ANCHOR_READS
 
 HARDWARE_EVENTS = ("hw_slowdown", "hw_thermal", "hw_power_brake")
@@ -24,15 +25,24 @@ def _load(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
 
 
+def _status(summary: dict, test: dict, steps: list[str]) -> str:
+    if test:
+        return "tested"
+    if "test" in steps:
+        return "test_failed"
+    if summary:
+        return summary["status"]
+    return "failed" if steps else "unfinished"
+
+
 def _row(run_dir: Path) -> dict:
     cfg = _load(run_dir / "config.json")
     summary, test = _load(run_dir / "summary.json"), _load(run_dir / "test.json")
     reads = count_reads(run_dir / "test_access.jsonl")
-    status = summary.get("status", "unfinished")
-    if (run_dir / "error.txt").exists() and not test:
-        status = "failed"
-    elif test:
-        status = "tested"
+    steps = [f["step"] for f in failures(run_dir)]
+    if not steps and (run_dir / "error.txt").exists():  # recorded before failures.jsonl
+        steps = ["unknown"]
+    status = _status(summary, test, steps)
     nvml = summary.get("nvml") or {}
     shares = nvml.get("share_of_samples_with_reason", {})
     row = {
@@ -47,6 +57,7 @@ def _row(run_dir: Path) -> dict:
         "tag": cfg.get("tag", ""),
         "params": json.dumps(cfg["params"], sort_keys=True),
         "status": status,
+        "failures": len(steps),  # failed attempts, retries included (D031)
         "epochs": summary.get("epochs"),
         "best_epoch": summary.get("best_epoch"),
         "stop_reason": summary.get("stop_reason"),
@@ -120,7 +131,9 @@ def _overview(rows: list[dict]) -> list[dict]:
             {
                 "batch": batch, "dataset": dataset, "split": split, "arm": arm, "phase": phase,
                 "runs": len(rs),
-                "unfinished_or_failed": sum(r["status"] in ("unfinished", "failed") for r in rs),
+                "unfinished_or_failed": sum(
+                    r["status"] in ("unfinished", "failed", "test_failed") for r in rs
+                ),
             }
             | _stop_counts(rs)
             | _truncation(rs)

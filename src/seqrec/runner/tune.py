@@ -16,13 +16,13 @@ runs/<batch>/optuna.sqlite3. After an interruption a running trial resumes from 
 checkpoint with its own parameters. TPE is reseeded from (sampler seed, trials so far)
 before every proposal, so an interrupted study proposes what an uninterrupted one would.
 Failed and pruned trials count toward the trial budget; a trial interrupted before all its
-parameters were stored is marked failed.
+parameters were stored is marked failed. A trial whose training raises is retried once
+before it counts as failed (D031).
 """
 
 from __future__ import annotations
 
 import tomllib
-import traceback
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,6 +33,7 @@ from optuna.distributions import FloatDistribution as Float
 from optuna.trial import TrialState
 from sqlalchemy.engine import URL
 
+from seqrec.runner.attempts import TrainingFailed, train_with_retry
 from seqrec.runner.config import RunConfig, default_limits
 from seqrec.runner.run import ARMS, execute, run_dir_of
 
@@ -114,12 +115,12 @@ def _run_trial(study, opt: optuna.Study, trial: optuna.Trial, runs_dir, data_dir
             trial.report(value, epoch)
         return trial.should_prune()
 
-    try:
-        summary = execute(cfg, runs_dir, data_dir, device, log=log, report=report)
-    except Exception:
-        run_dir = run_dir_of(cfg, runs_dir)
-        run_dir.mkdir(parents=True, exist_ok=True)
-        (run_dir / "error.txt").write_text(traceback.format_exc(), encoding="utf-8")
+    def train():
+        return execute(cfg, runs_dir, data_dir, device, log=log, report=report)
+
+    try:  # DeviceLost propagates: the trial stays running and resumes on the next run
+        summary = train_with_retry(train, run_dir_of(cfg, runs_dir), device, log)
+    except TrainingFailed:
         log(f"[tune] {cfg.run_id} failed; see error.txt")
         opt.tell(trial, state=TrialState.FAIL)
         return cfg.run_id

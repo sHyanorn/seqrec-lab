@@ -238,3 +238,77 @@ def test_truncated_share_counts_only_runs_that_stopped_by_patience_or_a_limit():
     assert best["stopped"] == 16 and best["truncated"] == 4 and best["truncated_share"] == 0.25
     overview = _overview(rows)[0]
     assert overview["stopped"] == 16 and overview["truncated_share"] == 0.25
+
+
+def _plan(root, seeds=(1,), phase="tune"):
+    plan = root / "plan.toml"
+    plan.write_text(
+        f'batch = "b"\n[defaults]\ndataset = "ml-1m"\nsplit = "loo"\nphase = "{phase}"\n'
+        f'max_epochs = 6\npatience = 2\n[[runs]]\narm = "pop"\nseeds = {list(seeds)}\n',
+        encoding="utf-8",
+    )
+    return plan
+
+
+def _exported(runs, root):
+    import csv
+
+    export(runs, root / "results")
+    with (root / "results" / "b.csv").open(encoding="utf-8") as f:
+        return {r["run_id"]: r for r in csv.DictReader(f)}
+
+
+def _failures(run_dir):
+    path = run_dir / "failures.jsonl"
+    return [json.loads(x) for x in path.read_text().splitlines()] if path.exists() else []
+
+
+def test_a_failed_run_is_retried_once_and_exported_as_trained(workspace):
+    """D031: one retry, recorded; the retried run still counts as trained (e.g. for sigma)."""
+    from seqrec.runner.batch import run_batch
+
+    runs, data = workspace
+    PopularityModel.crash = "train@1"
+    assert run_batch(_plan(runs.parent), runs, data, CPU, **QUIET) == []
+    run_dir = runs / "b" / _cfg("tune").run_id
+    assert [f["step"] for f in _failures(run_dir)] == ["train"]
+    assert "simulated crash" in _failures(run_dir)[0]["error"]
+    row = _exported(runs, runs.parent)[_cfg("tune").run_id]
+    assert row["status"] == "trained" and row["failures"] == "1"
+
+
+def test_a_run_that_fails_twice_is_not_retried_again(workspace, monkeypatch):
+    from seqrec.runner.batch import run_batch
+
+    runs, data = workspace
+
+    def always_fail(self, train, epoch):
+        raise RuntimeError("deterministic failure")
+
+    monkeypatch.setattr(PopularityModel, "train_epoch", always_fail)
+    run_id = _cfg("tune").run_id
+    plan = _plan(runs.parent)
+    assert run_batch(plan, runs, data, CPU, **QUIET) == [run_id]
+    assert run_batch(plan, runs, data, CPU, **QUIET) == [run_id]  # rerun: skipped
+    assert len(_failures(runs / "b" / run_id)) == 2
+    row = _exported(runs, runs.parent)[run_id]
+    assert row["status"] == "failed" and row["failures"] == "2"
+
+
+def test_a_lost_device_stops_the_batch_and_the_rerun_retries(workspace, monkeypatch):
+    from seqrec.runner import attempts
+    from seqrec.runner.batch import run_batch
+
+    runs, data = workspace
+    PopularityModel.crash = "train@1"
+    monkeypatch.setattr(attempts, "device_usable", lambda device: False)
+    plan = _plan(runs.parent, seeds=(1, 2))
+    first, second = (_cfg("tune", seed=s).run_id for s in (1, 2))
+    assert run_batch(plan, runs, data, CPU, **QUIET) == [first]
+    assert not (runs / "b" / first / "summary.json").exists()
+    assert not (runs / "b" / second).exists()  # the batch stopped
+    monkeypatch.setattr(attempts, "device_usable", lambda device: True)
+    assert run_batch(plan, runs, data, CPU, **QUIET) == []
+    rows = _exported(runs, runs.parent)
+    assert rows[first]["status"] == "trained" and rows[first]["failures"] == "1"
+    assert rows[second]["failures"] == "0"

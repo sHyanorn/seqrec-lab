@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
-import traceback
 from pathlib import Path
 
 import torch
 
 from seqrec.data.store import load_splits
+from seqrec.runner.attempts import (
+    TRAIN_ATTEMPTS,
+    DeviceLost,
+    TrainingFailed,
+    record_failure,
+    train_failures,
+    train_with_retry,
+)
 from seqrec.runner.config import Plan, load_plan
 from seqrec.runner.run import ARMS, execute, run_dir_of, test_run
 from seqrec.runner.tune import load_tuning_plan, run_study
@@ -20,15 +27,20 @@ def _check_arms(plan: Plan) -> None:
         raise ValueError(f"unknown arms in plan: {unknown}")
 
 
-def _guarded(step, cfg, runs_dir: Path, log, failed: list[str], *args) -> None:
+def _train(cfg, runs_dir: Path, data_dir: Path, device, log) -> None:
+    run_dir = run_dir_of(cfg, runs_dir)
+    train_with_retry(
+        lambda: execute(cfg, runs_dir, data_dir, device, log=log), run_dir, device, log
+    )
+
+
+def _test(cfg, runs_dir: Path, data_dir: Path, device, log, failed: list[str]) -> None:
     try:
-        step(cfg, runs_dir, *args, log=log)
+        test_run(cfg, runs_dir, data_dir, device, log=log)
     except Exception:
         failed.append(cfg.run_id)
-        run_dir = run_dir_of(cfg, runs_dir)
-        run_dir.mkdir(parents=True, exist_ok=True)
-        (run_dir / "error.txt").write_text(traceback.format_exc(), encoding="utf-8")
-        log(f"[batch] {cfg.run_id} failed; see error.txt")
+        record_failure(run_dir_of(cfg, runs_dir), "test")
+        log(f"[batch] {cfg.run_id}: test read failed; see error.txt")
 
 
 def _warm_up(warmup_s: float, dataset: str, split: str, data_dir: Path, device, log) -> None:
@@ -42,12 +54,24 @@ def run_batch(plan_path: Path, runs_dir: Path, data_dir: Path, device: torch.dev
     plan = load_plan(plan_path)
     _check_arms(plan)
     pending = [r for r in plan.runs if not (run_dir_of(r, runs_dir) / "summary.json").exists()]
+    failed = [
+        r.run_id for r in pending if train_failures(run_dir_of(r, runs_dir)) >= TRAIN_ATTEMPTS
+    ]
+    pending = [r for r in pending if r.run_id not in failed]
     log(f"[batch] {plan.batch}: {len(pending)} of {len(plan.runs)} runs pending")
+    for run_id in failed:
+        log(f"[batch] {run_id} failed twice; not retried")
     if pending:
         _warm_up(plan.warmup_s, pending[0].dataset, pending[0].split, data_dir, device, log)
-    failed: list[str] = []
     for cfg in pending:
-        _guarded(execute, cfg, runs_dir, log, failed, data_dir, device)
+        try:
+            _train(cfg, runs_dir, data_dir, device, log)
+        except TrainingFailed:
+            failed.append(cfg.run_id)
+        except DeviceLost as err:
+            failed.append(err.run_id)
+            log(f"[batch] {err}")
+            break
     log(f"[batch] training done; {len(failed)} failed")
     return failed
 
@@ -64,7 +88,7 @@ def test_batch(plan_path: Path, runs_dir: Path, data_dir: Path, device: torch.de
     failed: list[str] = []
     for cfg in plan.runs:
         if cfg.phase in ("final", "anchor"):
-            _guarded(test_run, cfg, runs_dir, log, failed, data_dir, device)
+            _test(cfg, runs_dir, data_dir, device, log, failed)
     log(f"[batch] testing done; {len(failed)} failed")
     return failed
 
@@ -76,7 +100,11 @@ def tune_batch(plan_path: Path, runs_dir: Path, data_dir: Path, device: torch.de
         _warm_up(warmup_s, studies[0].dataset, "loo", data_dir, device, log)
     failed: list[str] = []
     for study in studies:
-        opt, failed_now = run_study(study, runs_dir, data_dir, device, log)
+        try:
+            opt, failed_now = run_study(study, runs_dir, data_dir, device, log)
+        except DeviceLost as err:  # the trial stays running and resumes on the next run
+            log(f"[tune] {err}")
+            return failed + [err.run_id]
         failed += failed_now
         complete = [t for t in opt.trials if t.state.name == "COMPLETE"]
         best = max(complete, key=lambda t: t.value, default=None)

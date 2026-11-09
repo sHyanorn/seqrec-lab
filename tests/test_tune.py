@@ -157,3 +157,49 @@ def test_pruner_waits_for_five_complete_trials_and_the_warm_up():
     complete_trial()
     assert not worse_trial_prunes_at(29)  # inside the warm-up of 10% of the cap
     assert worse_trial_prunes_at(30)
+
+
+def _crash_once(monkeypatch, tag):
+    original = tune.execute
+    state = {"done": False}
+
+    def crash(cfg, *args, **kw):
+        if cfg.tag == tag and not state["done"]:
+            state["done"] = True
+            raise RuntimeError("simulated out-of-memory")
+        return original(cfg, *args, **kw)
+
+    monkeypatch.setattr(tune, "execute", crash)
+
+
+def test_a_failed_trial_is_retried_once_without_using_budget(workspace, monkeypatch):
+    """D031: the retry happens before the trial is told to Optuna."""
+    root, plan = workspace
+    reference = run_plan(root, plan, "uninterrupted")
+    _crash_once(monkeypatch, "t01")
+    opt = run_plan(root, plan)
+    assert [t.state for t in opt.trials] == [t.state for t in reference.trials]  # no FAIL
+    assert trial_params(opt) == trial_params(reference)
+    failures = root / "runs" / "t" / "sasrec-ce-ml-1m-loo-s0-t01" / "failures.jsonl"
+    assert len(failures.read_text().splitlines()) == 1
+
+
+def test_a_lost_device_leaves_the_trial_to_resume_on_rerun(workspace, monkeypatch):
+    from seqrec.runner import attempts
+    from seqrec.runner.batch import tune_batch
+
+    root, plan = workspace
+    _crash_once(monkeypatch, "t02")
+    monkeypatch.setattr(attempts, "device_usable", lambda device: False)
+    failed = tune_batch(plan, root / "runs", root / "data", CPU, **QUIET)
+    assert failed == ["sasrec-ce-ml-1m-loo-s0-t02"]
+    _, _, studies = tune.load_tuning_plan(plan)
+    storage = tune._storage(root / "runs", "t")
+    opt = optuna.load_study(study_name=studies[0].name, storage=storage)
+    assert [t.state.name for t in opt.trials][-1] == "RUNNING"
+    monkeypatch.setattr(attempts, "device_usable", lambda device: True)
+    opt = run_plan(root, plan)
+    assert len(opt.trials) == 6
+    assert optuna.trial.TrialState.FAIL not in {t.state for t in opt.trials}
+    t02 = root / "runs" / "t" / "sasrec-ce-ml-1m-loo-s0-t02" / "failures.jsonl"
+    assert len(t02.read_text().splitlines()) == 1
