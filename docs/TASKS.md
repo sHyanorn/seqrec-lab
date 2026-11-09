@@ -51,7 +51,7 @@ Freeze
 - [x] Remaining mutation tests (label shift, causal mask removed, test read during tuning)
 - [x] Tuning harness: Optuna TPE studies in SQLite, pruning, caps and truncation records (D028)
 - [ ] Pilot on the laptop: anchors on MovieLens-1M (METHODS 11.5), 3 seeds per arm for σ (validation only), epoch-time measurements on all datasets
-- [ ] Anchors inside their bands within three anchor reads per arm, or the arm flagged as in METHODS 11.5
+- [x] Anchors inside their bands within three anchor reads per arm, or the arm flagged as in METHODS 11.5 (D032: all four inside after one read)
 - [ ] Seed count from METHODS 7.5 (rule implemented: `seqrec seeds`); updated GPU projection; descoping decisions if needed
 - [ ] Silent-error review and whole-diff review; fixes
 

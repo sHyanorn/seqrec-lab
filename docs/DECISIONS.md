@@ -287,14 +287,26 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
 
 ## D032 Anchor results
 
-- Date: 2026-11-09. Status: method fixed before any anchor result was seen; results pending.
+- Date: 2026-11-09. Status: accepted. Method fixed before any anchor result was seen; results added after the anchor reads.
 - Method: `seqrec anchors results/runs/m2-anchor.csv` lists every anchor run on MovieLens-1M.
   - Stop conditions, each reported before any other step: a run not tested; anything other than one completed anchor read and no final read per run; a commit or parameters other than those of D026; test NDCG@10 outside the band of the METHODS 11.5 table (edges included in the band); test and validation NDCG@10 more than 3·sqrt((v(1 − v) + t(1 − t))/6,040) apart.
   - The last threshold is three standard errors of the difference. Per-user NDCG@10 lies in [0, 1], so m(1 − m)/U bounds the variance of a mean over U users, and the two means are treated as independent; at NDCG@10 0.18 the threshold is about 0.021. Test above validation by more is handled like a result above the band (the leakage checks of METHODS 11.5), below by more like a result below it.
   - Recorded without a stop rule: epochs; best epoch, counted from 1, against [5] (63 for SASRec-CE, 53 for SASRec-BCE, 197 for BERT4Rec) and about 1,790 for the gSASRec checkpoint of [33]; stop reason and truncation; test and validation tie rates, expected near 0 for neural models; test HR@10; NDCG@10 on shuffled test inputs, expected clearly lower (METHODS 3.3); hardware slowdown.
   - No code changes after a stop condition until the deviation is decided; any change then follows METHODS 11.5.
-- Results: pending.
 - Amendment 2026-11-09 (before any anchor result was seen): the command prints every stop condition. Parameters, and limits (epoch cap, patience, guard) where the export lists them, are compared with `configs/plans/m2-anchor.toml`; a missing arm is a stop condition. The conditions apply to the latest anchor run of each arm, which must all come from one commit; earlier runs stay in the table as history.
+- Results (seed 0, one anchor read per arm, commit 70b2b0f; `seqrec anchors` reports no stop condition):
+
+| Arm | Test NDCG@10 | Band | Validation NDCG@10 | Test − validation (threshold) | Epochs | Best epoch | Stop | Test HR@10 | Shuffled test NDCG@10 | Test tie rate |
+|---|---|---|---|---|---|---|---|---|---|---|
+| SASRec-CE | 0.1784 | 0.172–0.192 | 0.1882 | −0.0098 (0.0211) | 78 | 68 | patience | 0.3126 | 0.0407 | 0.0000 |
+| SASRec-BCE | 0.1361 | 0.124–0.144 | 0.1414 | −0.0053 (0.0189) | 85 | 75 | patience | 0.2535 | 0.0396 | 0.0000 |
+| BERT4Rec | 0.1575 | 0.144–0.164 | 0.1643 | −0.0068 (0.0201) | 200 | 200 | epoch cap | 0.2829 | 0.0381 | 0.0000 |
+| gSASRec | 0.1691 | 0.163–0.183 | 0.1828 | −0.0137 (0.0208) | 384 | 184 | patience | 0.2924 | 0.0336 | 0.0003 |
+
+  - Every arm is inside its band after one read, so no arm is flagged and no code changed. Test NDCG@10 is below validation for every arm and within the threshold. Shuffled test inputs lower NDCG@10 to 20–29% of its value. Tie rates are at most 0.0003, and no run shows a hardware slowdown.
+  - Best epochs against the sources: SASRec-CE 68 (63 in [5]), SASRec-BCE 75 (53), BERT4Rec 200 of 200, so it was still improving at the cap, as in [5] (197 of 200). gSASRec reached its best at epoch 184 and stopped by patience at epoch 384, far earlier than the about 1,790 epochs of the [33] checkpoint, yet inside its band.
+  - GPU time 1.13 h, of which gSASRec 1.07 h (1.9 s per training epoch against 0.35 to 0.45 s for the other arms).
+  - These reads touched the MovieLens-1M test targets once per arm; RQ1 conclusions on MovieLens-1M carry the note of METHODS 11.5.
 
 ## D033 Seed variance and seed count
 
