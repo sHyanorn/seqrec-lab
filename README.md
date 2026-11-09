@@ -45,6 +45,8 @@ uv run seqrec test configs/plans/<plan>.toml   # read test data once per run, af
 uv run seqrec tune configs/plans/<plan>.toml   # Optuna studies; resumable
 uv run seqrec export                           # aggregate to results/runs/
 uv run seqrec seeds results/runs/<batch>.csv   # seed count from pilot validation scores
+uv run seqrec anchors results/runs/m2-anchor.csv  # anchors against their bands (D032)
+uv run seqrec budget results/runs/m2-pilot.csv   # GPU-hour projection (D034)
 ```
 
 Arms: `sasrec-bce`, `sasrec-ce`, `sasrec-ss`, `gsasrec`, `bert4rec`, `mostpop`, `transition`.

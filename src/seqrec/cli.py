@@ -1,5 +1,5 @@
-"""Command line: `seqrec data prepare`, `seqrec run|test|tune PLAN`, `seqrec seeds CSV`, and
-`seqrec export`."""
+"""Command line: `seqrec data prepare`, `seqrec run|test|tune PLAN`, `seqrec seeds CSV`,
+`seqrec anchors CSV`, `seqrec budget CSV` and `seqrec export`."""
 
 from __future__ import annotations
 
@@ -41,6 +41,17 @@ def main(argv=None) -> int:
     seeds.add_argument("--tag", default="sigma")
     seeds.add_argument("--dataset", default="ml-1m")
 
+    anchors = sub.add_parser("anchors", help="anchor runs against published bands (D032)")
+    anchors.add_argument(
+        "csv", type=Path, help="the anchor export, e.g. results/runs/m2-anchor.csv"
+    )
+    anchors.add_argument("--pilot", type=Path, help="the pilot export, to compare limits (D033)")
+
+    budget = sub.add_parser("budget", help="GPU-hour projection from the pilot (D034)")
+    budget.add_argument("csv", type=Path, help="the pilot export, e.g. results/runs/m2-pilot.csv")
+    budget.add_argument("--overview", type=Path, help="default: overview.csv next to the pilot")
+    budget.add_argument("--seeds", type=int, help="default: the METHODS 7.5 rule on the pilot")
+
     exp = sub.add_parser("export", help="aggregate finished runs into results/runs")
     exp.add_argument("--runs-dir", type=Path, default=Path("runs"))
     exp.add_argument("--out-dir", type=Path, default=Path("results/runs"))
@@ -63,6 +74,18 @@ def main(argv=None) -> int:
         from seqrec.analysis.power import report
 
         print(report(args.csv, args.tag, args.dataset))
+        return 0
+    if args.command == "anchors":
+        from seqrec.analysis.anchors import report as anchor_report
+
+        print(anchor_report(args.csv, args.pilot))
+        return 0
+    if args.command == "budget":
+        from seqrec.analysis.budget import report as budget_report
+
+        print(
+            budget_report(args.csv, args.overview or args.csv.with_name("overview.csv"), args.seeds)
+        )
         return 0
     from seqrec.runner.export import export
 
