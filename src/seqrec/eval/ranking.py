@@ -8,6 +8,7 @@ Inputs are gathered from the flat CSR arrays, so no per-user Python loop runs.
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import contextmanager
 from dataclasses import dataclass
 
 import numpy as np
@@ -66,8 +67,16 @@ def mask_history(scores: torch.Tensor, rows: torch.Tensor, items: torch.Tensor) 
     scores.index_put_((rows, items), torch.tensor(float("-inf"), device=scores.device))
 
 
+@contextmanager
 def eval_autocast(device: torch.device):
-    return torch.autocast(device.type, enabled=False)
+    """Strict fp32 scores: autocast off and no TF32 in fp32 matmuls."""
+    previous = torch.get_float32_matmul_precision()
+    torch.set_float32_matmul_precision("highest")
+    try:
+        with torch.autocast(device.type, enabled=False):
+            yield
+    finally:
+        torch.set_float32_matmul_precision(previous)
 
 
 def rank_targets(

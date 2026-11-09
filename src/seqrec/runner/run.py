@@ -30,7 +30,7 @@ from typing import Protocol
 import numpy as np
 import torch
 
-from seqrec.data.invariants import check_split
+from seqrec.data.invariants import check_batch_positions, check_split
 from seqrec.data.registry import DATASETS
 from seqrec.data.splits import SealedOff, SplitSet, TrainSplit, shuffle_eval_inputs, shuffle_order
 from seqrec.data.store import load_splits
@@ -44,8 +44,10 @@ MAX_ANCHOR_READS = 3
 
 
 class Model(Protocol):
-    """state_dict must cover everything training depends on: weights, optimizer, scaler and
-    any random generator the model owns."""
+    """state_dict returns a snapshot of everything training depends on: weights, optimizer,
+    scaler and any random generator the model owns. Optional attributes: `hparams` (resolved
+    hyperparameters, recorded in the manifest) and `sample_positions()` (full-log positions
+    used by one sampled training batch, checked against the splits)."""
 
     def train_epoch(self, train: TrainSplit, epoch: int) -> dict: ...
 
@@ -166,7 +168,7 @@ def _keep_metrics_before(path: Path, epoch: int) -> None:
         _write_atomic(path, "".join(line + "\n" for line in kept))
 
 
-def _max_len(cfg: RunConfig) -> int:
+def max_len_of(cfg: RunConfig) -> int:
     return cfg.max_len or DATASETS[cfg.dataset].max_len
 
 
@@ -185,7 +187,10 @@ def execute(
     splits, checks = _prepare_splits(cfg, data_dir)
     if len(splits.validation) == 0:
         raise ValueError(f"{cfg.dataset}/{cfg.split}: empty validation split")
-    max_len = _max_len(cfg)
+    max_len = max_len_of(cfg)
+    model = ARMS[cfg.arm](cfg, splits.train, device)
+    if hasattr(model, "sample_positions"):
+        checks = checks + check_batch_positions(splits, model.sample_positions())
     manifest = {
         "git_commit": commit,
         "torch": torch.__version__,
@@ -193,6 +198,7 @@ def execute(
         "device": torch.cuda.get_device_name(device) if device.type == "cuda" else "cpu",
         "train_fingerprint": splits.train.fingerprint,
         "full_fingerprint": splits.full.fingerprint(),
+        "hparams": getattr(model, "hparams", None),
         "invariants_passed": checks,
     }
     manifest_path = run_dir / "manifest.json"
@@ -203,7 +209,6 @@ def execute(
         manifest["sessions"] = old.get("sessions", [old["git_commit"]]) + [commit]
     _write_atomic(manifest_path, json.dumps(manifest, indent=1))
 
-    model = ARMS[cfg.arm](cfg, splits.train, device)
     state = {"epoch": 0, "best": -1.0, "best_epoch": -1, "bad": 0, "train_s": 0.0, "wall_s": 0.0}
     best_weights = None
     last_path, metrics_path = run_dir / "last.pt", run_dir / "metrics.jsonl"
@@ -342,7 +347,7 @@ def test_run(cfg: RunConfig, runs_dir: Path, data_dir: Path, device: torch.devic
         git_commit=git_commit(),
         checkpoint_hash=checkpoint_hash,
     )
-    max_len = _max_len(cfg)
+    max_len = max_len_of(cfg)
     result = evaluate(model.score, test, max_len, device)
     shuffled = evaluate(
         model.score, shuffle_eval_inputs(test, cfg.seed, len(splits.full.items)), max_len, device
