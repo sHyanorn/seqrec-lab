@@ -323,7 +323,11 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
   - What the METHODS 5.2 limits cost: `seqrec anchors results/laptop/m2-anchor.csv --pilot results/laptop/m2-pilot.csv`. Per arm, Δ is the mean log validation NDCG@10 of the three seed-variance runs (METHODS 5.2 limits) minus the log validation NDCG@10 of the latest anchor run (the source's limits, D026), and z = Δ/(σ·sqrt(1 + 1/3)).
   - An increase of an arm's limits is recommended when Δ < −log(1.02), the SESOI, and z < −2. The limits stay as in METHODS 5.2 until that recommendation is decided.
   - SASRec-SS has no anchor and is reported without Δ. The METHODS 5.2 limits are longer than the source's for SASRec-CE, SASRec-BCE and BERT4Rec, and much shorter for gSASRec (300 epochs against up to 10,000).
-- Results: pending.
+- Results, 2026-11-10, from the rented machine (`results/runs/m2-pilot.csv` followed by `results/runs/m2-gsasrec.csv`, and `results/runs/m2-anchor.csv`; all runs on Pod `we8ppstv5rdldt` at `20b8ed2`, all trained, no failed attempt):
+  - Standard deviation of log validation NDCG@10 over 3 seeds: SASRec-BCE 0.02797, BERT4Rec 0.01638, SASRec-CE 0.00776, SASRec-SS 0.00321, gSASRec 0.00289. Pooled σ = 0.01503.
+  - METHODS 7.5 gives n = 10, the upper end of the rule: at n = 10 the directional power is 0.305 and the equivalence power 0.759, both below 0.8, so comparisons at this σ are labelled underpowered as 7.5 prescribes. σ is estimated again per dataset after the first 5 final seeds.
+  - Cost of the METHODS 5.2 limits, relative difference of the seed-variance mean from the anchor run and z: SASRec-CE +2.5% (1.42), SASRec-BCE −1.9% (−1.08), BERT4Rec +9.2% (5.05), gSASRec −0.6% (−0.32). No arm meets the condition for higher limits. One BERT4Rec seed reached the cap of 1,000 epochs; the anchor run of BERT4Rec stops at its source's 200 epochs.
+  - gSASRec under the start rule of D035: the three seeds started at epochs 83 to 85 and stopped by patience at 242, 253 and 264 with validation NDCG@10 0.1830, 0.1827 and 0.1820; none ended with `no_start`.
 
 ## D034 GPU budget from the pilot
 
@@ -335,7 +339,24 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
   - Blocks: tuning (METHODS 5.4 trial budgets, no credit for pruning); final leave-one-out runs with n seeds (D033); temporal-split runs with 5 seeds, timed as leave-one-out; the shuffle control (SASRec-CE on four datasets, BERT4Rec on two, n seeds); 180 s of warm-up for each of 13 batches; RQ3 at 15 h (METHODS 12); GPU hours already spent, from `overview.csv`. Floor baselines and test reads are left out.
   - Two further scenarios: MovieLens-1M epochs on every dataset; the same with the largest configuration's epoch time.
   - Decision: if the central core exceeds 200 GPU hours, the D012 cuts apply in order until it fits, each recorded here. If only the other scenarios exceed it, nothing is cut; the projection is repeated with measured trial times after MovieLens-1M tuning. That repetition also corrects the epoch count if the gSASRec seed-variance runs stop on the early plateau seen on synthetic data (D027).
-- Results: pending.
+- Results, 2026-11-10, from the rented machine (the same files as D033; `seqrec budget results/runs/m2-pilot.csv results/runs/m2-gsasrec.csv`). GPU hours, start rule of D035 included:
+
+  | Block | Central | MovieLens-1M epochs | Largest configuration |
+  |---|---|---|---|
+  | Spent (M2 batches) | 0.7 | 0.7 | 0.7 |
+  | Tuning | 123.7 | 196.7 | 256.9 |
+  | Final runs, leave-one-out, 5 seeds | 40.4 | 66.2 | 88.7 |
+  | Final runs, temporal split | 40.4 | 66.2 | 88.7 |
+  | Shuffle control | 13.7 | 26.1 | 37.4 |
+  | Warm-up | 0.7 | 0.7 | 0.7 |
+  | RQ3 | 15.0 | 15.0 | 15.0 |
+  | **Core** | **234.8** | **371.5** | **488.0** |
+
+  - The central core is within the 500 h cap, and so are both other scenarios: no D012 cut applies. These figures replace the laptop's 416.0 h (468.9 h with the start rule).
+  - Seeds beyond 5 (D033 gives n = 10): one extra seed costs 0.4 h on MovieLens-1M, 1.9 h on Video_Games, 2.5 h on Steam and 6.0 h on MovieLens-20M; five extra seeds on every dataset take 54.1 h of the central reserve of 265.2 h and leave 211.1 h.
+  - At 0.89 USD per hour (D047) the core is about 209, 331 and 434 USD in the three scenarios, and 257 USD in the central one with the extra seeds.
+  - What the figures cover: training and validation time, checkpoints, one final evaluation per run and the warm-ups. A Pod is billed for more: in the pilot rerun's batch the runs' 0.75 GPU hours took 1.50 Pod hours, with 57 short runs, 2.5 to 3 minutes of set-up per job and the start of the Pod.
+  - Host: the projection holds for the kind of host the pilot ran on, a Ryzen 9 7950X. On the EPYC 7352 Pod of D046 the two CPU-bound configurations measured there took 3.4 to 5.1 times as long per step, and the request for a Pod cannot name the CPU.
 - Amendment 2026-11-09 (before any timing result was seen):
   - The core counts 5 leave-one-out seeds for the final runs and the shuffle control, as METHODS 12 does, and the cut decision uses that core. Seeds beyond 5 from the METHODS 7.5 rule are paid from the reserve in the METHODS 7.5 priority order; one extra seed of a dataset includes its shuffle-control runs. Once a dataset cannot get all its extra seeds, the datasets after it get none.
   - Spent hours are those of the M2 batches only, so a later projection does not count finished work twice.

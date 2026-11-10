@@ -52,9 +52,9 @@ Freeze
 - [x] Tuning harness: Optuna TPE studies in SQLite, pruning, caps and truncation records (D028)
 - [x] Pilot on the laptop: anchors on MovieLens-1M (METHODS 11.5), 3 seeds per arm for σ (validation only), epoch-time measurements on all datasets
 - [x] Rented machine (D045, D046): runner set up, `check_env` report committed. The admission test was not passed; run times are compared only within one Pod (D046)
-- [ ] Pilot, anchors and the gSASRec rerun of D035 on the rented machine
+- [ ] Pilot, anchors and the gSASRec rerun of D035 on the rented machine (all 64 runs trained; the anchors' test reads are still to come)
 - [x] Anchors inside their bands within three anchor reads per arm, or the arm flagged as in METHODS 11.5 (D032: all four inside after one read)
-- [ ] Seed count from METHODS 7.5 (rule implemented: `seqrec seeds`); updated GPU projection from the rerun; descoping decisions if needed
+- [x] Seed count from METHODS 7.5 (rule implemented: `seqrec seeds`); updated GPU projection from the rerun; descoping decisions if needed
 - [x] Diagnostic measurement of step-time spread against the length of the timed window, on one Pod (D046)
 - [ ] Timing protocol written into METHODS from its result (repeats per comparison, smallest difference reported as a finding, which runs of a comparison share a Pod), before any timing run of RQ2 or RQ3 (D046)
 - [ ] Silent-error review and whole-diff review; fixes
