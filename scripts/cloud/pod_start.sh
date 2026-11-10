@@ -38,13 +38,24 @@ delete_machine() {
 listener() { pgrep -f "$RUNNER_DIR/(run\.sh|run-helper|bin[^/]*/Runner\.Listener)" > /dev/null; }
 worker() { pgrep -of "$RUNNER_DIR/bin[^/]*/Runner\.Worker"; } # prints the pid of a running job
 
+# The check of the runner's own config.sh: a library its binaries need is not on this machine.
+libraries_missing() {
+    local linked
+    linked=$(cd "$RUNNER_DIR/bin" && ldd ./libcoreclr.so ./libSystem.IO.Compression.Native.so \
+        ./libSystem.Security.Cryptography.Native.OpenSsl.so 2>&1)
+    [[ "$linked" == *"not found"* || "$(ldconfig -p)" != *libicu* ]]
+}
+
 start_runner() {
     [ -f "$RUNNER_DIR/.runner" ] || return 0 # not registered yet
     listener && return 0
+    # System libraries are lost with the container disk; the image may have them already.
+    if libraries_missing; then
+        log "installing the runner's system libraries"
+        DEBIAN_FRONTEND=noninteractive timeout 600 "$RUNNER_DIR/bin/installdependencies.sh" \
+            < /dev/null > /dev/null 2>&1 9>&-
+    fi
     log "starting the runner"
-    # System libraries are lost with the container disk.
-    DEBIAN_FRONTEND=noninteractive timeout 600 "$RUNNER_DIR/bin/installdependencies.sh" \
-        < /dev/null > /dev/null 2>&1 9>&-
     # Jobs get uv on PATH. The machine's API key stays out of their environment so that it
     # cannot end up in a log or a report; a job runs as root and could still read it.
     (cd "$RUNNER_DIR" && exec env -u RUNPOD_API_KEY -u PUBLIC_KEY -u JUPYTER_PASSWORD \

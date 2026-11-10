@@ -34,13 +34,16 @@ def machine(tmp_path):
     fake(bin_dir, "pgrep", f'case "$*" in *Worker*) cat {tmp_path}/job 2> /dev/null ;; '
                            f'*Listener*) test -e {tmp_path}/listening ;; esac')  # fmt: skip
     (runner / ".runner").write_text("{}", encoding="utf-8")
-    fake(runner / "bin", "installdependencies.sh", "true")
+    fake(runner / "bin", "installdependencies.sh", f"touch {tmp_path}/installed")
+    fake(bin_dir, "ldd", 'echo "libz.so.1 => $LIBZ"')
+    fake(bin_dir, "ldconfig", "echo libicuuc.so.74")
     fake(runner, "run.sh", f"env > {tmp_path}/runner-env; touch {tmp_path}/listening")
     env = os.environ | {
         "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
         "SEQREC_HOME": str(home), "RUNNER_DIR": str(runner), "CHECK_SECONDS": "0.1",
         "IDLE_MINUTES": "10", "RUNPOD_POD_ID": "pod1", "RUNPOD_API_KEY": "k3y",
         "STOP_REQUEST": str(tmp_path / "stop-request"), "POD_START_LOCK": str(tmp_path / "lock"),
+        "LIBZ": "/lib/libz.so.1",
     }  # fmt: skip
     procs = []
 
@@ -75,6 +78,15 @@ def test_the_runner_starts_with_uv_on_path_and_without_the_machine_key(machine):
     assert f"PATH={tmp}/home/bin:" in env
     assert "RUNNER_ALLOW_RUNASROOT=1" in env
     assert "k3y" not in env
+
+
+@pytest.mark.parametrize(("libz", "installed"), [("/lib/libz.so.1", False), ("not found", True)])
+def test_system_libraries_are_installed_only_when_the_runner_lacks_one(machine, libz, installed):
+    """Installing them at every start kept a new machine from taking jobs for minutes."""
+    tmp, start = machine
+    start(LIBZ=libz)
+    assert wait_for(tmp / "runner-env", 3)
+    assert (tmp / "installed").exists() == installed
 
 
 def test_the_runner_gets_the_data_centre_the_container_was_started_with(machine):
