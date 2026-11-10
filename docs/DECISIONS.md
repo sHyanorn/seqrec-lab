@@ -535,6 +535,25 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
   - The `host` column stays as a description of the machine and enters no comparison.
   - The `machine` step of a job prints the Pod and fails without one, so no job trains runs that record none.
   - `test_an_exported_run_names_every_host_and_pod_it_trained_on`, `test_slow_epochs_compares_only_runs_made_on_one_pod` and `test_the_machine_step_refuses_a_machine_without_a_pod_id` failed before the change (METHODS 11.5).
+- Diagnostic measurement, design, 2026-11-10, fixed before its Pod is created and before any of its data exist. It is exploratory and is evidence for no hypothesis.
+  - Configurations: the two of the admission test, unchanged: SASRec with BCE on Steam and gSASRec on MovieLens-1M, with the default parameters of `scripts/profile_step.py`.
+  - Processes: 5 per configuration, on one Pod that runs nothing else, alternating Steam, MovieLens-1M, Steam and so on, as ten jobs of one process each. The order in which they ran and the time each printed its timing line are recorded.
+  - Window: every process times one long window (`--epochs`): 100 epochs of 200 steps on Steam (20,000 steps, about 67 s), 400 epochs of 47 steps on MovieLens-1M (18,800 steps, about 90 s). The step time of an epoch is that of D040, the epoch less the median of five one-step epochs, over its steps less one; the step time of a window is the mean over its epochs. `test_a_window_of_several_epochs_gives_the_step_time_of_each` failed before the option existed.
+  - Window lengths: the first 1, 10 and 100 epochs of a Steam process (200, 2,000 and 20,000 steps), and the first 1, 4, 40 and 400 epochs of a MovieLens-1M process (47, 188, 1,880 and 18,800 steps). All lengths are read from the same five processes, so they are not independent of each other; between them only the length of the window differs. The shortest length is the quantity of the admission test.
+  - Quantities, for each configuration:
+    - at each length, the five step times, their spread (max − min) / median and their coefficient of variation;
+    - within each process, the spread and the coefficient of variation over its consecutive, non-overlapping windows of each length below the longest;
+    - the variance components of the per-epoch step times between and within processes (one-way, processes as groups, a negative estimate set to 0);
+    - the Pod, kernel, type of the cgroup filesystem and source of the CPU count, from the `machine` step.
+  - Readings fixed now:
+    - The measured noise of the timing protocol is the spread between processes at the window length the protocol uses, the larger of the two configurations. At the shortest length the four spreads of the admission test (5.01%, 4.37%, 9.08% and 5.30%) enter that maximum.
+    - For a configuration whose spread between processes at the longest length is below three quarters of that at the shortest, longer windows are read as helping, and the length to use is the shortest whose spread is at most 1.25 times that of the longest. Otherwise the noise is read as a level that belongs to a process, and the protocol relies on repeats in separate processes. Where the two configurations differ, the protocol takes the longer window.
+    - Every comparison gets at least 5 repeats, as in METHODS 9.2.
+    - The range of five values is a coarse estimate. These readings settle the protocol and are reported as no finding.
+  - Left until the data are seen: the time scale and the cause of the two levels seen in the repeat, whether the runs of a comparison are paired or interleaved, whether repeats go above 5, and the value of the smallest difference reported as a finding. The CPU the main thread was on after each epoch is printed with the step times for this use only and enters no reading fixed above.
+  - Limit: this is one Pod. The admission test saw two kinds of host, so the result describes this Pod only, and the timing protocol states how it deals with differences between hosts.
+  - Record: the step times at every length and every quantity above are written into this entry, none left out. The per-epoch step times and CPU numbers of every process are committed as `results/env/d046-diagnostic.csv`; `results/env` is not read as an export (D045).
+  - Cost: about 33 minutes of one Pod, 0.48 USD, at worst about 0.62 USD. The check off the Pod is set at 40 minutes and deletes the Pod at 50.
 
 ## D047 The rented GPU is an RTX 4090
 
