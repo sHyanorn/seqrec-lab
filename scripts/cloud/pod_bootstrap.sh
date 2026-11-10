@@ -51,15 +51,10 @@ main() {
         die "the lock is held, but not by the watchdog. Stop this machine by hand."
     echo "Watchdog started: this machine stops itself after 30 minutes without a job."
 
-    for tool in tar nvidia-smi; do
-        command -v "$tool" > /dev/null || die "$tool is missing"
-    done
+    command -v tar > /dev/null || die "tar is missing"
     # The loop of the container start command; without it nothing runs after the next start.
     pgrep -f "while true; do \[ -x $HOME_DIR/pod_start.sh" > /dev/null ||
         die "the container start command is not set as documented: stop this machine and fix it"
-    driver=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -1)
-    echo "GPU: $(nvidia-smi --query-gpu=name --format=csv,noheader | head -1), driver $driver"
-    [ "${driver%%.*}" -ge 580 ] || die "driver branch below 580: the CUDA 13 wheels will not run here"
 
     local token=${RUNNER_TOKEN:-}
     if [ -z "$token" ]; then

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Steps of the batch workflow (.github/workflows/batch.yml). Inputs arrive as environment
 # variables and are checked here before anything uses them.
-#   watchdog-running | check-inputs | status STATE TEXT | plan | profile | data-unchanged |
-#   export | results |
+#   watchdog-running | check-inputs | machine | status STATE TEXT | plan | profile |
+#   data-unchanged | export | results |
 #   commit MESSAGE PATH...
 set -euo pipefail
 
@@ -66,6 +66,21 @@ check_inputs() {
             ;;
         *) die "task: unknown" ;;
     esac
+}
+
+# What the job runs on, for the log. The runner is registered on a machine that may have no
+# GPU, so the driver is checked here, by every job.
+machine() {
+    local driver
+    nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv
+    driver=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -1)
+    [ "${driver%%.*}" -ge 580 ] || die "driver branch below 580: the CUDA 13 wheels will not run here"
+    lscpu | grep "Model name"
+    nproc
+    uname -r
+    uv --version
+    echo "runner $("${RUNNER_DIR:-/workspace/actions-runner}/bin/Runner.Listener" --version)"
+    uv run --no-sync python -c "import torch; assert torch.cuda.is_available(), 'no CUDA device'; print(torch.__version__, torch.cuda.get_device_name(0))"
 }
 
 # Commit status "batch/<run id>" on the commit the job runs from. The job log is readable
@@ -242,6 +257,7 @@ results() {
 
 case "${1:-}" in
     check-inputs) check_inputs ;;
+    machine) machine ;;
     status) status "$2" "$3" ;;
     plan) plan ;;
     profile) profile ;;
@@ -250,5 +266,5 @@ case "${1:-}" in
     export) export_batch ;;
     results) results ;;
     commit) shift && commit "$@" ;;
-    *) die "usage: batch_steps.sh watchdog-running|check-inputs|status|plan|profile|data-unchanged|export|results|commit" ;;
+    *) die "usage: batch_steps.sh watchdog-running|check-inputs|machine|status|plan|profile|data-unchanged|export|results|commit" ;;
 esac

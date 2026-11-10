@@ -641,3 +641,34 @@ def test_the_summaries_are_computed_without_the_push_token(clone, tmp_path):
     assert log(origin, "%s") == "chore(results): add run b1 results"
     seen = (tmp_path / "uv-env").read_text(encoding="utf-8")
     assert "s3cret" not in seen and "AUTHORIZATION" not in seen
+
+
+# --- machine ------------------------------------------------------------------------------
+
+
+def machine_step(tmp_path, driver):
+    """`batch_steps.sh machine` on a fake machine whose GPU driver is `driver`."""
+    bin_dir = tmp_path / "bin"
+    table = f'echo "RTX 5090, {driver}, 32607 MiB"'
+    fake(bin_dir, "nvidia-smi", f'[[ "$*" == *=driver_version* ]] && echo {driver} || {table}')
+    fake(bin_dir, "lscpu", 'echo "Model name: Fake CPU"')
+    fake(bin_dir, "nproc", "echo 16")
+    fake(bin_dir, "uname", "echo 6.8.0-fake")
+    fake(bin_dir, "uv", '[ "$1" = --version ] && echo "uv 0.11.32" || echo "2.9.0+cu132 RTX 5090"')
+    (tmp_path / "runner").mkdir()
+    fake(tmp_path / "runner" / "bin", "Runner.Listener", "echo 2.330.0")
+    return steps("machine", env={"RUNNER_DIR": str(tmp_path / "runner")}, path_prefix=bin_dir)
+
+
+def test_the_machine_step_refuses_a_driver_the_cuda_13_wheels_do_not_run_on(tmp_path):
+    result = machine_step(tmp_path, "570.86.16")
+    assert result.returncode == 1
+    assert "driver branch below 580" in result.stderr
+
+
+def test_the_machine_step_describes_a_machine_with_a_new_enough_driver(tmp_path):
+    result = machine_step(tmp_path, "580.95.05")
+    assert result.returncode == 0, result.stderr
+    for text in ("RTX 5090, 580.95.05, 32607 MiB", "Model name: Fake CPU", "16", "6.8.0-fake",
+                 "uv 0.11.32", "runner 2.330.0", "2.9.0+cu132 RTX 5090"):  # fmt: skip
+        assert text in result.stdout.splitlines()

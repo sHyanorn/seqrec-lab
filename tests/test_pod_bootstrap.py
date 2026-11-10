@@ -67,7 +67,7 @@ def test_the_watchdog_runs_before_anything_else_can_fail(machine):
     result = bootstrap()
     assert result.returncode == 1
     assert "Watchdog started" in result.stdout
-    assert "nvidia-smi is missing" in result.stderr  # a later check; the watchdog is up by then
+    assert "start command is not set" in result.stderr  # a later check; the watchdog is up by then
     assert running(watchdog)
     held = subprocess.run(["flock", "-n", "-E", "75", str(tmp / "lock"), "true"])
     assert held.returncode == 75
@@ -108,7 +108,6 @@ def test_a_machine_that_could_not_stop_itself_is_not_reported_as_watched(machine
 def test_the_start_loop_must_run_the_copy_this_script_installed(machine):
     """A start loop for another path would start no watchdog after the next machine start."""
     tmp, bootstrap, watchdog = machine
-    fake(tmp / "bin", "nvidia-smi", "echo 580.00")
     loop = "while true; do [ -x /workspace/seqrec/pod_start.sh ] && true; sleep 60; done"
     decoy = subprocess.Popen(["bash", "-c", loop], start_new_session=True)
     try:
@@ -118,3 +117,16 @@ def test_the_start_loop_must_run_the_copy_this_script_installed(machine):
     assert result.returncode == 1
     assert "Watchdog started" in result.stdout
     assert "start command is not set as documented" in result.stderr
+
+
+def test_a_machine_without_a_gpu_gets_as_far_as_the_registration_token(machine):
+    """The first registration runs on whatever Pod is to be had; the job checks the GPU."""
+    tmp, bootstrap, watchdog = machine
+    loop = f"while true; do [ -x {tmp}/home/pod_start.sh ] && true; sleep 60; done"
+    start_command = subprocess.Popen(["bash", "-c", loop], start_new_session=True)
+    try:
+        result = bootstrap(RUNNER_TOKEN="not a token")
+    finally:
+        os.killpg(start_command.pid, signal.SIGKILL)
+    assert result.returncode == 1
+    assert "does not look like a registration token" in result.stderr
