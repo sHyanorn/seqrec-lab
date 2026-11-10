@@ -51,7 +51,7 @@ start_runner() {
 idle=0 busy=0 asked=0 job=""
 while true; do
     start_runner
-    sleep "$CHECK_SECONDS" 9>&- || true # no child keeps the lock: it must die with this script
+    sleep "$CHECK_SECONDS" 9>&- # no child keeps the lock: it must die with this script
     if now=$(worker); then
         [ "$now" = "$job" ] || busy=0 # another job than at the last check
         job=$now idle=0 asked=0 busy=$((busy + 1))

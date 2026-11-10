@@ -16,10 +16,10 @@ die() {
 # The batch a plan file belongs to; the plan must be named after it.
 plan_batch() {
     [[ "${PLAN:-}" =~ ^[A-Za-z0-9_-]+\.toml$ ]] || die "plan: not a plan file name"
-    [ -f "configs/plans/$PLAN" ] || die "plan: configs/plans/$PLAN does not exist"
-    grep -qxF "batch = \"${PLAN%.toml}\"" "configs/plans/$PLAN" ||
-        die "plan: the batch in $PLAN is not named ${PLAN%.toml}"
-    echo "${PLAN%.toml}"
+    local file="configs/plans/$PLAN" batch=${PLAN%.toml}
+    [ -f "$file" ] || die "plan: $file does not exist"
+    grep -qxF "batch = \"$batch\"" "$file" || die "plan: the batch in $PLAN is not named $batch"
+    echo "$batch"
 }
 
 # PROFILE_ARGS as profile_step.py arguments, one per line; only the forms listed here pass.
@@ -103,19 +103,17 @@ plan() {
     # Finished runs of this batch, how the last of them ended and the run directory written
     # last. How the plan ended comes first: the description is cut at 140 characters.
     progress() {
-        local trained newest last="" stop epochs wall
+        local trained newest last described="" stop epochs wall
         trained=$({ find "$runs/$batch" -name summary.json 2> /dev/null || true; } | wc -l)
         newest=$({ ls -t "$runs/$batch" 2> /dev/null || true; } | sed -n 1p)
         last=$({ ls -t "$runs/$batch"/*/summary.json 2> /dev/null || true; } | sed -n 1p)
         if [ -n "$last" ]; then
             stop=$(field stop_reason "$last") epochs=$(field epochs "$last") wall=$(field wall_s "$last")
             if [[ -n "$stop" && "$epochs" =~ ^[0-9]+$ && "$wall" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
-                last=", last $(basename "$(dirname "$last")"): $stop, $epochs epochs, $((${wall%.*} / 60)) min"
-            else
-                last=""
+                described=", last $(basename "$(dirname "$last")"): $stop, $epochs epochs, $((${wall%.*} / 60)) min"
             fi
         fi
-        status "$1" "$TASK $batch${2:+ $2}: $trained runs trained$last, newest ${newest:-none}"
+        status "$1" "$TASK $batch${2:+ $2}: $trained runs trained$described, newest ${newest:-none}"
     }
     progress pending
     (while sleep "${PROGRESS_SECONDS:-600}"; do progress pending; done) &

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One-time setup of a rented GPU container as a GitHub Actions runner for this repository.
+# One-time setup of a rented container as a GitHub Actions runner for this repository.
 # Run it in the machine's terminal; it asks for the runner registration token. It can be run
 # again, for example after GitHub has removed a runner that was offline for 14 days.
 #   bash pod_bootstrap.sh
@@ -32,10 +32,10 @@ main() {
     [ -n "${RUNPOD_POD_ID:-$(tr '\0' '\n' < /proc/1/environ 2> /dev/null | sed -n 's/^RUNPOD_POD_ID=//p')}" ] ||
         die "RUNPOD_POD_ID is not set: the machine could not delete itself. Delete this machine by hand."
     # An older copy of the watchdog, and only that: the start command's loop names the same path.
-    local watchdog="^bash $HOME_DIR/pod_start\.sh\$" waited=0 held
+    local watchdog="^bash $HOME_DIR/pod_start\.sh\$" held
     pkill -f "$watchdog" || true
     nohup "$HOME_DIR/pod_start.sh" >> "$HOME_DIR/runner.log" 2>&1 < /dev/null &
-    while true; do
+    for _ in {1..20}; do
         sleep 1 # first: a probe that beat the watchdog to the lock would make it exit
         held=0
         flock -n -E 75 "$LOCK" true || held=$?
@@ -44,9 +44,8 @@ main() {
             0) ;; # free: no watchdog holds it yet
             *) die "the watchdog's lock cannot be checked. Delete this machine by hand." ;;
         esac
-        waited=$((waited + 1))
-        [ "$waited" -lt 20 ] || die "the watchdog did not start. Delete this machine by hand."
     done
+    [ "$held" -eq 75 ] || die "the watchdog did not start. Delete this machine by hand."
     pgrep -f "$watchdog" > /dev/null ||
         die "the lock is held, but not by the watchdog. Delete this machine by hand."
     echo "Watchdog started: this machine deletes itself after 30 minutes without a job."
