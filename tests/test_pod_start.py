@@ -151,3 +151,15 @@ def test_a_new_instance_takes_over_as_soon_as_the_old_one_is_killed(machine):
     new = start(CHECK_SECONDS="5")
     time.sleep(0.5)
     assert new.poll() is None
+
+
+def test_a_stop_in_progress_does_not_keep_the_lock_after_the_watchdog_dies(machine):
+    tmp, start = machine
+    old = start(IDLE_MINUTES="1", STOP_WAIT_SECONDS="5")
+    assert wait_for(tmp / "stopped", 3)
+    time.sleep(0.2)  # now in the wait between the two stop attempts
+    old.kill()
+    old.wait(timeout=3)
+    new = start(CHECK_SECONDS="5")
+    time.sleep(0.5)
+    assert new.poll() is None

@@ -3,16 +3,16 @@
 # Run it in the machine's terminal; it asks for the runner registration token. It can be run
 # again, for example after GitHub has removed a runner that was offline for 14 days.
 #   bash pod_bootstrap.sh
-# Once the watchdog is installed (the first step) the machine stops itself after 30 minutes
-# without a job, whether or not the rest of this script succeeds.
+# Once it has printed "Watchdog started" the machine stops itself after 30 minutes without a
+# job, whether or not the rest of this script succeeds.
 set -euo pipefail
 
 REPO_URL=https://github.com/sHyanorn/seqrec-lab
-HOME_DIR=/workspace/seqrec
-RUNNER_DIR=/workspace/actions-runner
+HOME_DIR=${SEQREC_HOME:-/workspace/seqrec}
+RUNNER_DIR=${RUNNER_DIR:-/workspace/actions-runner}
 UV_VERSION=0.11.32
 LABEL=gpu # the batch workflow runs on this label
-LOCK=/run/seqrec-pod-start.lock # held by pod_start.sh while it runs
+LOCK=${POD_START_LOCK:-/run/seqrec-pod-start.lock} # held by pod_start.sh while it runs
 
 die() {
     echo "$*" >&2
@@ -25,22 +25,35 @@ main() {
     curl -fsSL "$REPO_URL/raw/main/scripts/cloud/pod_start.sh" -o "$HOME_DIR/pod_start.sh.new"
     chmod +x "$HOME_DIR/pod_start.sh.new"
     mv "$HOME_DIR/pod_start.sh.new" "$HOME_DIR/pod_start.sh"
-    for tool in runpodctl pgrep pkill flock timeout tar nvidia-smi; do
+    # What the watchdog needs; without any of these it could not stop the machine.
+    for tool in runpodctl pgrep pkill flock timeout; do
         command -v "$tool" > /dev/null || die "$tool is missing. Stop this machine by hand."
     done
+    [ -n "${RUNPOD_POD_ID:-$(tr '\0' '\n' < /proc/1/environ 2> /dev/null | sed -n 's/^RUNPOD_POD_ID=//p')}" ] ||
+        die "RUNPOD_POD_ID is not set: the machine could not stop itself. Stop this machine by hand."
     # An older copy of the watchdog, and only that: the start command's loop names the same path.
-    pkill -f "^bash $HOME_DIR/pod_start\.sh\$" || true
+    local watchdog="^bash $HOME_DIR/pod_start\.sh\$" waited=0 held
+    pkill -f "$watchdog" || true
     nohup "$HOME_DIR/pod_start.sh" >> "$HOME_DIR/runner.log" 2>&1 < /dev/null &
-    local waited=0
-    while flock -n "$LOCK" true; do # free: no watchdog holds it yet
+    while true; do
+        sleep 1 # first: a probe that beat the watchdog to the lock would make it exit
+        held=0
+        flock -n -E 75 "$LOCK" true || held=$?
+        case "$held" in
+            75) break ;; # held
+            0) ;; # free: no watchdog holds it yet
+            *) die "the watchdog's lock cannot be checked. Stop this machine by hand." ;;
+        esac
         waited=$((waited + 1))
         [ "$waited" -lt 20 ] || die "the watchdog did not start. Stop this machine by hand."
-        sleep 1
     done
+    pgrep -f "$watchdog" > /dev/null ||
+        die "the lock is held, but not by the watchdog. Stop this machine by hand."
     echo "Watchdog started: this machine stops itself after 30 minutes without a job."
 
-    [ -n "$(tr '\0' '\n' < /proc/1/environ | sed -n 's/^RUNPOD_POD_ID=//p')" ] ||
-        die "RUNPOD_POD_ID is not set: the machine could not stop itself"
+    for tool in tar nvidia-smi; do
+        command -v "$tool" > /dev/null || die "$tool is missing"
+    done
     # The loop of the container start command; without it nothing runs after the next start.
     pgrep -f 'while true; do \[ -x /workspace/seqrec/pod_start.sh' > /dev/null ||
         die "the container start command is not set as documented: stop this machine and fix it"

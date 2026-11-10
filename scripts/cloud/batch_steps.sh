@@ -175,7 +175,9 @@ commit() {
                 cp -rT "$path" "$tree/main/$path"
             done
             if [ -n "${summaries:-}" ]; then
-                uv run --no-sync seqrec export --summaries-only --out-dir "$tree/main/$summaries" ||
+                # The code that computes them gets no token.
+                env -u GH_TOKEN -u GIT_CONFIG_COUNT -u GIT_CONFIG_KEY_0 -u GIT_CONFIG_VALUE_0 \
+                    uv run --no-sync seqrec export --summaries-only --out-dir "$tree/main/$summaries" ||
                     die "commit: the summaries of $summaries could not be computed"
             fi
             git -C "$tree/main" add -- "$@" ${summaries:+"$summaries"}
@@ -195,9 +197,13 @@ commit() {
 
 # pod_start.sh holds this lock for as long as it runs; without it nothing stops the machine.
 watchdog_running() {
-    if flock -n "${POD_START_LOCK:-/run/seqrec-pod-start.lock}" true; then
-        die "the watchdog is not running: nothing would stop this machine"
-    fi
+    local held=0
+    flock -n -E 75 "${POD_START_LOCK:-/run/seqrec-pod-start.lock}" true || held=$?
+    case "$held" in
+        75) ;; # held
+        0) die "the watchdog is not running: nothing would stop this machine" ;;
+        *) die "cannot check the watchdog's lock: nothing may be there to stop this machine" ;;
+    esac
 }
 
 # Export the volume, once every run of the plan is trained or given up: a run that never

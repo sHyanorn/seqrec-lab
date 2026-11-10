@@ -21,7 +21,7 @@ from seqrec.runner.attempts import (
     train_with_retry,
 )
 from seqrec.runner.config import Plan, load_plan
-from seqrec.runner.export import read_batch_files
+from seqrec.runner.export import read_earlier_exports
 from seqrec.runner.run import (
     ARMS,
     RunConflict,
@@ -147,9 +147,8 @@ def test_batch(
     `earlier` are directories of batch files exported from another machine; the anchor reads
     in them count toward the limit of METHODS 11.5."""
     earlier_reads = Counter()
-    for directory in earlier:  # read before any test data: a missing directory must stop here
-        for r in read_batch_files(directory):
-            earlier_reads[(r["dataset"], r["arm"])] += r["reads_anchor"]
+    for r in read_earlier_exports(earlier):  # before any test data: a bad directory stops here
+        earlier_reads[(r["dataset"], r["arm"])] += r["reads_anchor"]
     plan = load_plan(plan_path)
     _check_plan(plan, runs_dir)
     require_data({r.dataset for r in plan.runs}, data_dir)

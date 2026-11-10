@@ -141,7 +141,10 @@ def read_batch_files(directory: Path) -> list[dict]:
         if path.name in SUMMARIES:
             continue
         with path.open(encoding="utf-8", newline="") as f:
-            for n, raw in enumerate(csv.DictReader(f), start=2):
+            reader = csv.DictReader(f)
+            if reader.fieldnames is None:
+                raise ValueError(f"{path}: an empty file, not a batch file")
+            for n, raw in enumerate(reader, start=2):
                 try:
                     row = {k: raw[k] for k in TEXT}
                     for k, parse in PARSED.items():
@@ -157,6 +160,18 @@ def read_batch_files(directory: Path) -> list[dict]:
                     raise ValueError(f"{path}, line {n}: holds batch {row['batch']!r}")
                 row["stop_reason"] = row["stop_reason"] or None
                 rows.append(row)
+    return rows
+
+
+def read_earlier_exports(directories: Iterable[Path]) -> list[dict]:
+    """The rows of batch files exported from another machine. A directory without any is an
+    error: its test reads would count as none."""
+    rows = []
+    for directory in directories:
+        found = read_batch_files(directory)
+        if not found:
+            raise FileNotFoundError(f"{directory} holds no exported run")
+        rows += found
     return rows
 
 
@@ -263,7 +278,7 @@ def summarize(out_dir: Path, earlier: Sequence[Path] = ()) -> list[str]:
     `out_dir`; return any test-access problems. `earlier` are directories of batch files
     exported from another machine (see `access_problems`)."""
     rows = read_batch_files(out_dir)
-    earlier_rows = [r for directory in earlier for r in read_batch_files(directory)]
+    earlier_rows = read_earlier_exports(earlier)
     if rows:
         write_csv(out_dir / "overview.csv", _overview(rows))
     best = tuning_best(rows)

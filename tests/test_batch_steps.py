@@ -580,3 +580,21 @@ def test_export_leaves_only_a_batch_file_written_from_this_machine(clone, tmp_pa
     assert steps("export", cwd=work, env=env, path_prefix=tmp_path / "bin").returncode == 0
     fake(tmp_path / "bin", "uv", "echo run_id > results/runs/b1.csv; exit 1")
     assert steps("export", cwd=work, env=env, path_prefix=tmp_path / "bin").returncode == 1
+
+
+def test_a_lock_that_cannot_be_checked_does_not_pass_for_a_running_watchdog(tmp_path):
+    result = steps("watchdog-running", env={"POD_START_LOCK": str(tmp_path / "missing" / "lock")})
+    assert result.returncode == 1
+    assert "cannot check" in result.stderr
+
+
+def test_the_summaries_are_computed_without_the_push_token(clone, tmp_path):
+    """The summaries run repository code; the token is for the push alone."""
+    work, _, origin = clone
+    fake(tmp_path / "bin", "uv", f"env > {tmp_path}/uv-env; " + SUMMARIZE.format(tmp_path))
+    env = results_env(work) | {"GH_TOKEN": "s3cret"}
+    result = steps("results", cwd=work, env=env, path_prefix=tmp_path / "bin")
+    assert result.returncode == 0, result.stderr
+    assert log(origin, "%s") == "chore(results): add run b1 results"
+    seen = (tmp_path / "uv-env").read_text(encoding="utf-8")
+    assert "s3cret" not in seen and "AUTHORIZATION" not in seen

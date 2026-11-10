@@ -1169,3 +1169,36 @@ def test_export_with_a_plan_refuses_until_every_run_is_trained_or_given_up(works
         except RuntimeError:
             record_failure(lost, "train")
     assert cli_main(export_plan) == 0  # given up counts as finished (D031)
+
+
+def test_an_earlier_export_without_runs_is_an_error_not_zero_reads(workspace, tmp_path):
+    from seqrec.runner.export import read_batch_files, summarize
+
+    runs, data = workspace
+    out, empty = tmp_path / "out", tmp_path / "empty"
+    out.mkdir()
+    empty.mkdir()
+    with pytest.raises(FileNotFoundError, match="no exported run"):
+        summarize(out, [empty])
+    plan = _plan(runs.parent, phase="anchor")
+    args = [str(plan), "--runs-dir", str(runs), "--data-dir", str(data), "--device", "cpu"]
+    assert cli_main(["run", *args]) == 0
+    with pytest.raises(FileNotFoundError, match="no exported run"):
+        cli_main(["test", *args, "--earlier-exports", str(empty)])
+    (empty / "b.csv").write_text("", encoding="utf-8")  # a truncated copy
+    with pytest.raises(ValueError, match="empty"):
+        read_batch_files(empty)
+
+
+@pytest.mark.parametrize("more", [[], ["--summaries-only"]])
+def test_export_reads_the_earlier_exports_it_is_given_and_the_laptop_by_default(
+    tmp_path, monkeypatch, more
+):
+    out = tmp_path / "out"
+    out.mkdir()
+    export_here = ["export", "--runs-dir", str(tmp_path / "runs"), "--out-dir", str(out), *more]
+    with pytest.raises(FileNotFoundError, match="elsewhere"):
+        cli_main([*export_here, "--earlier-exports", str(tmp_path / "elsewhere")])
+    monkeypatch.chdir(tmp_path)  # no results/laptop here
+    with pytest.raises(FileNotFoundError, match="results/laptop"):
+        cli_main(export_here)
