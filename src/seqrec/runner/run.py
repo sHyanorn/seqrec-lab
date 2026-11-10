@@ -46,6 +46,8 @@ from seqrec.telemetry import NvmlSampler, nvml_static, summarize_samples
 REPO_ROOT = Path(__file__).resolve().parents[3]
 MAX_ANCHOR_READS = 3
 CPU_QUOTA = Path("/sys/fs/cgroup/cpu.max")  # cgroup v2: "<quota> <period>" or "max <period>"
+# cgroup v1: cpu.cfs_quota_us (-1 without a quota) and cpu.cfs_period_us in one of these
+CPU_QUOTA_V1 = (Path("/sys/fs/cgroup/cpu"), Path("/sys/fs/cgroup/cpu,cpuacct"))
 START_FACTOR = 1.5  # D035: a run starts once validation NDCG@10 exceeds this times MostPop's
 
 
@@ -311,18 +313,25 @@ def host_signature(device: torch.device) -> str:
     if cpuinfo.exists():
         models = [x for x in cpuinfo.read_text().splitlines() if x.startswith("model name")]
         cpu = models[0].split(":", 1)[1].strip() if models else cpu
-    return " | ".join([gpu, driver, cpu, str(allocated_cpus()), os.environ.get("RUNPOD_DC_ID", "")])
+    cpus, _ = cpu_allocation()
+    return " | ".join([gpu, driver, cpu, str(cpus), os.environ.get("RUNPOD_DC_ID", "")])
 
 
-def allocated_cpus() -> int:
-    """CPUs this process may use. A container can run on every thread of its host and still
-    be limited to fewer by its cgroup's quota."""
+def cpu_allocation() -> tuple[int, str]:
+    """CPUs this process may use, and where the number comes from. A container can run on
+    every thread of its host and still be limited to fewer by its cgroup's quota: cgroup v2
+    is read first, then cgroup v1; without a quota the count is the CPUs it may run on."""
     count = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else os.cpu_count()
-    try:
-        quota, period = CPU_QUOTA.read_text().split()
-        return min(count, math.ceil(int(quota) / int(period)))
-    except (OSError, ValueError):  # no cgroup v2, or "max": no quota
-        return count
+    v1 = [[d / "cpu.cfs_quota_us", d / "cpu.cfs_period_us"] for d in CPU_QUOTA_V1]
+    for source, files in [("cgroup v2", [CPU_QUOTA]), *(("cgroup v1", f) for f in v1)]:
+        try:
+            quota, period = " ".join(f.read_text() for f in files).split()
+            if int(quota) > 0:
+                cpus = min(count, math.ceil(int(quota) / int(period)))
+                return cpus, f"{source} quota in {files[0].parent}: {quota} {period}"
+        except (OSError, ValueError):  # no such file, or "max" in cgroup v2: no quota
+            pass
+    return count, f"affinity: {count}"
 
 
 def execute(

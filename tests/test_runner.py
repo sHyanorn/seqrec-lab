@@ -138,6 +138,7 @@ def test_the_cpu_count_of_a_signature_is_the_containers_quota(tmp_path, monkeypa
     CPUs must not differ in it, and two allocations on one host must (D046)."""
     monkeypatch.setattr(run_mod.os, "sched_getaffinity", lambda pid: set(range(32)), raising=False)
     monkeypatch.setattr(run_mod, "CPU_QUOTA", tmp_path / "cpu.max")
+    monkeypatch.setattr(run_mod, "CPU_QUOTA_V1", ())
 
     def count():
         return run_mod.host_signature(CPU).split(" | ")[3]
@@ -148,6 +149,27 @@ def test_the_cpu_count_of_a_signature_is_the_containers_quota(tmp_path, monkeypa
     assert count() == "32"
     (tmp_path / "cpu.max").unlink()  # no cgroup v2
     assert count() == "32"
+
+
+def test_a_cgroup_v1_quota_counts_like_a_v2_quota(tmp_path, monkeypatch):
+    """A host without cgroup v2 limits its containers through cgroup v1. Reading only v2, two
+    Pods on one kind of host got the counts 14 and 32 (D046)."""
+    monkeypatch.setattr(run_mod.os, "sched_getaffinity", lambda pid: set(range(32)), raising=False)
+    monkeypatch.setattr(run_mod, "CPU_QUOTA", tmp_path / "cpu.max")
+    v1 = tmp_path / "cpu,cpuacct"
+    monkeypatch.setattr(run_mod, "CPU_QUOTA_V1", (tmp_path / "cpu", v1))
+    v1.mkdir()
+    (v1 / "cpu.cfs_period_us").write_text("100000\n")
+
+    (v1 / "cpu.cfs_quota_us").write_text("1360000\n")
+    count, source = run_mod.cpu_allocation()
+    assert count == 14 and source.startswith("cgroup v1") and "1360000 100000" in source
+    (v1 / "cpu.cfs_quota_us").write_text("-1\n")  # no quota
+    count, source = run_mod.cpu_allocation()
+    assert count == 32 and source.startswith("affinity")
+    (tmp_path / "cpu.max").write_text("1600000 100000\n")  # cgroup v2 is read first
+    count, source = run_mod.cpu_allocation()
+    assert count == 16 and source.startswith("cgroup v2") and "1600000 100000" in source
 
 
 def test_an_exported_run_names_every_host_it_trained_on(workspace, monkeypatch):

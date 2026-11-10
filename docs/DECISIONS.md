@@ -522,6 +522,7 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
   - Both configurations exceed the limit, and under the owner's decision above this result is final. No second Pod was created. The choice between the two options is the owner's and is open.
   - In neither configuration was the first process the fastest, unlike on the first Pod.
   - The CPU count of this signature is not comparable with the first Pod's 14. This container had no `/sys/fs/cgroup/cpu.max`, so the count is the 32 CPUs it may run on; the platform's nominal count was 16, as on the first Pod. Whether the container was limited in another way was not read.
+- Amendment 2026-11-10, after the repeat: the quota of a signature's CPU count is read from cgroup v2 (`cpu.max`), then from cgroup v1 (`cpu.cfs_quota_us` and `cpu.cfs_period_us` under `/sys/fs/cgroup/cpu` or `/sys/fs/cgroup/cpu,cpuacct`), and only without a quota in either is the count the CPUs the container may run on. The platform's nominal count is printed for comparison and not used. Whether the repeat's host limits its containers through cgroup v1 is not known; the `machine` step now prints the source of the count with the raw values and the type of the cgroup filesystem, so the next Pod's job log will show it. No run on a rented machine had recorded a signature before this change. `test_a_cgroup_v1_quota_counts_like_a_v2_quota` failed before it.
 
 ## D047 The rented GPU is an RTX 4090
 
