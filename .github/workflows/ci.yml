@@ -1,0 +1,35 @@
+name: ci
+
+# Tests and lint on every push, on a GitHub-hosted runner without a GPU. The tests build their
+# own synthetic data, so no prepared dataset is needed. The cross-check against ranx is
+# skipped: its dependency group is not installed here.
+on:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install uv, the version the machine uses
+        shell: bash # with pipefail, so a failed download fails here
+        run: |
+          version=$(sed -n 's/^UV_VERSION=//p' scripts/cloud/pod_bootstrap.sh)
+          [ -n "$version" ]
+          curl -LsSf --retry 3 "https://astral.sh/uv/$version/install.sh" |
+            env UV_INSTALL_DIR="$HOME/.local/bin" UV_NO_MODIFY_PATH=1 sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Sync
+        run: uv sync --locked --extra cpu
+      - name: Lint
+        run: |
+          uv run --no-sync ruff check .
+          uv run --no-sync ruff format --check .
+      - name: Test
+        run: uv run --no-sync pytest -q

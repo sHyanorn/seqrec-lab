@@ -60,7 +60,7 @@ Freeze
 - [ ] Silent-error review and whole-diff review; fixes
 
 Before M3 tuning starts
-- [ ] CPU continuous integration: tests and lint on every push; tests that need prepared real data are skipped there, and the workflow says so
+- [x] CPU continuous integration: tests and lint on every push (`ci.yml`). No test needs prepared data; the cross-check against ranx is skipped there, and the workflow says so. Commits pushed by a batch job start no run
 - [ ] Invariant checks run once per process and are cached with the splits (`load_splits`), so a dataset rebuilt while a batch runs is not checked again; key the cache on the stored file, or rerun the checks per run
 - [ ] No check that `seqs.items` equals `full.items[seqs.pos]` in every split; add it to the invariants (METHODS 11.1)
 - [ ] bf16 training is checked only by the output dtype; also check an intermediate activation
