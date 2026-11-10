@@ -574,6 +574,7 @@ def test_export_leaves_only_a_batch_file_written_from_this_machine(clone, tmp_pa
     assert "no run of b1" in result.stderr
     assert (tmp_path / "uv-args").read_text(encoding="utf-8").split() == [
         "run", "--no-sync", "seqrec", "export", "--runs-dir", f"{tmp_path}/home/runs",
+        "--plan", "configs/plans/b1.toml",
     ]  # fmt: skip
     fake(tmp_path / "bin", "uv", "echo run_id > results/runs/b1.csv")
     assert steps("export", cwd=work, env=env, path_prefix=tmp_path / "bin").returncode == 0

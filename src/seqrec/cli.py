@@ -82,6 +82,12 @@ def main(argv=None) -> int:
         help="read no run directories; rewrite overview.csv and tuning_best.csv from the "
         "batch files in the output directory",
     )
+    exp.add_argument(
+        "--plan",
+        type=Path,
+        help="fail, writing nothing, unless every run of this plan is trained or given up "
+        "(for a tuning plan: every study has reached its trial budget)",
+    )
     _earlier_exports(exp)
 
     args = parser.parse_args(argv)
@@ -110,6 +116,14 @@ def main(argv=None) -> int:
         return 0
     from seqrec.runner.export import export, summarize
 
+    if args.plan:
+        from seqrec.runner.batch import unfinished
+
+        left = unfinished(args.plan, args.runs_dir)
+        if left:
+            print(f"[export] {args.plan.name}: {len(left)} not finished, e.g. {left[0]}",
+                  file=sys.stderr)  # fmt: skip
+            return 1
     if args.summaries_only:
         problems = summarize(args.out_dir, args.earlier_exports)
     else:

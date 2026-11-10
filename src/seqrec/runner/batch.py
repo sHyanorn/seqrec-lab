@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import tomllib
 from collections import Counter
 from collections.abc import Sequence
 from pathlib import Path
@@ -30,7 +31,7 @@ from seqrec.runner.run import (
     run_dir_of,
     test_run,
 )
-from seqrec.runner.tune import load_tuning_plan, run_study
+from seqrec.runner.tune import load_tuning_plan, run_study, unfinished_studies
 from seqrec.telemetry import warmup_gpu
 
 
@@ -57,6 +58,23 @@ def require_data(datasets, data_dir: Path) -> None:
 
 def _given_up(cfg, runs_dir: Path) -> bool:
     return train_failures(run_dir_of(cfg, runs_dir)) >= TRAIN_ATTEMPTS
+
+
+def _untrained(plan: Plan, runs_dir: Path) -> list[str]:
+    """Runs neither trained nor given up after repeated failures (D031)."""
+    return [
+        r.run_id
+        for r in plan.runs
+        if not (run_dir_of(r, runs_dir) / "summary.json").exists() and not _given_up(r, runs_dir)
+    ]
+
+
+def unfinished(plan_path: Path, runs_dir: Path) -> list[str]:
+    """What is left of a plan of either kind: runs to train, or studies short of their trial
+    budget. An export of the plan's batch is complete only when this is empty."""
+    if "studies" in tomllib.loads(plan_path.read_text(encoding="utf-8-sig")):
+        return unfinished_studies(load_tuning_plan(plan_path)[2], runs_dir)
+    return _untrained(load_plan(plan_path), runs_dir)
 
 
 def _train(cfg, runs_dir: Path, data_dir: Path, device, log) -> None:
@@ -136,11 +154,7 @@ def test_batch(
     _check_plan(plan, runs_dir)
     require_data({r.dataset for r in plan.runs}, data_dir)
     summaries = {r.run_id: run_dir_of(r, runs_dir) / "summary.json" for r in plan.runs}
-    untrained = [
-        r.run_id
-        for r in plan.runs
-        if not summaries[r.run_id].exists() and not _given_up(r, runs_dir)
-    ]
+    untrained = _untrained(plan, runs_dir)
     if untrained:
         raise RuntimeError(f"{len(untrained)} runs are not trained yet, e.g. {untrained[0]}")
     failed: list[str] = []

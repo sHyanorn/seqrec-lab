@@ -117,8 +117,9 @@ jobs:
         run: bash scripts/cloud/batch_steps.sh plan
       # Results are committed only when the plan step succeeded. After a failure, a
       # cancellation or a timeout the runs stay on the volume and the same job resumes them.
-      # The export task commits what is on the volume as it is, for a batch whose plan cannot
-      # succeed any more (a run given up after repeated failures).
+      # The export task is for a batch whose plan cannot succeed any more (a run given up
+      # after repeated failures). It fails while any run of the plan is neither trained nor
+      # given up.
       - name: Export
         if: steps.plan.outcome == 'success' || inputs.task == 'export'
         timeout-minutes: 30

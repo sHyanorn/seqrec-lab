@@ -276,3 +276,21 @@ def test_a_config_conflict_in_one_study_is_reported_and_others_run(workspace):
     assert failed == ["sasrec-ce-ml-1m"]
     assert not (run_mod.run_dir_of(clash, root / "runs") / "failures.jsonl").exists()
     assert len(list((root / "runs" / "t").glob("sasrec-bce-*"))) == 6
+
+
+def test_export_with_a_tuning_plan_refuses_until_every_study_reached_its_budget(workspace):
+    root, plan = workspace
+    out = root / "results"
+    export_plan = ["export", "--runs-dir", str(root / "runs"), "--out-dir", str(out),
+                   "--plan", str(plan)]  # fmt: skip
+    assert cli_main(export_plan) == 1  # no study exists yet
+    assert not (root / "runs").exists()  # the check creates no study database
+    shorter = root / "shorter.toml"
+    shorter.write_text(plan.read_text().replace("trials = 6", "trials = 3"), encoding="utf-8")
+    run_plan(root, shorter)
+    assert cli_main(export_plan) == 1  # 3 of 6 trials
+    assert not out.exists()
+    opt = run_plan(root, plan)
+    assert cli_main(export_plan) == 0
+    opt.ask()  # a trial left running, as after an interruption
+    assert cli_main(export_plan) == 1

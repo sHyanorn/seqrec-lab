@@ -105,10 +105,33 @@ def pruner(cap: int) -> optuna.pruners.BasePruner:
     )
 
 
+def _database(runs_dir: Path, batch: str) -> Path:
+    return (runs_dir / batch / "optuna.sqlite3").resolve()
+
+
 def _storage(runs_dir: Path, batch: str) -> str:
-    path = (runs_dir / batch / "optuna.sqlite3").resolve()
+    path = _database(runs_dir, batch)
     path.parent.mkdir(parents=True, exist_ok=True)
     return URL.create("sqlite", database=str(path)).render_as_string(hide_password=False)
+
+
+def unfinished_studies(studies: list[Study], runs_dir: Path) -> list[str]:
+    """Studies short of their trial budget or with a trial still running. Creates nothing."""
+    out = []
+    for study in studies:
+        trials = []
+        if _database(runs_dir, study.batch).exists():
+            try:
+                loaded = optuna.load_study(
+                    study_name=study.name, storage=_storage(runs_dir, study.batch)
+                )
+                trials = loaded.get_trials(deepcopy=False)
+            except KeyError:  # the database has other studies only
+                pass
+        finished = sum(t.state.is_finished() for t in trials)
+        if finished < study.trials or finished < len(trials):
+            out.append(f"{study.name} ({finished} of {study.trials} trials finished)")
+    return out
 
 
 def _run_trial(study, opt: optuna.Study, trial: optuna.Trial, runs_dir, data_dir, device, log):

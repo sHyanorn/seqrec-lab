@@ -1143,3 +1143,29 @@ def test_export_before_any_run_exists_writes_nothing_and_reports_nothing(tmp_pat
     assert cli_main(["export", "--runs-dir", str(tmp_path / "runs"), "--out-dir", str(out)]) == 0
     with pytest.raises(FileNotFoundError):  # a mistyped directory is not an empty one
         cli_main(["export", "--summaries-only", "--out-dir", str(tmp_path / "typo")])
+
+
+def test_export_with_a_plan_refuses_until_every_run_is_trained_or_given_up(workspace):
+    """A run that never started has no row; an export of its batch would pass for complete."""
+    from seqrec.runner.attempts import TRAIN_ATTEMPTS, record_failure
+    from seqrec.runner.config import load_plan
+    from seqrec.runner.run import run_dir_of
+
+    runs, data = workspace
+    plan = _plan(runs.parent, seeds=(1, 2))
+    out = runs.parent / "results"
+    export_plan = ["export", "--runs-dir", str(runs), "--out-dir", str(out), "--plan", str(plan)]
+    assert cli_main(export_plan) == 1
+    assert not out.exists() or not list(out.iterdir())  # nothing is written on a refusal
+    assert cli_main(["run", str(plan), "--runs-dir", str(runs), "--data-dir", str(data),
+                     "--device", "cpu"]) == 0  # fmt: skip
+    assert cli_main(export_plan) == 0
+    lost = run_dir_of(load_plan(plan).runs[1], runs)
+    (lost / "summary.json").unlink()
+    assert cli_main(export_plan) == 1
+    for _ in range(TRAIN_ATTEMPTS):
+        try:
+            raise RuntimeError("boom")
+        except RuntimeError:
+            record_failure(lost, "train")
+    assert cli_main(export_plan) == 0  # given up counts as finished (D031)

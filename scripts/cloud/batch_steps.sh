@@ -200,13 +200,15 @@ watchdog_running() {
     fi
 }
 
-# Export the volume. The plan's batch file must come out of it: a copy that came with the
-# checkout is removed first, so it cannot be committed as this machine's result.
+# Export the volume, once every run of the plan is trained or given up: a run that never
+# started has no row, so its batch file would pass for complete. The plan's batch file must
+# come out of the export: a copy that came with the checkout is removed first, so it cannot
+# be committed as this machine's result.
 export_batch() {
     local batch
     batch=$(plan_batch)
     rm -f "results/runs/$batch.csv"
-    uv run --no-sync seqrec export --runs-dir "$SEQREC_HOME/runs"
+    uv run --no-sync seqrec export --runs-dir "$SEQREC_HOME/runs" --plan "configs/plans/$PLAN"
     [ -f "results/runs/$batch.csv" ] || die "export: no run of $batch on this machine"
 }
 
