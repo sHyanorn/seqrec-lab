@@ -166,3 +166,22 @@ def test_left_padding_does_not_change_real_positions():
         long = model(torch.cat([torch.zeros(1, 3, dtype=torch.long), items], 1))[:, 3:]
         short = model(torch.cat([torch.zeros(1, 1, dtype=torch.long), items], 1))[:, 1:]
     torch.testing.assert_close(long, short, atol=1e-6, rtol=0)
+
+
+@pytest.mark.parametrize("arm", [*SASREC_ARMS, "bert4rec"])
+def test_training_under_autocast_runs_the_encoder_in_bf16(train, arm):
+    """METHODS 5.1: M3 trains under bf16 autocast, which the trainer turns on for CUDA. Turned
+    on by hand here, an activation inside the encoder is bf16 and the loss stays finite; left
+    off, the same activation is fp32."""
+    model = ARMS[arm](cfg(arm), train, CPU)
+    assert model.amp is False  # the CPU default
+    seen = []
+    inner = next(m for m in model.net.modules() if isinstance(m, torch.nn.Linear))
+    inner.register_forward_hook(lambda module, args, out: seen.append(out.dtype))
+    model.train_epoch(train, 0)
+    assert set(seen) == {torch.float32}
+    seen.clear()
+    model.amp = True
+    assert np.isfinite(model.train_epoch(train, 1)["loss"])
+    assert set(seen) == {torch.bfloat16}
+
