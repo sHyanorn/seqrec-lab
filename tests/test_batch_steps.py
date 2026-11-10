@@ -29,6 +29,7 @@ def steps(*args, cwd=REPO, env=None, path_prefix=None):
         "HOURS",
         "PROFILE_",
         "REPEATS",
+        "RUNPOD_",
     )
     full = {k: v for k, v in os.environ.items() if not k.startswith(job)}
     full |= {"GITHUB_REF": "refs/heads/main", "TASK": "run", "HOURS": "22"} | (env or {})
@@ -646,7 +647,7 @@ def test_the_summaries_are_computed_without_the_push_token(clone, tmp_path):
 # --- machine ------------------------------------------------------------------------------
 
 
-def machine_step(tmp_path, driver):
+def machine_step(tmp_path, driver, pod="pod1"):
     """`batch_steps.sh machine` on a fake machine whose GPU driver is `driver`."""
     bin_dir = tmp_path / "bin"
     table = f'echo "RTX 5090, {driver}, 32607 MiB"'
@@ -659,7 +660,7 @@ def machine_step(tmp_path, driver):
     fake(tmp_path / "runner" / "bin", "Runner.Listener", "echo 2.330.0")
     (tmp_path / "runner.log").write_text("starting the runner\n", encoding="utf-8")
     env = {"RUNNER_DIR": str(tmp_path / "runner"), "SEQREC_HOME": str(tmp_path)}
-    return steps("machine", env=env, path_prefix=bin_dir)
+    return steps("machine", env=env | {"RUNPOD_POD_ID": pod}, path_prefix=bin_dir)
 
 
 def test_the_machine_step_refuses_a_driver_the_cuda_13_wheels_do_not_run_on(tmp_path):
@@ -672,6 +673,14 @@ def test_the_machine_step_describes_a_machine_with_a_new_enough_driver(tmp_path)
     result = machine_step(tmp_path, "580.95.05")
     assert result.returncode == 0, result.stderr
     for text in ("RTX 5090, 580.95.05, 32607 MiB", "Model name: Fake CPU", "16", "6.8.0-fake",
-                 "uv 0.11.32", "runner 2.330.0", "2.9.0+cu132 RTX 5090"):  # fmt: skip
+                 "uv 0.11.32", "runner 2.330.0", "2.9.0+cu132 RTX 5090", "pod pod1"):  # fmt: skip
         assert text in result.stdout.splitlines()
     assert result.stdout.endswith("starting the runner\n")  # the end of the watchdog's log
+
+
+def test_the_machine_step_refuses_a_machine_without_a_pod_id(tmp_path):
+    """Run times are compared only within one Pod (D046); runs that record no Pod would pass
+    for runs of the same one."""
+    result = machine_step(tmp_path, "580.95.05", pod="")
+    assert result.returncode == 1
+    assert "RUNPOD_POD_ID" in result.stderr

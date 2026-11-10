@@ -95,6 +95,7 @@ def _row(run_dir: Path) -> dict:
         "gpu_hours": round(summary["wall_s"] / 3600, 4) if "wall_s" in summary else None,
         "git_commit": summary.get("git_commit", "")[:12],
         "host": summary.get("host"),
+        "pod": summary.get("pod"),
         "sm_mhz_median": (nvml.get("sm_mhz") or {}).get("median"),
         "nvml_mem_used_mib_max": (nvml.get("mem_used_mib") or {}).get("max"),
         "torch_allocated_gib_max": summary.get("train_peak_memory_gib_max"),
@@ -113,16 +114,15 @@ def _row(run_dir: Path) -> dict:
 def flag_slow_epochs(rows: list[dict]) -> None:
     """Set `slow_epochs` on every row (D038): True when the run's median training plus
     validation time per epoch exceeds SLOW_FACTOR times the median of the other runs with
-    the same batch, dataset, split, shuffle, arm, parameters, tag and host (its other seeds
-    on the same host signature, D046). None when the run has no epoch time or no such other
-    run."""
+    the same batch, dataset, split, shuffle, arm, parameters, tag and Pod (its other seeds
+    made on the same Pod, D046). None when the run has no epoch time or no such other run."""
     groups = defaultdict(list)
     for r in rows:
         r["slow_epochs"] = None
         if r["epoch_train_s_median"] is not None and r["epoch_eval_s_median"] is not None:
             key = tuple(
                 r[k]
-                for k in ("batch", "dataset", "split", "shuffle", "arm", "params", "tag", "host")
+                for k in ("batch", "dataset", "split", "shuffle", "arm", "params", "tag", "pod")
             )
             groups[key].append(r)
     for runs in groups.values():

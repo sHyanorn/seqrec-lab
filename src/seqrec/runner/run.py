@@ -302,8 +302,8 @@ def popularity_reference(cfg: RunConfig, splits: SplitSet, device: torch.device)
 
 
 def host_signature(device: torch.device) -> str:
-    """GPU model, driver branch, CPU model, CPU count and data centre of this machine. Run
-    times are compared only between runs with the same signature (D046)."""
+    """GPU model, driver branch, CPU model, CPU count and data centre of this machine, as a
+    description. Run times are compared only between runs made on one Pod (D046)."""
     gpu, driver = "cpu", "none"
     if device.type == "cuda":
         gpu = torch.cuda.get_device_name(device)
@@ -375,6 +375,7 @@ def execute(
         "invariants_passed": checks,
         "start_reference": reference,
         "hosts": [host_signature(device)],
+        "pods": [os.environ.get("RUNPOD_POD_ID", "")],  # the rented machine of this session
     }
     manifest_path = run_dir / "manifest.json"
     if manifest_path.exists():
@@ -388,6 +389,7 @@ def execute(
             raise RunConflict(f"{run_dir}: full data changed since the run started")
         manifest["sessions"] = old.get("sessions", [old["git_commit"]]) + [commit]
         manifest["hosts"] = old.get("hosts", []) + manifest["hosts"]
+        manifest["pods"] = old.get("pods", []) + manifest["pods"]
     _write_atomic(manifest_path, json.dumps(manifest, indent=1))
 
     state = {"epoch": 0, "best": -1.0, "best_epoch": -1, "bad": 0, "train_s": 0.0, "wall_s": 0.0}
@@ -487,6 +489,7 @@ def execute(
         "config": json.loads(cfg.to_json()),
         "git_commit": commit,
         "host": " + ".join(dict.fromkeys(manifest["hosts"])),  # every machine it trained on
+        "pod": " + ".join(dict.fromkeys(manifest["pods"])),
         "status": "trained" if best_weights is not None else "diverged",
         "epochs": state["epoch"],
         "best_epoch": state["best_epoch"],

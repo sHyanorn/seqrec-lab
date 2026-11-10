@@ -84,6 +84,9 @@ machine() {
     uv run --no-sync python -c "import torch; from seqrec.runner.run import cpu_allocation, host_signature; print('host', host_signature(torch.device('cuda'))); print('cpus', *cpu_allocation())"
     # The signature does not use the platform's count; it is printed for comparison.
     echo "cgroup filesystem $(stat -fc %T /sys/fs/cgroup 2>&1), RUNPOD_CPU_COUNT ${RUNPOD_CPU_COUNT:-unset}"
+    # Every run records its Pod, and run times are compared only within one (D046).
+    [ -n "${RUNPOD_POD_ID:-}" ] || die "RUNPOD_POD_ID is not set: this job's runs would record no Pod"
+    echo "pod $RUNPOD_POD_ID"
     tail -n 20 "$SEQREC_HOME/runner.log" # when the watchdog started the runner and when it listened
 }
 

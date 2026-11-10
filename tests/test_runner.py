@@ -172,19 +172,22 @@ def test_a_cgroup_v1_quota_counts_like_a_v2_quota(tmp_path, monkeypatch):
     assert count == 16 and source.startswith("cgroup v2") and "1600000 100000" in source
 
 
-def test_an_exported_run_names_every_host_it_trained_on(workspace, monkeypatch):
-    """Run times are compared only between runs of one host signature (D046), so a run
-    resumed on another machine must not pass for a run of either."""
+def test_an_exported_run_names_every_host_and_pod_it_trained_on(workspace, monkeypatch):
+    """Run times are compared only between runs made on one Pod (D046), so a run resumed on
+    another machine must not pass for a run of either."""
     runs, data = workspace
     monkeypatch.setattr(run_mod, "host_signature", lambda device: "first")
+    monkeypatch.setenv("RUNPOD_POD_ID", "pod1")
     PopularityModel.crash = "train@2"
     with pytest.raises(RuntimeError):
         run_mod.execute(_cfg(), runs, data, CPU, **QUIET)
     monkeypatch.setattr(run_mod, "host_signature", lambda device: "second")
+    monkeypatch.setenv("RUNPOD_POD_ID", "pod2")
     run_mod.execute(_cfg(), runs, data, CPU, **QUIET)
     run_mod.execute(_cfg(seed=2), runs, data, CPU, **QUIET)
-    hosts = {r["seed"]: r["host"] for r in _exported(runs, runs.parent).values()}
-    assert hosts == {"1": "first + second", "2": "second"}
+    rows = _exported(runs, runs.parent).values()
+    assert {r["seed"]: r["host"] for r in rows} == {"1": "first + second", "2": "second"}
+    assert {r["seed"]: r["pod"] for r in rows} == {"1": "pod1 + pod2", "2": "pod2"}
 
 
 def test_changed_configuration_is_refused(workspace):
@@ -673,9 +676,9 @@ def test_the_guard_counts_training_and_validation_time_only(workspace, monkeypat
     assert summary["wall_s"] == pytest.approx(4.0) and summary["checkpoint_s"] >= 4 * 3600
 
 
-def _timed_row(seed, train_s, tag="sigma", params="{}", eval_s=0.1, host="a"):
+def _timed_row(seed, train_s, tag="sigma", params="{}", eval_s=0.1, pod="a"):
     return {
-        "host": host,
+        "host": "one signature", "pod": pod,
         "batch": "b", "dataset": "ml-1m", "split": "loo", "shuffle": "none", "arm": "sasrec-ce",
         "tag": tag, "params": params, "seed": seed, "run_id": f"r{seed}-{tag}-{params}",
         "epoch_train_s_median": train_s, "epoch_eval_s_median": eval_s,
@@ -694,14 +697,16 @@ def test_slow_epochs_flags_runs_far_slower_than_the_same_configuration():
     assert [r["slow_epochs"] for r in rows] == [False, True, False, None, None, False, False, None]
 
 
-def test_slow_epochs_compares_only_runs_on_the_same_host():
-    """A batch that went on on a slower host: its later seeds are not slow runs (D046)."""
+def test_slow_epochs_compares_only_runs_made_on_one_pod():
+    """A batch that went on on a slower Pod with the same signature: its later seeds are not
+    slow runs, and a run that trained on both is compared with neither (D046)."""
     from seqrec.runner.export import flag_slow_epochs
 
     rows = [_timed_row(1, 1.0), _timed_row(2, 1.1)]
-    rows += [_timed_row(3, 2.0, host="b"), _timed_row(4, 2.1, host="b")]
+    rows += [_timed_row(3, 2.0, pod="b"), _timed_row(4, 2.1, pod="b")]
+    rows.append(_timed_row(5, 9.0, pod="a + b"))
     flag_slow_epochs(rows)
-    assert [r["slow_epochs"] for r in rows] == [False, False, False, False]
+    assert [r["slow_epochs"] for r in rows] == [False, False, False, False, None]
 
 
 def test_patience_waits_until_a_run_beats_popularity(workspace):
