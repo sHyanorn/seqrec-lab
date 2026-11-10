@@ -286,6 +286,30 @@ def test_a_tuning_plan_with_runs_is_refused_not_half_run(workspace):
         tune.load_tuning_plan(plan)
 
 
+def test_a_tuning_plan_with_a_key_no_command_reads_is_refused(workspace):
+    """Studies run in the order listed: `order` is a key of run plans only."""
+    _, plan = workspace
+    text = plan.read_text()
+    for broken, key in (
+        (text + '[[study]]\narm = "pop"\n', "study"),
+        ('order = "shuffled"\n' + text, "order"),
+    ):
+        plan.write_text(broken)
+        with pytest.raises(
+            ValueError, match=f"unknown key {key}.*batch, defaults, warmup_s, studies"
+        ):
+            tune.load_tuning_plan(plan)
+    plan.write_text("warmup_s = 1\n" + text)
+    assert len(tune.load_tuning_plan(plan)[2]) == 1
+
+
+def test_a_tuning_plan_without_a_study_is_refused(workspace):
+    _, plan = workspace
+    plan.write_text('batch = "t"\nstudies = []\n')
+    with pytest.raises(ValueError, match="no run and no study"):
+        tune.load_tuning_plan(plan)
+
+
 def test_export_with_a_tuning_plan_refuses_until_every_study_reached_its_budget(workspace, capsys):
     root, plan = workspace
     out = root / "results"

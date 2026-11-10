@@ -104,11 +104,24 @@ class Plan:
     runs: list[RunConfig]
 
 
+RUN_PLAN_KEYS = ("batch", "defaults", "warmup_s", "order", "order_seed", "runs")
+TUNING_PLAN_KEYS = ("batch", "defaults", "warmup_s", "studies")
+
+
 def read_plan(path: Path) -> dict:
-    """Parse a plan file. It holds runs or studies; each command would silently drop the other."""
+    """Parse a plan file. It holds runs or studies, at least one, and no key that nothing
+    reads: a command would silently drop the other kind, a misspelt table or setting."""
     raw = tomllib.loads(path.read_text(encoding="utf-8-sig"))  # tolerate a BOM
     if "runs" in raw and "studies" in raw:
         raise ValueError(f"{path.name} has both runs and studies")
+    kind, known = ("tuning", TUNING_PLAN_KEYS) if "studies" in raw else ("run", RUN_PLAN_KEYS)
+    unknown = sorted(set(raw) - set(known))
+    if unknown:
+        raise ValueError(
+            f"{path.name}: unknown key {', '.join(unknown)}; a {kind} plan holds {', '.join(known)}"
+        )
+    if not raw.get("runs") and not raw.get("studies"):
+        raise ValueError(f"{path.name} holds no run and no study")
     return raw
 
 

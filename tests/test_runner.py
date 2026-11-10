@@ -1187,6 +1187,38 @@ def test_a_run_plan_with_studies_is_refused_not_half_run(tmp_path):
         load_plan(plan)
 
 
+def test_a_plan_with_a_key_no_command_reads_is_refused(tmp_path):
+    """A misspelt table or setting would be dropped without notice."""
+    from seqrec.runner.config import load_plan
+
+    plan = _plan(tmp_path)
+    text = plan.read_text()
+    known = "batch, defaults, warmup_s, order, order_seed, runs"
+    for broken, key in (
+        (text + '[[Runs]]\narm = "pop"\n', "Runs"),
+        ("order_sed = 3\n" + text, "order_sed"),
+    ):
+        plan.write_text(broken)
+        with pytest.raises(ValueError, match=f"unknown key {key}.*{known}"):
+            load_plan(plan)
+    plan.write_text('order = "shuffled"\norder_seed = 3\nwarmup_s = 1\n' + text)
+    assert len(load_plan(plan).runs) == 1
+
+
+@pytest.mark.parametrize("runs", ["", "runs = []\n"])
+def test_a_plan_without_a_run_is_refused_not_finished(tmp_path, runs):
+    """Nothing to train is nothing left to train: its export would pass for complete."""
+    from seqrec.runner.config import load_plan
+
+    plan = tmp_path / "plan.toml"
+    plan.write_text(f'batch = "b"\n{runs}', encoding="utf-8")
+    with pytest.raises(ValueError, match="no run and no study"):
+        load_plan(plan)
+    export_plan = ["export", "--runs-dir", str(tmp_path / "runs"), "--plan", str(plan)]
+    with pytest.raises(ValueError, match="no run and no study"):
+        cli_main([*export_plan, "--out-dir", str(tmp_path / "results"), "--earlier-exports"])
+
+
 def test_an_earlier_export_without_runs_is_an_error_not_zero_reads(workspace, tmp_path):
     from seqrec.runner.export import read_batch_files, summarize
 
