@@ -62,7 +62,7 @@ Freeze
 Before M3 tuning starts
 - [x] CPU continuous integration: tests and lint on every push (`ci.yml`). No test needs prepared data; the cross-check against ranx is skipped there, and the workflow says so. Commits pushed by a batch job start no run
 - [ ] Invariant checks run once per process and are cached with the splits (`load_splits`), so a dataset rebuilt while a batch runs is not checked again; key the cache on the stored file, or rerun the checks per run
-- [ ] No check that `seqs.items` equals `full.items[seqs.pos]` in every split; add it to the invariants (METHODS 11.1)
+- [x] No check that `seqs.items` equals `full.items[seqs.pos]` in every split; add it to the invariants (METHODS 11.1, D049)
 - [x] bf16 training is checked only by the output dtype; also check an intermediate activation (`test_training_under_autocast_runs_the_encoder_in_bf16`)
 - [ ] The known-answer test for the shuffled-order transform (METHODS 3.3) is weak; test exact orders on a hand-made case
 - [x] The anchor-read limit is enforced in `test_run`, not in `read_test`; move it into the reader so every caller is bound by it (D049)

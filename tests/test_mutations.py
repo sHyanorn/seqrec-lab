@@ -1,5 +1,7 @@
 """Inject known silent bugs; the listed check must fail (METHODS 11.3, docs/MUTATIONS.md)."""
 
+from dataclasses import replace
+
 import numpy as np
 import pytest
 import torch
@@ -12,7 +14,12 @@ from test_losses import (
 from test_sasrec import assert_causal, net
 
 from seqrec.data import splits as splits_mod
-from seqrec.data.invariants import InvariantError, item_popularity, require_from_train
+from seqrec.data.invariants import (
+    InvariantError,
+    check_split,
+    item_popularity,
+    require_from_train,
+)
 from seqrec.data.preprocess import build_log
 from seqrec.data.splits import Sequences, TrainSplit
 from seqrec.data.store import build_splits
@@ -70,6 +77,31 @@ def test_evaluation_input_drops_an_item(log, monkeypatch):
 
     monkeypatch.setattr(splits_mod, "select", lossy)
     _caught(log, "earlier in-vocabulary item|validation input equals training")
+
+
+@pytest.mark.parametrize("part", ["train", "validation", "test"])
+def test_items_detached_from_their_log_positions(log, part):
+    """Two items of one sequence change places while their positions stay: every check made
+    through the positions still passes."""
+    splits, _ = build_splits(log, "loo")
+
+    def swapped(seqs):
+        items = seqs.items.copy()
+        items[[0, 1]] = items[[1, 0]]
+        return replace(seqs, items=items)
+
+    if part == "train":
+        mutated = replace(splits, train=replace(splits.train, seqs=swapped(splits.train.seqs)))
+    elif part == "validation":
+        inputs = swapped(splits.validation.inputs)
+        mutated = replace(splits, validation=replace(splits.validation, inputs=inputs))
+    else:
+        test = splits.test.unseal("check")
+        mutated = replace(
+            splits, test=splits_mod.TestHandle(replace(test, inputs=swapped(test.inputs)))
+        )
+    with pytest.raises(InvariantError, match=f"{part}: items match log"):
+        check_split(mutated)
 
 
 def test_statistic_from_all_data(log):

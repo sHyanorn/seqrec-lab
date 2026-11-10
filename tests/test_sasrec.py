@@ -184,4 +184,3 @@ def test_training_under_autocast_runs_the_encoder_in_bf16(train, arm):
     model.amp = True
     assert np.isfinite(model.train_epoch(train, 1)["loss"])
     assert set(seen) == {torch.bfloat16}
-

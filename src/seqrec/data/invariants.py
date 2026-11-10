@@ -57,6 +57,7 @@ def _check_eval(full: Interactions, split: EvalSplit, passed: list[str]) -> None
     _require(
         (full.items[split.target_pos] == split.targets).all(), f"{name}: target matches log", passed
     )
+    _require(np.array_equal(seqs.items, full.items[seqs.pos]), f"{name}: items match log", passed)
     _require((seqs.items > 0).all(), f"{name}: inputs in vocabulary", passed)
     _require((seqs.pos < split.target_pos[owner]).all(), f"{name}: inputs precede target", passed)
     user_start = full.indptr[np.searchsorted(full.indptr, split.target_pos, side="right") - 1]
@@ -121,6 +122,7 @@ def check_split(splits: SplitSet, log: Log | None = None, k: int = 5) -> list[st
     test = splits.test.unseal("check")
     passed: list[str] = []
     train = splits.train.seqs
+    _require(np.array_equal(train.items, full.items[train.pos]), "train: items match log", passed)
     _require((train.items > 0).all(), "train: items in vocabulary", passed)
     targets = np.concatenate([splits.validation.target_pos, test.target_pos])
     _require(not np.isin(train.pos, targets).any(), "train: no evaluation targets", passed)
