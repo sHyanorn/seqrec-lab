@@ -3,6 +3,7 @@ fakes. The script stops later, at checks that only pass on the rented machine.""
 
 from __future__ import annotations
 
+import fcntl
 import os
 import shutil
 import subprocess
@@ -66,11 +67,9 @@ def test_the_watchdog_runs_before_anything_else_can_fail(machine):
 
 def test_a_lock_held_by_something_else_is_not_reported_as_a_started_watchdog(machine):
     tmp, bootstrap, watchdog = machine
-    holder = subprocess.Popen(["flock", str(tmp / "lock"), "sleep", "30"])
-    try:
+    with (tmp / "lock").open("w") as holder:  # held here: no process is left behind
+        fcntl.flock(holder, fcntl.LOCK_EX)
         result = bootstrap()
-    finally:
-        holder.kill()
     assert result.returncode == 1
     assert "Watchdog started" not in result.stdout
     assert "Stop this machine by hand" in result.stderr
