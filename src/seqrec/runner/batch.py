@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import tomllib
 from collections import Counter
 from collections.abc import Sequence
 from pathlib import Path
@@ -20,7 +19,7 @@ from seqrec.runner.attempts import (
     train_failures,
     train_with_retry,
 )
-from seqrec.runner.config import Plan, load_plan
+from seqrec.runner.config import Plan, load_plan, read_plan
 from seqrec.runner.export import read_earlier_exports
 from seqrec.runner.run import (
     ARMS,
@@ -72,10 +71,7 @@ def _untrained(plan: Plan, runs_dir: Path) -> list[str]:
 def unfinished(plan_path: Path, runs_dir: Path) -> list[str]:
     """What is left of a plan of either kind: runs to train, or studies short of their trial
     budget. An export of the plan's batch is complete only when this is empty."""
-    raw = tomllib.loads(plan_path.read_text(encoding="utf-8-sig"))
-    if "studies" in raw and "runs" in raw:
-        raise ValueError(f"{plan_path.name} has both runs and studies")
-    if "studies" in raw:
+    if "studies" in read_plan(plan_path):
         return unfinished_studies(load_tuning_plan(plan_path)[2], runs_dir)
     plan = load_plan(plan_path)
     _check_plan(plan, runs_dir)  # an edited plan is not the plan these runs were trained from

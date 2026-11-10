@@ -23,7 +23,6 @@ raises is retried once before it counts as failed (D031).
 
 from __future__ import annotations
 
-import tomllib
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
@@ -35,7 +34,7 @@ from optuna.trial import TrialState
 from sqlalchemy.engine import URL
 
 from seqrec.runner.attempts import TrainingFailed, train_with_retry
-from seqrec.runner.config import RunConfig, default_limits
+from seqrec.runner.config import RunConfig, default_limits, read_plan
 from seqrec.runner.run import ARMS, execute, run_dir_of
 
 SHARED_SPACE = {
@@ -85,7 +84,7 @@ class Study:
 
 
 def load_tuning_plan(path: Path) -> tuple[str, float, list[Study]]:
-    raw = tomllib.loads(path.read_text(encoding="utf-8-sig"))
+    raw = read_plan(path)
     batch, defaults = raw["batch"], raw.get("defaults", {})
     studies = [Study(batch=batch, **(defaults | entry)) for entry in raw["studies"]]
     for s in studies:

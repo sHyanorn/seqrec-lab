@@ -1177,6 +1177,16 @@ def test_export_with_a_plan_refuses_until_every_run_is_trained_or_given_up(works
         cli_main(export_plan)
 
 
+def test_a_run_plan_with_studies_is_refused_not_half_run(tmp_path):
+    """`seqrec run` on a mixed plan would train the runs and drop the studies unnoticed."""
+    from seqrec.runner.config import load_plan
+
+    plan = _plan(tmp_path)
+    plan.write_text(plan.read_text() + '[[studies]]\narm = "pop"\ntrials = 1\n')
+    with pytest.raises(ValueError, match="both runs and studies"):
+        load_plan(plan)
+
+
 def test_an_earlier_export_without_runs_is_an_error_not_zero_reads(workspace, tmp_path):
     from seqrec.runner.export import read_batch_files, summarize
 

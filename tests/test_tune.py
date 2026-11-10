@@ -278,6 +278,14 @@ def test_a_config_conflict_in_one_study_is_reported_and_others_run(workspace):
     assert len(list((root / "runs" / "t").glob("sasrec-bce-*"))) == 6
 
 
+def test_a_tuning_plan_with_runs_is_refused_not_half_run(workspace):
+    """`seqrec tune` on a mixed plan would run the studies and drop the runs unnoticed."""
+    _, plan = workspace
+    plan.write_text(plan.read_text() + '[[runs]]\narm = "pop"\nsplit = "loo"\n')
+    with pytest.raises(ValueError, match="both runs and studies"):
+        tune.load_tuning_plan(plan)
+
+
 def test_export_with_a_tuning_plan_refuses_until_every_study_reached_its_budget(workspace, capsys):
     root, plan = workspace
     out = root / "results"

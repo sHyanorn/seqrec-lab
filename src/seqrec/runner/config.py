@@ -104,8 +104,16 @@ class Plan:
     runs: list[RunConfig]
 
 
-def load_plan(path: Path) -> Plan:
+def read_plan(path: Path) -> dict:
+    """Parse a plan file. It holds runs or studies; each command would silently drop the other."""
     raw = tomllib.loads(path.read_text(encoding="utf-8-sig"))  # tolerate a BOM
+    if "runs" in raw and "studies" in raw:
+        raise ValueError(f"{path.name} has both runs and studies")
+    return raw
+
+
+def load_plan(path: Path) -> Plan:
+    raw = read_plan(path)
     batch = raw["batch"]
     defaults = raw.get("defaults", {})
     runs = []
