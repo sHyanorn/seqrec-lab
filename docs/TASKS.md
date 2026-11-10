@@ -65,7 +65,7 @@ Before M3 tuning starts
 - [ ] No check that `seqs.items` equals `full.items[seqs.pos]` in every split; add it to the invariants (METHODS 11.1)
 - [ ] bf16 training is checked only by the output dtype; also check an intermediate activation
 - [ ] The known-answer test for the shuffled-order transform (METHODS 3.3) is weak; test exact orders on a hand-made case
-- [ ] The anchor-read limit is enforced in `test_run`, not in `read_test`; move it into the reader so every caller is bound by it
+- [x] The anchor-read limit is enforced in `test_run`, not in `read_test`; move it into the reader so every caller is bound by it (D049)
 - [x] Median pruning counts its steps from a trial's start epoch, so gSASRec trials are not compared inside the plateau before the start rule fires (D044; deviation from METHODS 5.4)
 - [x] Execution mode decided before any M3 run: the arm's own step stays in every arm (D048). On small configurations the step is bound by kernel launches, so wall-clock time to target (H2a) mostly measures launch overhead there, and the report says so. The pilot timings and the D034 projection stand
 

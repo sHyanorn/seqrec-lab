@@ -39,12 +39,11 @@ from seqrec.data.registry import DATASETS
 from seqrec.data.splits import SealedOff, SplitSet, TrainSplit, shuffle_eval_inputs, shuffle_order
 from seqrec.data.store import load_splits
 from seqrec.eval.ranking import NonFiniteScores, evaluate
-from seqrec.eval.test_access import count_reads, mark_completed, read_test
+from seqrec.eval.test_access import TestRefused, count_reads, mark_completed, read_test
 from seqrec.runner.config import RunConfig, default_start_limit
 from seqrec.telemetry import NvmlSampler, nvml_static, summarize_samples
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-MAX_ANCHOR_READS = 3
 CPU_QUOTA = Path("/sys/fs/cgroup/cpu.max")  # cgroup v2: "<quota> <period>" or "max <period>"
 # cgroup v1: cpu.cfs_quota_us (-1 without a quota) and cpu.cfs_period_us in one of these
 CPU_QUOTA_V1 = (Path("/sys/fs/cgroup/cpu"), Path("/sys/fs/cgroup/cpu,cpuacct"))
@@ -77,10 +76,6 @@ def register_arm(name: str):
         return factory
 
     return wrap
-
-
-class TestRefused(PermissionError):
-    """A test read refused before any data were read (METHODS 11.5, 11.6)."""
 
 
 class RunConflict(RuntimeError):
@@ -528,16 +523,6 @@ def execute(
     return summary
 
 
-def anchor_reads(runs_dir: Path, dataset: str, arm: str) -> int:
-    """All anchor reads logged for (dataset, arm) in any batch, finished or not."""
-    total = 0
-    for log_path in runs_dir.glob("*/*/test_access.jsonl"):
-        cfg = json.loads((log_path.parent / "config.json").read_text(encoding="utf-8"))
-        if cfg["dataset"] == dataset and cfg["arm"] == arm:
-            total += count_reads(log_path)["anchor"]
-    return total
-
-
 def test_run(
     cfg: RunConfig,
     runs_dir: Path,
@@ -549,8 +534,8 @@ def test_run(
 ):
     """Read test data once for a trained final or anchor run and write test.json.
     `earlier_anchor_reads` are the anchor reads of this dataset and arm made on another
-    machine; they count toward the limit. `earlier_final_reads` are the final reads of this
-    run made there; a final run reads test data once, wherever."""
+    machine; the reader counts them toward its limit. `earlier_final_reads` are the final
+    reads of this run made there; a final run reads test data once, wherever."""
     if cfg.phase not in ("final", "anchor"):
         raise TestRefused("only final and anchor runs are tested")
     run_dir = run_dir_of(cfg, runs_dir)
@@ -560,10 +545,6 @@ def test_run(
     summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
     if summary["status"] != "trained":
         raise RuntimeError(f"{cfg.run_id} has no checkpoint ({summary['status']})")
-    used = anchor_reads(runs_dir, cfg.dataset, cfg.arm) + earlier_anchor_reads
-    if cfg.phase == "anchor" and used >= MAX_ANCHOR_READS:
-        raise TestRefused(f"{cfg.arm} on {cfg.dataset} used its {MAX_ANCHOR_READS} anchor reads")
-
     if cfg.phase == "final" and earlier_final_reads:
         raise TestRefused(f"{cfg.run_id}: final run read test data on another machine")
 
@@ -593,6 +574,7 @@ def test_run(
         run_id=cfg.run_id,
         git_commit=git_commit(),
         checkpoint_hash=checkpoint_hash,
+        earlier_anchor_reads=earlier_anchor_reads,
     )
     max_len = max_len_of(cfg)
     result = evaluate(model.score, test, max_len, device)

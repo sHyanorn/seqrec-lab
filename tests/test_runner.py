@@ -209,11 +209,38 @@ def test_anchor_reads_are_capped(workspace):
         run_mod.test_run(fourth, runs, data, CPU, **QUIET)
 
 
+def test_the_reader_itself_refuses_a_fourth_anchor_read(workspace):
+    """METHODS 11.6: the limit binds every caller of the reader, wherever the reads were made."""
+    runs, data = workspace
+    for tag in "ab":
+        cfg = _cfg("anchor", tag=tag)
+        run_mod.execute(cfg, runs, data, CPU, **QUIET)
+        run_mod.test_run(cfg, runs, data, CPU, **QUIET)
+    third = _cfg("anchor", tag="c")
+    run_mod.execute(third, runs, data, CPU, **QUIET)
+    log = runs / "b" / third.run_id / "test_access.jsonl"
+
+    def read(earlier_anchor_reads):
+        return test_access.read_test(
+            load_splits(data, "ml-1m", "loo")[0].test, phase="anchor", log_path=log,
+            run_id=third.run_id, git_commit="c", checkpoint_hash="h",
+            earlier_anchor_reads=earlier_anchor_reads,
+        )  # fmt: skip
+
+    with pytest.raises(test_access.TestRefused, match="anchor reads"):
+        read(1)  # two here and one on another machine
+    assert not log.exists()  # refused before any record or data
+    assert len(read(0).targets) > 0
+    with pytest.raises(test_access.TestRefused, match="anchor reads"):
+        read(0)
+    assert test_access.count_reads(log)["anchor"] == 1
+
+
 def test_test_reader_rejects_other_phases(tmp_path):
     with pytest.raises(PermissionError):
         test_access.read_test(
             None, phase="tune", log_path=tmp_path / "t.jsonl", run_id="r", git_commit="c",
-            checkpoint_hash="h",
+            checkpoint_hash="h", earlier_anchor_reads=0,
         )  # fmt: skip
 
 

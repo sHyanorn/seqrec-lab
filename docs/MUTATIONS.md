@@ -20,7 +20,7 @@ Each row is a silent bug injected by a test in `tests/test_mutations.py` (METHOD
 | Tuning run evaluates on test data | `tests/test_runner.py::test_tuning_run_cannot_reach_test_data` | the sealed stand-in raises in tuning runs |
 | Test data opened outside the approved paths | `tests/test_isolation.py` | static scan of `unseal` calls |
 | Test read in a tuning run, or a final run read twice | `tests/test_runner.py::test_batches_through_cli`, `test_test_reader_rejects_other_phases` | reader refuses phase `tune`; export recounts reads |
-| A fourth anchor read for an arm | `tests/test_runner.py::test_anchor_reads_are_capped` | reader-side anchor count |
+| A fourth anchor read for an arm | `tests/test_runner.py::test_anchor_reads_are_capped`, `test_the_reader_itself_refuses_a_fourth_anchor_read` | the reader's own count over all runs and machines |
 | Last checkpoint scored instead of the best | `tests/test_runner.py::test_best_checkpoint_is_the_one_scored` | validation score of the restored checkpoint |
 
 Added in M2, with the models:

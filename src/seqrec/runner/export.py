@@ -17,9 +17,8 @@ from collections.abc import Iterable, Sequence
 from pathlib import Path
 
 from seqrec.data.stats import write_csv
-from seqrec.eval.test_access import count_reads
+from seqrec.eval.test_access import MAX_ANCHOR_READS, TestRefused, count_reads
 from seqrec.runner.attempts import failures
-from seqrec.runner.run import MAX_ANCHOR_READS, TestRefused
 
 HARDWARE_EVENTS = ("hw_slowdown", "hw_thermal", "hw_power_brake")
 TRIAL_TAG = re.compile(r"t\d+")

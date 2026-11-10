@@ -714,3 +714,8 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
   - The pilot timings and the projection of D034 stand, since no step changed.
   - The anchors' test reads are made on the four existing runs (above).
   - Time to target (H2a) on small configurations mostly measures launch overhead: the GPU was busy for 0.295 of a step in configuration 1. The report states this.
+
+## D049 Code changes between the anchor reads and M3 tuning
+
+- Date: 2026-11-11. Status: accepted. A log of code changes made after an anchor read, each with a test that failed before it (METHODS 11.5). None changes a registered rule or the training step.
+- Anchor-read limit in the reader: `read_test` counts the anchor reads logged for the run's arm and dataset in every batch of the runs directory, adds the reads made on another machine that its caller passes (D045), and refuses the read before any record or data once they reach three (METHODS 11.6). The limit was enforced by `test_run` before, so another caller of the reader was not bound by it. `test_the_reader_itself_refuses_a_fourth_anchor_read` failed before the change.

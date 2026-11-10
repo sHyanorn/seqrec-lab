@@ -10,6 +10,7 @@ from pathlib import Path
 import torch
 
 from seqrec.data.store import load_splits, log_path
+from seqrec.eval.test_access import TestRefused
 from seqrec.runner.attempts import (
     TRAIN_ATTEMPTS,
     DeviceLost,
@@ -24,7 +25,6 @@ from seqrec.runner.export import read_earlier_exports, require_backed_reads
 from seqrec.runner.run import (
     ARMS,
     RunConflict,
-    TestRefused,
     config_conflicts,
     execute,
     run_dir_of,
