@@ -27,7 +27,7 @@ export RUNPOD_API_KEY=${RUNPOD_API_KEY:-$(from_init RUNPOD_API_KEY)}
 stop_machine() {
     log "stopping the machine: $1"
     timeout 60 runpodctl pod stop "$RUNPOD_POD_ID" 9>&-
-    sleep "${STOP_WAIT_SECONDS:-20}"
+    sleep "${STOP_WAIT_SECONDS:-20}" 9>&-
     curl -fsS -m 30 -X POST "https://api.runpod.io/v2/pods/$RUNPOD_POD_ID/action" \
         -H @- -H "Content-Type: application/json" -d '{"action":"stop"}' 9>&- \
         <<< "Authorization: Bearer $RUNPOD_API_KEY"
@@ -54,7 +54,7 @@ start_runner() {
 idle=0 busy=0 asked=0 job=""
 while true; do
     start_runner
-    sleep "$CHECK_SECONDS" || true
+    sleep "$CHECK_SECONDS" 9>&- || true # no child keeps the lock: it must die with this script
     if now=$(worker); then
         [ "$now" = "$job" ] || busy=0 # another job than at the last check
         job=$now idle=0 asked=0 busy=$((busy + 1))

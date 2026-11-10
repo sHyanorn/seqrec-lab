@@ -1,15 +1,19 @@
 """Aggregate run directories into results/runs/ and check test-access counts.
 
 Every run directory with a config is listed, including failed and unfinished ones
-(METHODS 7.7). Test reads are recounted from test_access.jsonl.
+(METHODS 7.7). Test reads are recounted from test_access.jsonl. One file per batch holds the
+runs; overview.csv and tuning_best.csv are computed from all batch files in the directory,
+so they also cover batches whose run directories are on another machine.
 """
 
 from __future__ import annotations
 
+import csv
 import json
 import re
 import statistics
 from collections import Counter, defaultdict
+from collections.abc import Iterable, Sequence
 from pathlib import Path
 
 from seqrec.data.stats import write_csv
@@ -21,6 +25,20 @@ HARDWARE_EVENTS = ("hw_slowdown", "hw_thermal", "hw_power_brake")
 TRIAL_TAG = re.compile(r"t\d+")
 STOPPED = ("patience", "max_epochs", "guard", "no_start")
 SLOW_FACTOR = 1.5  # D038
+SUMMARIES = ("overview.csv", "tuning_best.csv")
+# Columns of a batch file that the summaries and the access checks read, and how each comes
+# back from text. An empty field is None.
+TEXT = ("run_id", "batch", "dataset", "split", "arm", "phase", "tag", "status", "stop_reason",
+        "params")  # fmt: skip
+PARSED = {
+    "truncated": {"True": True, "False": False}.__getitem__,
+    "gpu_hours": float,
+    "validation_ndcg@10": float,
+    "reads_final": int,
+    "reads_anchor": int,
+    "reads_completed": int,
+}
+OPTIONAL = ("validation_ndcg@10",)  # absent when no run of the batch finished training
 
 
 def _load(path: Path) -> dict:
@@ -112,7 +130,39 @@ def flag_slow_epochs(rows: list[dict]) -> None:
                 r["slow_epochs"] = times[i] > SLOW_FACTOR * statistics.median(others)
 
 
-def access_problems(rows: list[dict]) -> list[str]:
+def read_batch_files(directory: Path) -> list[dict]:
+    """The rows of every batch file in a directory, with the columns named in TEXT and PARSED
+    typed as `_row` wrote them. Any other CSV file there, apart from the summaries, is an
+    error: skipping it would drop runs from the summaries and reads from the limits."""
+    if not directory.is_dir():
+        raise FileNotFoundError(f"{directory} is not a directory of exported batch files")
+    rows = []
+    for path in sorted(directory.glob("*.csv")):
+        if path.name in SUMMARIES:
+            continue
+        with path.open(encoding="utf-8", newline="") as f:
+            for n, raw in enumerate(csv.DictReader(f), start=2):
+                try:
+                    row = {k: raw[k] for k in TEXT}
+                    for k, parse in PARSED.items():
+                        text = raw.get(k, "") if k in OPTIONAL else raw[k]
+                        row[k] = None if text == "" else parse(text)
+                    if any(
+                        row[k] is None for k in ("reads_final", "reads_anchor", "reads_completed")
+                    ):
+                        raise ValueError("a read count is empty")
+                except (KeyError, ValueError, TypeError) as err:
+                    raise ValueError(f"{path}, line {n}: not a batch file ({err!r})") from err
+                if row["batch"] != path.stem:
+                    raise ValueError(f"{path}, line {n}: holds batch {row['batch']!r}")
+                row["stop_reason"] = row["stop_reason"] or None
+                rows.append(row)
+    return rows
+
+
+def access_problems(rows: list[dict], earlier: Iterable[dict] = ()) -> list[str]:
+    """Test reads that break METHODS 11.5 and 11.6 among `rows`. `earlier` are runs exported
+    from another machine: their anchor reads count toward the limit per dataset and arm."""
     problems = []
     for r in rows:
         reads = r["reads_final"] + r["reads_anchor"]
@@ -125,7 +175,7 @@ def access_problems(rows: list[dict]) -> list[str]:
         if reads != r["reads_completed"]:
             problems.append(f"{r['run_id']}: a test read did not complete")
     anchors = Counter()
-    for r in rows:
+    for r in [*rows, *earlier]:
         anchors[(r["dataset"], r["arm"])] += r["reads_anchor"]
     problems += [
         f"{arm} on {ds}: {n} anchor reads (limit {MAX_ANCHOR_READS})"
@@ -208,16 +258,26 @@ def tuning_best(rows: list[dict]) -> list[dict]:
     return out
 
 
-def export(runs_dir: Path, out_dir: Path) -> list[str]:
-    """Write one CSV per batch, overview.csv and, after tuning, tuning_best.csv; return any
-    test-access problems."""
-    rows = [_row(p.parent) for p in sorted(runs_dir.glob("*/*/config.json"))]
-    flag_slow_epochs(rows)
-    for batch in sorted({r["batch"] for r in rows}):
-        write_csv(out_dir / f"{batch}.csv", [r for r in rows if r["batch"] == batch])
+def summarize(out_dir: Path, earlier: Sequence[Path] = ()) -> list[str]:
+    """Write overview.csv and, after tuning, tuning_best.csv from the batch files in
+    `out_dir`; return any test-access problems. `earlier` are directories of batch files
+    exported from another machine (see `access_problems`)."""
+    rows = read_batch_files(out_dir)
+    earlier_rows = [r for directory in earlier for r in read_batch_files(directory)]
     if rows:
         write_csv(out_dir / "overview.csv", _overview(rows))
     best = tuning_best(rows)
     if best:
         write_csv(out_dir / "tuning_best.csv", best)
-    return access_problems(rows)
+    return access_problems(rows, earlier_rows)
+
+
+def export(runs_dir: Path, out_dir: Path, earlier: Sequence[Path] = ()) -> list[str]:
+    """Write one CSV per batch in `runs_dir`, then the summaries (`summarize`); return any
+    test-access problems."""
+    rows = [_row(p.parent) for p in sorted(runs_dir.glob("*/*/config.json"))]
+    flag_slow_epochs(rows)
+    for batch in sorted({r["batch"] for r in rows}):
+        write_csv(out_dir / f"{batch}.csv", [r for r in rows if r["batch"] == batch])
+    out_dir.mkdir(parents=True, exist_ok=True)  # no run yet: nothing to summarise, no error
+    return summarize(out_dir, earlier)

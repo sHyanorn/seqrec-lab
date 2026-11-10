@@ -139,3 +139,15 @@ def test_a_second_instance_exits_at_once(machine):
     start()
     time.sleep(0.3)
     assert start().wait(timeout=3) == 0
+
+
+def test_a_new_instance_takes_over_as_soon_as_the_old_one_is_killed(machine):
+    """The lock must die with the watchdog, not live on in the sleep it was waiting for."""
+    tmp, start = machine
+    old = start(CHECK_SECONDS="5")
+    time.sleep(0.5)
+    old.terminate()
+    old.wait(timeout=3)
+    new = start(CHECK_SECONDS="5")
+    time.sleep(0.5)
+    assert new.poll() is None

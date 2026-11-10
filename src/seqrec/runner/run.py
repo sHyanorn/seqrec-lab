@@ -495,8 +495,17 @@ def anchor_reads(runs_dir: Path, dataset: str, arm: str) -> int:
     return total
 
 
-def test_run(cfg: RunConfig, runs_dir: Path, data_dir: Path, device: torch.device, log=print):
-    """Read test data once for a trained final or anchor run and write test.json."""
+def test_run(
+    cfg: RunConfig,
+    runs_dir: Path,
+    data_dir: Path,
+    device: torch.device,
+    log=print,
+    earlier_anchor_reads: int = 0,
+):
+    """Read test data once for a trained final or anchor run and write test.json.
+    `earlier_anchor_reads` are the anchor reads of this dataset and arm made on another
+    machine; they count toward the limit."""
     if cfg.phase not in ("final", "anchor"):
         raise TestRefused("only final and anchor runs are tested")
     run_dir = run_dir_of(cfg, runs_dir)
@@ -506,7 +515,8 @@ def test_run(cfg: RunConfig, runs_dir: Path, data_dir: Path, device: torch.devic
     summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
     if summary["status"] != "trained":
         raise RuntimeError(f"{cfg.run_id} has no checkpoint ({summary['status']})")
-    if cfg.phase == "anchor" and anchor_reads(runs_dir, cfg.dataset, cfg.arm) >= MAX_ANCHOR_READS:
+    used = anchor_reads(runs_dir, cfg.dataset, cfg.arm) + earlier_anchor_reads
+    if cfg.phase == "anchor" and used >= MAX_ANCHOR_READS:
         raise TestRefused(f"{cfg.arm} on {cfg.dataset} used its {MAX_ANCHOR_READS} anchor reads")
 
     access_log = run_dir / "test_access.jsonl"

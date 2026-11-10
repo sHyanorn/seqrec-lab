@@ -11,6 +11,10 @@ import torch
 
 from seqrec.data.registry import DATASETS
 
+# Batch files exported from another machine. Their anchor reads count toward the limit of
+# METHODS 11.5; their runs stay out of the summaries of results/runs.
+EARLIER_EXPORTS = [Path("results/laptop")]
+
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="seqrec")
@@ -33,6 +37,8 @@ def main(argv=None) -> int:
         cmd.add_argument("--runs-dir", type=Path, default=Path("runs"))
         cmd.add_argument("--data-dir", type=Path, default=Path("data"))
         cmd.add_argument("--device", default=None)
+        if name == "test":
+            _earlier_exports(cmd)
 
     seeds = sub.add_parser("seeds", help="seed count from pilot validation scores (METHODS 7.5)")
     seeds.add_argument(
@@ -70,6 +76,13 @@ def main(argv=None) -> int:
     exp = sub.add_parser("export", help="aggregate finished runs into results/runs")
     exp.add_argument("--runs-dir", type=Path, default=Path("runs"))
     exp.add_argument("--out-dir", type=Path, default=Path("results/runs"))
+    exp.add_argument(
+        "--summaries-only",
+        action="store_true",
+        help="read no run directories; rewrite overview.csv and tuning_best.csv from the "
+        "batch files in the output directory",
+    )
+    _earlier_exports(exp)
 
     args = parser.parse_args(argv)
     if args.command == "data":
@@ -83,7 +96,8 @@ def main(argv=None) -> int:
 
         device = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
         step = {"run": run_batch, "test": test_batch, "tune": tune_batch}[args.command]
-        failed = step(args.plan, args.runs_dir, args.data_dir, device)
+        more = {"earlier": args.earlier_exports} if args.command == "test" else {}
+        failed = step(args.plan, args.runs_dir, args.data_dir, device, **more)
         return 1 if failed else 0
     if args.command in ("seeds", "anchors", "budget"):
         from seqrec.analysis.power import IncompleteRerun
@@ -94,12 +108,26 @@ def main(argv=None) -> int:
             print(f"[{args.command}] {e}", file=sys.stderr)
             return 1
         return 0
-    from seqrec.runner.export import export
+    from seqrec.runner.export import export, summarize
 
-    problems = export(args.runs_dir, args.out_dir)
+    if args.summaries_only:
+        problems = summarize(args.out_dir, args.earlier_exports)
+    else:
+        problems = export(args.runs_dir, args.out_dir, args.earlier_exports)
     for p in problems:
         print(f"[export] {p}", file=sys.stderr)
     return 1 if problems else 0
+
+
+def _earlier_exports(cmd: argparse.ArgumentParser) -> None:
+    cmd.add_argument(
+        "--earlier-exports",
+        type=Path,
+        nargs="*",
+        default=EARLIER_EXPORTS,
+        help="directories of batch files exported from another machine, whose anchor reads "
+        "count toward the limit (default: results/laptop; give no directory for none)",
+    )
 
 
 def _analysis(args) -> str:

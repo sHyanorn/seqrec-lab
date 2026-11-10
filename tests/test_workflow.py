@@ -13,13 +13,20 @@ JOB = BATCH["jobs"]["batch"]
 STEPS = {s["name"]: s for s in JOB["steps"] if "name" in s}
 
 
-def test_a_workflow_that_uses_the_machine_starts_by_hand_only():
-    """A push or pull-request trigger would let a stranger's code run as root on the machine."""
+HOSTED = re.compile(r"(ubuntu|windows|macos)-[a-z0-9.-]+")
+
+
+def test_a_workflow_that_can_reach_the_machine_starts_by_hand_only():
+    """A push or pull-request trigger would let a stranger's code run as root on the machine.
+    Any job not on a GitHub-hosted image counts as able to reach it."""
     for path in WORKFLOWS.glob("*.y*ml"):
-        text = path.read_text(encoding="utf-8")
-        if "self-hosted" in text:
-            triggers = yaml.safe_load(text)[True]  # YAML reads the key `on` as True
-            assert list(triggers) == ["workflow_dispatch"], path.name
+        workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
+        hosted = all(
+            isinstance(job.get("runs-on"), str) and HOSTED.fullmatch(job["runs-on"])
+            for job in workflow["jobs"].values()
+        )
+        if not hosted:  # YAML reads the key `on` as True
+            assert list(workflow[True]) == ["workflow_dispatch"], path.name
 
 
 def test_the_job_runs_on_the_one_machine_and_from_main_only():
@@ -61,3 +68,14 @@ def test_the_export_task_exports_and_commits_without_running_the_plan():
 def test_the_machine_is_asked_to_stop_whatever_happened():
     assert STEPS["Request stop"]["if"] == "always() && inputs.stop"
     assert JOB["steps"][-1]["name"] == "Request stop"
+
+
+def test_results_are_committed_through_the_tested_step():
+    assert STEPS["Commit results"]["run"].strip() == "bash scripts/cloud/batch_steps.sh results"
+
+
+def test_the_watchdog_is_checked_and_the_export_is_fresh():
+    names = [s.get("name") for s in JOB["steps"]]
+    assert STEPS["Watchdog"]["run"].strip() == "bash scripts/cloud/batch_steps.sh watchdog-running"
+    assert names.index("Watchdog") < names.index("Sync")
+    assert STEPS["Export"]["run"].strip() == "bash scripts/cloud/batch_steps.sh export"

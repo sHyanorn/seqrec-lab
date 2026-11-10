@@ -981,3 +981,165 @@ def test_releasing_device_memory_empties_the_cuda_cache_only(monkeypatch):
     assert emptied == []
     run_mod.release_device_memory(torch.device("cuda"))
     assert emptied == [True]
+
+
+# --- summaries from batch files; anchor reads made on another machine ----------------------
+
+
+def _batch_file(directory, batch, rows):
+    from seqrec.data.stats import write_csv
+
+    reads = {"reads_final": 0, "reads_anchor": 0, "reads_completed": 0}
+    write_csv(directory / f"{batch}.csv", [reads | r | {"batch": batch} for r in rows])
+
+
+def _read_csv(path):
+    import csv
+
+    with path.open(encoding="utf-8") as f:
+        return list(csv.DictReader(f))
+
+
+def test_summaries_cover_batch_files_exported_from_another_volume(workspace):
+    """A machine holds only its own run directories; the batch files hold every machine's."""
+    runs, data = workspace
+    out = runs.parent / "results"
+    run_mod.execute(_cfg("tune", tag="sigma"), runs, data, CPU, **QUIET)
+    assert export(runs, out) == []
+    other = runs.parent / "other-volume"
+    run_mod.execute(_cfg("tune", batch="c", tag="sigma"), other, data, CPU, **QUIET)
+    assert export(other, out) == []
+    assert [r["batch"] for r in _read_csv(out / "overview.csv")] == ["b", "c"]
+    assert len(_read_csv(out / "b.csv")) == 1  # left as the first export wrote it
+
+
+def test_summaries_from_files_equal_summaries_from_the_rows_written(tmp_path):
+    """Values come back from a CSV as text: "False" must not count as truncated, a missing
+    stop reason must count as unfinished, and scores must compare as numbers."""
+    from seqrec.runner.export import _overview, summarize, tuning_best
+
+    rows = [
+        _trial_row("t00", 0.9, stop="pruned"),
+        _trial_row("t01", 0.25),
+        _trial_row("t02", 0.1234567891234, stop="max_epochs", truncated=True),
+        _trial_row("t03", None, stop=None, status="failed", truncated=None),
+        _trial_row("t10", 0.3),
+    ]
+    _batch_file(tmp_path, "t", rows)
+    assert summarize(tmp_path) == []
+    overview, best = _read_csv(tmp_path / "overview.csv"), _read_csv(tmp_path / "tuning_best.csv")
+    assert overview == [{k: "" if v is None else str(v) for k, v in _overview(rows)[0].items()}]
+    assert best == [{k: "" if v is None else str(v) for k, v in tuning_best(rows)[0].items()}]
+    assert overview[0]["truncated"] == "1" and overview[0]["stopped"] == "3"
+    assert best[0]["best_run_id"] == "r-t10" and best[0]["failed_or_unfinished"] == "1"
+
+
+def test_a_file_that_is_not_its_batch_is_refused(tmp_path):
+    from seqrec.runner.export import summarize
+
+    _batch_file(tmp_path, "t", [_trial_row("t00", 0.2)])
+    (tmp_path / "renamed.csv").write_text((tmp_path / "t.csv").read_text())
+    with pytest.raises(ValueError, match=r"renamed\.csv"):
+        summarize(tmp_path)
+    (tmp_path / "renamed.csv").write_text("dataset,users\nml-1m,6040\n")
+    with pytest.raises(ValueError, match=r"renamed\.csv"):
+        summarize(tmp_path)
+
+
+def test_summaries_alone_through_cli(tmp_path):
+    _batch_file(tmp_path, "t", [_trial_row("t00", 0.2)])
+    (tmp_path / "overview.csv").write_text("batch\nstale\n")
+    args = ["export", "--summaries-only", "--out-dir", str(tmp_path), "--earlier-exports"]
+    assert cli_main(args) == 0
+    assert [r["batch"] for r in _read_csv(tmp_path / "overview.csv")] == ["t"]
+    assert (tmp_path / "tuning_best.csv").exists()
+
+
+def _anchor_export(directory, n, arm="pop"):
+    row = _trial_row("r1", 0.2) | {"arm": arm, "phase": "anchor", "status": "tested"}
+    _batch_file(directory, "m", [row | {"reads_anchor": n, "reads_completed": n}])
+    return directory
+
+
+def test_anchor_reads_exported_from_another_machine_count_toward_the_limit(workspace):
+    """METHODS 11.5 allows 3 reads per arm, wherever they were made."""
+    from seqrec.runner.batch import test_batch
+
+    runs, data = workspace
+    earlier = _anchor_export(runs.parent / "laptop", 1)
+    plan = runs.parent / "anchor.toml"
+    plan.write_text(
+        'batch = "b"\n[defaults]\ndataset = "ml-1m"\nsplit = "loo"\nphase = "anchor"\n'
+        "max_epochs = 50\npatience = 3\n"
+        '[[runs]]\narm = "pop"\nseeds = [1]\ntag = "a"\n'
+        '[[runs]]\narm = "pop"\nseeds = [1]\ntag = "b"\n'
+        '[[runs]]\narm = "pop"\nseeds = [1]\ntag = "c"\n',
+        encoding="utf-8",
+    )
+    for tag in "abc":
+        run_mod.execute(_cfg("anchor", tag=tag), runs, data, CPU, **QUIET)
+    refused = test_batch(plan, runs, data, CPU, earlier=[earlier], **QUIET)
+    assert refused == [_cfg("anchor", tag="c").run_id]  # the laptop's read and two here
+    assert not (runs / "b" / _cfg("anchor", tag="c").run_id / "test_access.jsonl").exists()
+    assert export(runs, runs.parent / "results", earlier=[earlier]) == []
+    other_arm = _anchor_export(runs.parent / "other", 3, arm="sasrec-ce")
+    assert test_batch(plan, runs, data, CPU, earlier=[other_arm], **QUIET) == []
+
+
+def test_export_reports_anchor_reads_over_the_limit_across_machines(workspace):
+    runs, data = workspace
+    for tag in "abc":
+        cfg = _cfg("anchor", tag=tag)
+        run_mod.execute(cfg, runs, data, CPU, **QUIET)
+        run_mod.test_run(cfg, runs, data, CPU, **QUIET)
+    out = runs.parent / "results"
+    assert export(runs, out) == []
+    earlier = _anchor_export(runs.parent / "laptop", 1)
+    assert export(runs, out, earlier=[earlier]) == ["pop on ml-1m: 4 anchor reads (limit 3)"]
+
+
+def test_a_missing_directory_of_earlier_exports_stops_before_any_read(workspace):
+    """Counting a directory that is not there as zero reads would lift the limit unnoticed."""
+    from seqrec.runner.batch import test_batch
+
+    runs, data = workspace
+    run_mod.execute(_cfg("anchor", tag="a"), runs, data, CPU, **QUIET)
+    plan = runs.parent / "anchor.toml"
+    plan.write_text(
+        'batch = "b"\n[defaults]\ndataset = "ml-1m"\nsplit = "loo"\nphase = "anchor"\n'
+        'max_epochs = 50\npatience = 3\n[[runs]]\narm = "pop"\nseeds = [1]\ntag = "a"\n',
+        encoding="utf-8",
+    )
+    missing = runs.parent / "nowhere"
+    with pytest.raises(FileNotFoundError, match="nowhere"):
+        test_batch(plan, runs, data, CPU, earlier=[missing], **QUIET)
+    assert not (runs / "b" / _cfg("anchor", tag="a").run_id / "test_access.jsonl").exists()
+    with pytest.raises(FileNotFoundError, match="nowhere"):
+        export(runs, runs.parent / "results", earlier=[missing])
+    args = ["--runs-dir", str(runs), "--data-dir", str(data), "--device", "cpu"]
+    with pytest.raises(FileNotFoundError, match="nowhere"):
+        cli_main(["test", str(plan), *args, "--earlier-exports", str(missing)])
+
+
+def test_the_cli_counts_the_laptop_exports_unless_told_otherwise():
+    """The default must be the committed directory: `seqrec test` in the workflow names none."""
+    from pathlib import Path
+
+    from seqrec.cli import EARLIER_EXPORTS
+    from seqrec.runner.export import read_batch_files
+
+    root = Path(__file__).resolve().parents[1]
+    assert EARLIER_EXPORTS == [Path("results/laptop")]
+    rows = read_batch_files(root / "results/laptop")
+    reads = {(r["dataset"], r["arm"]): r["reads_anchor"] for r in rows if r["phase"] == "anchor"}
+    assert reads and set(reads.values()) == {1}
+
+
+def test_export_before_any_run_exists_writes_nothing_and_reports_nothing(tmp_path):
+    """The workflow exports before a plan starts, on a new volume too."""
+    out = tmp_path / "results"
+    assert export(tmp_path / "runs", out) == []
+    assert list(out.glob("*.csv")) == []
+    assert cli_main(["export", "--runs-dir", str(tmp_path / "runs"), "--out-dir", str(out)]) == 0
+    with pytest.raises(FileNotFoundError):  # a mistyped directory is not an empty one
+        cli_main(["export", "--summaries-only", "--out-dir", str(tmp_path / "typo")])

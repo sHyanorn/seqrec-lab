@@ -477,3 +477,105 @@ def test_commit_with_push_dry_run_leaves_the_remote_alone(clone):
                    env={"PUSH_DRY_RUN": "1"})  # fmt: skip
     assert result.returncode == 0, result.stderr
     assert log(origin).endswith("feat: first")
+
+
+# --- results: the batch file and the summaries --------------------------------------------
+
+# Stands in for `seqrec export --summaries-only --out-dir DIR`: the "summary" lists the batch
+# files it found in DIR, which shows where and from what it was computed.
+SUMMARIZE = (
+    'echo "$@" >> {0}/uv-args; [ -z "${{UV_FAIL:-}}" ] || exit 1; '
+    'dir="${{@: -1}}"; (cd "$dir" && ls | grep -v overview > overview.csv)'
+)
+
+
+def results_env(work):
+    plans = work / "configs" / "plans"
+    plans.mkdir(parents=True)
+    (plans / "b1.toml").write_text('batch = "b1"\n', encoding="utf-8")
+    (work / "results/runs/b1.csv").write_text("run_id,x\nr1,v2\n", encoding="utf-8")
+    return {"TASK": "run", "PLAN": "b1.toml"}
+
+
+def test_results_commits_the_batch_file_and_summaries_of_all_batch_files_on_main(clone, tmp_path):
+    work, other, origin = clone
+    fake(tmp_path / "bin", "uv", SUMMARIZE.format(tmp_path))
+    push(other, "results/runs/b3.csv", "run_id,x\nr1,v1\n", "chore(results): another batch")
+    (work / "results/runs/overview.csv").write_text("from this checkout\n", encoding="utf-8")
+    result = steps("results", cwd=work, env=results_env(work), path_prefix=tmp_path / "bin")
+    assert result.returncode == 0, result.stderr
+    assert log(origin, "%s") == "chore(results): add run b1 results"
+    names = subprocess.run(
+        ["git", "show", "--name-only", "--format=", "main"],
+        cwd=origin, capture_output=True, text=True,
+    )  # fmt: skip
+    assert names.stdout.split() == ["results/runs/b1.csv", "results/runs/overview.csv"]
+    shown = subprocess.run(
+        ["git", "show", "main:results/runs/overview.csv"],
+        cwd=origin,
+        capture_output=True,
+        text=True,
+    )
+    assert shown.stdout.split() == ["b1.csv", "b2.csv", "b3.csv"]  # b3 is not in this checkout
+    args = (tmp_path / "uv-args").read_text(encoding="utf-8").split()
+    assert args[:6] == ["run", "--no-sync", "seqrec", "export", "--summaries-only", "--out-dir"]
+    assert args[6].endswith("/main/results/runs") and not args[6].startswith(str(work))
+
+
+def test_results_pushes_nothing_when_the_summaries_fail(clone, tmp_path):
+    """`seqrec export` exits 1 on a test-access problem, e.g. too many anchor reads."""
+    work, _, origin = clone
+    fake(tmp_path / "bin", "uv", SUMMARIZE.format(tmp_path))
+    env = results_env(work) | {"UV_FAIL": "1"}
+    result = steps("results", cwd=work, env=env, path_prefix=tmp_path / "bin")
+    assert result.returncode == 1
+    assert "summaries" in result.stderr
+    assert log(origin).endswith("feat: first")
+
+
+def test_results_needs_the_batch_file_of_the_plan(clone, tmp_path):
+    work, _, origin = clone
+    fake(tmp_path / "bin", "uv", SUMMARIZE.format(tmp_path))
+    env = results_env(work)
+    (work / "results/runs/b1.csv").unlink()
+    result = steps("results", cwd=work, env=env, path_prefix=tmp_path / "bin")
+    assert result.returncode == 1
+    assert "does not exist" in result.stderr
+    assert steps("results", cwd=work, env=env | {"PLAN": "../b1.toml"}).returncode == 1
+    assert log(origin).endswith("feat: first")
+
+
+# --- watchdog-running and export ----------------------------------------------------------
+
+
+def test_a_job_refuses_a_machine_whose_watchdog_is_not_running(tmp_path):
+    """Without the watchdog nothing stops the machine; it holds this lock while it runs."""
+    env = {"POD_START_LOCK": str(tmp_path / "lock")}
+    result = steps("watchdog-running", env=env)
+    assert result.returncode == 1
+    assert "watchdog" in result.stderr
+    holder = subprocess.Popen(["flock", str(tmp_path / "lock"), "sleep", "5"])
+    try:
+        import time
+
+        time.sleep(0.3)
+        assert steps("watchdog-running", env=env).returncode == 0
+    finally:
+        holder.kill()
+
+
+def test_export_leaves_only_a_batch_file_written_from_this_machine(clone, tmp_path):
+    """A file that came with the checkout must not pass for this machine's export."""
+    work, _, _ = clone
+    env = results_env(work) | {"SEQREC_HOME": str(tmp_path / "home")}
+    fake(tmp_path / "bin", "uv", f'echo "$@" > {tmp_path}/uv-args')  # writes no batch file
+    result = steps("export", cwd=work, env=env, path_prefix=tmp_path / "bin")
+    assert result.returncode == 1
+    assert "no run of b1" in result.stderr
+    assert (tmp_path / "uv-args").read_text(encoding="utf-8").split() == [
+        "run", "--no-sync", "seqrec", "export", "--runs-dir", f"{tmp_path}/home/runs",
+    ]  # fmt: skip
+    fake(tmp_path / "bin", "uv", "echo run_id > results/runs/b1.csv")
+    assert steps("export", cwd=work, env=env, path_prefix=tmp_path / "bin").returncode == 0
+    fake(tmp_path / "bin", "uv", "echo run_id > results/runs/b1.csv; exit 1")
+    assert steps("export", cwd=work, env=env, path_prefix=tmp_path / "bin").returncode == 1

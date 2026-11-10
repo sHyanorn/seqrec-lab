@@ -59,11 +59,12 @@ jobs:
       - name: Claim the machine
         run: |
           rm -f "$STOP_REQUEST" # a request left by the job before this one
-          pgrep -f pod_start.sh > /dev/null || { echo "the watchdog is not running: nothing would stop this machine"; exit 1; }
           echo "$SEQREC_HOME/bin" >> "$GITHUB_PATH"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false # the token is given to single steps, never to the code under test
+      - name: Watchdog
+        run: bash scripts/cloud/batch_steps.sh watchdog-running
       - name: Check inputs
         run: bash scripts/cloud/batch_steps.sh check-inputs
       - name: Sync
@@ -121,17 +122,14 @@ jobs:
       - name: Export
         if: steps.plan.outcome == 'success' || inputs.task == 'export'
         timeout-minutes: 30
-        run: uv run --no-sync seqrec export --runs-dir "$SEQREC_HOME/runs"
-      # Only this batch's file: overview.csv and tuning_best.csv cover whatever is on this
-      # machine's volume, not what is in the repository.
+        run: bash scripts/cloud/batch_steps.sh export
+      # This batch's file, and the summaries computed from every batch file on main.
       - name: Commit results
         if: steps.plan.outcome == 'success' || inputs.task == 'export'
         timeout-minutes: 10
         env:
           GH_TOKEN: ${{ github.token }}
-        run: >
-          bash scripts/cloud/batch_steps.sh commit
-          "chore(results): add $TASK ${PLAN%.toml} results" "results/runs/${PLAN%.toml}.csv"
+        run: bash scripts/cloud/batch_steps.sh results
       - name: Report end
         if: always()
         env:

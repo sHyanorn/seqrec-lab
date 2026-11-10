@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Steps of the batch workflow (.github/workflows/batch.yml). Inputs arrive as environment
 # variables and are checked here before anything uses them.
-#   check-inputs | status STATE TEXT | plan | profile | data-unchanged | commit MESSAGE PATH...
+#   watchdog-running | check-inputs | status STATE TEXT | plan | profile | data-unchanged |
+#   export | results |
+#   commit MESSAGE PATH...
 set -euo pipefail
 
 DATASETS="ml-1m ml-20m steam video-games"
@@ -144,7 +146,9 @@ data_unchanged() {
 
 # Put the named paths, and only those, on top of main as it is now and push. Each file
 # replaces main's version whole; a CSV that lacks rows main has is refused, so a batch
-# exported on another machine cannot be dropped.
+# exported on another machine cannot be dropped. With `summaries` set to a directory of batch
+# files, its overview.csv and tuning_best.csv are computed in the tree that is pushed, from
+# every batch file main has at that moment, and committed too.
 commit() {
     local message=$1 path lost
     shift
@@ -170,7 +174,11 @@ commit() {
                 mkdir -p "$(dirname "$tree/main/$path")"
                 cp -rT "$path" "$tree/main/$path"
             done
-            git -C "$tree/main" add -- "$@"
+            if [ -n "${summaries:-}" ]; then
+                uv run --no-sync seqrec export --summaries-only --out-dir "$tree/main/$summaries" ||
+                    die "commit: the summaries of $summaries could not be computed"
+            fi
+            git -C "$tree/main" add -- "$@" ${summaries:+"$summaries"}
             if git -C "$tree/main" diff --cached --quiet; then
                 echo "nothing to commit"
                 return 0
@@ -185,12 +193,39 @@ commit() {
     die "commit: push failed"
 }
 
+# pod_start.sh holds this lock for as long as it runs; without it nothing stops the machine.
+watchdog_running() {
+    if flock -n "${POD_START_LOCK:-/run/seqrec-pod-start.lock}" true; then
+        die "the watchdog is not running: nothing would stop this machine"
+    fi
+}
+
+# Export the volume. The plan's batch file must come out of it: a copy that came with the
+# checkout is removed first, so it cannot be committed as this machine's result.
+export_batch() {
+    local batch
+    batch=$(plan_batch)
+    rm -f "results/runs/$batch.csv"
+    uv run --no-sync seqrec export --runs-dir "$SEQREC_HOME/runs"
+    [ -f "results/runs/$batch.csv" ] || die "export: no run of $batch on this machine"
+}
+
+# The plan's batch file and the summaries of results/runs.
+results() {
+    local batch summaries=results/runs
+    batch=$(plan_batch)
+    commit "chore(results): add $TASK $batch results" "$summaries/$batch.csv"
+}
+
 case "${1:-}" in
     check-inputs) check_inputs ;;
     status) status "$2" "$3" ;;
     plan) plan ;;
     profile) profile ;;
     data-unchanged) data_unchanged ;;
+    watchdog-running) watchdog_running ;;
+    export) export_batch ;;
+    results) results ;;
     commit) shift && commit "$@" ;;
-    *) die "usage: batch_steps.sh check-inputs|status|plan|profile|data-unchanged|commit" ;;
+    *) die "usage: batch_steps.sh watchdog-running|check-inputs|status|plan|profile|data-unchanged|export|results|commit" ;;
 esac

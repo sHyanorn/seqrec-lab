@@ -12,6 +12,7 @@ HOME_DIR=/workspace/seqrec
 RUNNER_DIR=/workspace/actions-runner
 UV_VERSION=0.11.32
 LABEL=gpu # the batch workflow runs on this label
+LOCK=/run/seqrec-pod-start.lock # held by pod_start.sh while it runs
 
 die() {
     echo "$*" >&2
@@ -24,13 +25,20 @@ main() {
     curl -fsSL "$REPO_URL/raw/main/scripts/cloud/pod_start.sh" -o "$HOME_DIR/pod_start.sh.new"
     chmod +x "$HOME_DIR/pod_start.sh.new"
     mv "$HOME_DIR/pod_start.sh.new" "$HOME_DIR/pod_start.sh"
-    pkill -f "$HOME_DIR/pod_start.sh" || true # an older copy; the start command's loop restarts it too
+    for tool in runpodctl pgrep pkill flock timeout tar nvidia-smi; do
+        command -v "$tool" > /dev/null || die "$tool is missing. Stop this machine by hand."
+    done
+    # An older copy of the watchdog, and only that: the start command's loop names the same path.
+    pkill -f "^bash $HOME_DIR/pod_start\.sh\$" || true
     nohup "$HOME_DIR/pod_start.sh" >> "$HOME_DIR/runner.log" 2>&1 < /dev/null &
+    local waited=0
+    while flock -n "$LOCK" true; do # free: no watchdog holds it yet
+        waited=$((waited + 1))
+        [ "$waited" -lt 20 ] || die "the watchdog did not start. Stop this machine by hand."
+        sleep 1
+    done
     echo "Watchdog started: this machine stops itself after 30 minutes without a job."
 
-    for tool in runpodctl pgrep flock timeout tar nvidia-smi; do
-        command -v "$tool" > /dev/null || die "$tool is missing"
-    done
     [ -n "$(tr '\0' '\n' < /proc/1/environ | sed -n 's/^RUNPOD_POD_ID=//p')" ] ||
         die "RUNPOD_POD_ID is not set: the machine could not stop itself"
     # The loop of the container start command; without it nothing runs after the next start.
