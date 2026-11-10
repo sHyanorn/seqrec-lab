@@ -1,4 +1,8 @@
 batch,dataset,split,arm,phase,tag,runs,unfinished_or_failed,pruned,diverged,stopped,truncated,truncated_share,gpu_hours
+m2-anchor,ml-1m,loo,bert4rec,anchor,r1,1,0,0,0,1,1,1.0,0.014
+m2-anchor,ml-1m,loo,gsasrec,anchor,r1,1,0,0,0,1,0,0.0,0.055
+m2-anchor,ml-1m,loo,sasrec-bce,anchor,r1,1,0,0,0,1,0,0.0,0.006
+m2-anchor,ml-1m,loo,sasrec-ce,anchor,r1,1,0,0,0,1,0,0.0,0.005
 m2-gsasrec,ml-1m,loo,gsasrec,tune,sigma,3,0,0,0,3,0,0.0,0.071
 m2-pilot,ml-1m,loo,bert4rec,tune,sigma,3,0,0,0,3,1,0.333,0.158
 m2-pilot,ml-1m,loo,bert4rec,tune,time-large,1,0,0,0,1,1,1.0,0.001
