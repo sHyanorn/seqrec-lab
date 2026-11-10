@@ -4,9 +4,12 @@ Prints wall time, process CPU time and GPU time (kernels, copies and memsets) pe
 that the share of each step the GPU is busy can be read off. Per-step times are the
 difference between an epoch of n steps and an epoch of one step, divided by n - 1, so the
 fixed cost of an epoch (shuffle, first-batch check, reading the loss) is reported apart as
-`epoch_overhead_ms`. Only full batches are timed. On a GPU it also prints the peaks of memory
-PyTorch allocated and reserved, and how often its allocator asked the driver for memory or
-retried after a failed request (D042). Reads only the training split and writes nothing.
+`epoch_overhead_ms`. Only full batches are timed. With `--epochs` the timed window is that many
+epochs of n steps one after another, and the step time of each is printed as well, so that
+one process can be read at several window lengths (D046). On a GPU it also prints the peaks
+of memory PyTorch allocated and reserved, and how often its allocator asked the driver for
+memory or retried after a failed request (D042). Reads only the training split and writes
+nothing.
 
     uv run python scripts/profile_step.py --dataset steam --arm sasrec-bce
     uv run python scripts/profile_step.py --from-run runs/m2-anchor/gsasrec-ml-1m-loo-s0-r1
@@ -97,6 +100,15 @@ def _wall_cpu(model, train, rows, n: int) -> tuple[float, float, float]:
     return time.perf_counter() - wall, time.process_time() - cpu, loss
 
 
+def cpu_number() -> int | None:
+    """The CPU the calling thread last ran on; None where /proc does not say."""
+    try:
+        stat = Path("/proc/thread-self/stat").read_text()
+    except OSError:
+        return None
+    return int(stat.rsplit(")", 1)[1].split()[36])  # field 39, `processor`
+
+
 def _gpu(model, train, rows, n: int) -> tuple[float, int, bool]:
     """GPU time and events of n steps, and whether the profiler stopped collecting GPU events
     before the steps ended (a full buffer), which leaves both too low."""
@@ -166,9 +178,10 @@ def build(cfg: RunConfig, data_dir: Path, device: torch.device, modes: dict):
 
 def measure(
     cfg: RunConfig, data_dir: Path, device: torch.device, steps: int, warmup: int, repeats=5,
-    modes: dict | None = None, sync_debug: bool = False, log=lambda timing: None,
+    modes: dict | None = None, sync_debug: bool = False, log=lambda timing: None, epochs=1,
 ):  # fmt: skip
-    """`log` receives the timings and memory readings before the profiled pass starts."""
+    """`log` receives the timings and memory readings before the profiled pass starts. The
+    timed window is `epochs` epochs of `steps` steps each."""
     modes = modes or {}
     if modes.get("cuda_graph"):
         prepare_profiler_for_graphs()
@@ -185,12 +198,16 @@ def measure(
     if warmup:  # an epoch over no rows is one empty batch, whose loss is NaN
         _steps(model, splits.train, rows, warmup)
 
-    # The median of several one-step epochs, against one epoch of `steps` steps.
+    # The median of several one-step epochs, against each epoch of `steps` steps.
     one = [_wall_cpu(model, splits.train, rows, 1) for _ in range(repeats)]
     wall_1, cpu_1, _ = (statistics.median(x) for x in zip(*one, strict=True))
-    wall_n, cpu_n, loss = _wall_cpu(model, splits.train, rows, steps)
-    wall_ms = (wall_n - wall_1) * 1000 / (steps - 1)
-    cpu_ms = (cpu_n - cpu_1) * 1000 / (steps - 1)
+    walls, cpus, on_cpu = [], [], []
+    for _ in range(epochs):
+        wall_n, cpu_n, loss = _wall_cpu(model, splits.train, rows, steps)
+        walls.append((wall_n - wall_1) * 1000 / (steps - 1))
+        cpus.append((cpu_n - cpu_1) * 1000 / (steps - 1))
+        on_cpu.append(cpu_number())
+    wall_ms, cpu_ms = statistics.fmean(walls), statistics.fmean(cpus)
     if wall_ms <= 0:
         raise ValueError(f"timing noise exceeds the step time over {steps} steps; use more steps")
 
@@ -198,10 +215,13 @@ def measure(
     result = {
         "device": torch.cuda.get_device_name(device) if device.type == "cuda" else "cpu",
         "dataset": cfg.dataset, "arm": cfg.arm, "params": cfg.params, "steps": steps,
+        "epochs": epochs,
         "modes": [m for m in MODES if modes.get(m)], "loss": loss,
         "wall_ms_per_step": round(wall_ms, 6),  # to the nanosecond: spreads are held to 5% (D046)
         "cpu_ms_per_step": round(cpu_ms, 6),
         "epoch_overhead_ms": round(wall_1 * 1000 - wall_ms, 3),
+        "wall_ms_per_step_by_epoch": [round(x, 6) for x in walls],
+        "cpu_by_epoch": on_cpu,  # where the main thread was after each epoch
     } | memory_readings(stats)  # fmt: skip
     log(result)
     result |= gpu_readings(model, splits.train, rows, steps, repeats, wall_ms, device)
@@ -318,6 +338,7 @@ def main(argv=None) -> int:
     parser.add_argument("--arm")
     parser.add_argument("--params", help="JSON, e.g. '{\"dim\": 256}'")
     parser.add_argument("--steps", type=int, default=200, help="at least 2")
+    parser.add_argument("--epochs", type=int, default=1, help="timed epochs of --steps steps")
     parser.add_argument("--warmup", type=int, default=20)
     parser.add_argument("--data-dir", type=Path, default=Path("data"))
     parser.add_argument("--device", default=None)
@@ -331,6 +352,8 @@ def main(argv=None) -> int:
         parser.error("--cuda-graph needs --fixed-shapes")
     if args.steps < 2:
         parser.error("--steps must be at least 2")
+    if args.epochs < 1:
+        parser.error("--epochs must be at least 1")
     if args.warmup < 0:
         parser.error("--warmup must be 0 or more")
     given = [f for f in ("dataset", "arm", "params") if getattr(args, f) is not None]
@@ -349,8 +372,10 @@ def main(argv=None) -> int:
         if args.check:
             print(json.dumps(check(cfg, args.data_dir, device, modes)))
             return 0
-        result = measure(cfg, args.data_dir, device, args.steps, args.warmup, modes=modes,
-                         sync_debug=args.sync_debug, log=_print_timing)  # fmt: skip
+        result = measure(
+            cfg, args.data_dir, device, args.steps, args.warmup, modes=modes,
+            sync_debug=args.sync_debug, log=_print_timing, epochs=args.epochs,
+        )  # fmt: skip
     except ValueError as error:
         parser.error(str(error))
     print(f"steps {result['steps']}")

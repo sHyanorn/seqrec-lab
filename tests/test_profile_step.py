@@ -222,6 +222,33 @@ def test_a_non_finite_loss_stops_the_measurement(tmp_path, monkeypatch):
     load_splits.cache_clear()
 
 
+def test_a_window_of_several_epochs_gives_the_step_time_of_each(tmp_path, monkeypatch, capsys):
+    """One process is read at several window lengths (D046): its timing line lists the step
+    time of every epoch of the window, and the CPU the main thread was on after each."""
+    data, cfg = _scripted(tmp_path, monkeypatch)
+    per_step = iter([0.003, 0.004, 0.005])  # seconds, in the three timed epochs
+    cpus = iter([4, 4, 7])
+
+    def wall_cpu(model, train, rows, n):
+        return 0.01 + n * (0.003 if n == 1 else next(per_step)), 0.0, 0.5
+
+    monkeypatch.setattr(profile_step, "_wall_cpu", wall_cpu)
+    monkeypatch.setattr(profile_step, "cpu_number", lambda: next(cpus))
+    result = profile_step.measure(cfg, data, torch.device("cpu"), steps=3, warmup=0, epochs=3)
+    assert result["wall_ms_per_step_by_epoch"] == pytest.approx([3.0, 4.5, 6.0], abs=1e-6)
+    assert result["wall_ms_per_step"] == pytest.approx(4.5, abs=1e-6)
+    assert (result["steps"], result["epochs"], result["cpu_by_epoch"]) == (3, 3, [4, 4, 7])
+    args = ["--dataset", "ml-1m", "--arm", "scripted", "--steps", "3", "--warmup", "0"]
+    with pytest.raises(SystemExit):
+        profile_step.main([*args, "--data-dir", str(data), "--device", "cpu", "--epochs", "0"])
+    load_splits.cache_clear()
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="reads /proc")
+def test_the_cpu_number_is_one_the_thread_may_run_on():
+    assert profile_step.cpu_number() in os.sched_getaffinity(0)
+
+
 def test_timings_are_printed_before_the_profiled_pass(tmp_path, monkeypatch, capsys):
     """The profiled pass can end the process under a CUDA graph; the timings must be out."""
     data, _ = _scripted(tmp_path, monkeypatch)

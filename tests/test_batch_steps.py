@@ -99,6 +99,7 @@ def test_hours_outside_1_to_22_are_rejected(hours):
     [
         "--dataset steam --arm sasrec-bce",
         "--dataset ml-1m --arm gsasrec --steps 400 --warmup 0",
+        "--dataset ml-1m --arm gsasrec --steps 47 --epochs 400",
         "--dataset steam --arm sasrec-ce --fixed-shapes --fused-adam --cuda-graph --sync-debug",
         "  --dataset   ml-20m --arm bert4rec --check ",
     ],
@@ -117,6 +118,7 @@ def test_profile_arguments_the_script_knows_are_accepted(args):
         "--dataset nope --arm sasrec-bce",
         "--dataset steam --arm sasrec-bce --steps many",
         "--dataset steam --arm sasrec-bce --steps",
+        "--dataset steam --arm sasrec-bce --epochs many",
         "--dataset steam --arm sasrec-bce --device cpu",
         "--dataset steam --arm sasrec-bce --data-dir /etc",
         "--dataset steam --arm sasrec-bce --params {}",

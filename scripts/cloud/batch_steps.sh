@@ -38,7 +38,7 @@ profile_args() {
                 [[ "$value" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]] || die "profile_args: not an arm name"
                 arm=$value i=$((i + 1))
                 ;;
-            --steps | --warmup)
+            --steps | --warmup | --epochs)
                 [[ "$value" =~ ^[0-9]{1,6}$ ]] || die "profile_args: $word needs a number"
                 i=$((i + 1))
                 ;;
