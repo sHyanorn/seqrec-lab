@@ -116,7 +116,7 @@ def _storage(runs_dir: Path, batch: str) -> str:
 
 
 def unfinished_studies(studies: list[Study], runs_dir: Path) -> list[str]:
-    """Studies short of their trial budget or with a trial still running. Creates nothing."""
+    """Studies short of their trial budget or with a trial still running. Creates no database."""
     out = []
     for study in studies:
         trials = []
@@ -130,7 +130,10 @@ def unfinished_studies(studies: list[Study], runs_dir: Path) -> list[str]:
                 pass
         finished = sum(t.state.is_finished() for t in trials)
         if finished < study.trials or finished < len(trials):
-            out.append(f"{study.name} ({finished} of {study.trials} trials finished)")
+            running = len(trials) - finished
+            out.append(
+                f"{study.name} ({finished} of {study.trials} trials finished, {running} running)"
+            )
     return out
 
 

@@ -72,9 +72,14 @@ def _untrained(plan: Plan, runs_dir: Path) -> list[str]:
 def unfinished(plan_path: Path, runs_dir: Path) -> list[str]:
     """What is left of a plan of either kind: runs to train, or studies short of their trial
     budget. An export of the plan's batch is complete only when this is empty."""
-    if "studies" in tomllib.loads(plan_path.read_text(encoding="utf-8-sig")):
+    raw = tomllib.loads(plan_path.read_text(encoding="utf-8-sig"))
+    if "studies" in raw and "runs" in raw:
+        raise ValueError(f"{plan_path.name} has both runs and studies")
+    if "studies" in raw:
         return unfinished_studies(load_tuning_plan(plan_path)[2], runs_dir)
-    return _untrained(load_plan(plan_path), runs_dir)
+    plan = load_plan(plan_path)
+    _check_plan(plan, runs_dir)  # an edited plan is not the plan these runs were trained from
+    return _untrained(plan, runs_dir)
 
 
 def _train(cfg, runs_dir: Path, data_dir: Path, device, log) -> None:

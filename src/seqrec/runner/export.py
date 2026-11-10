@@ -141,10 +141,8 @@ def read_batch_files(directory: Path) -> list[dict]:
         if path.name in SUMMARIES:
             continue
         with path.open(encoding="utf-8", newline="") as f:
-            reader = csv.DictReader(f)
-            if reader.fieldnames is None:
-                raise ValueError(f"{path}: an empty file, not a batch file")
-            for n, raw in enumerate(reader, start=2):
+            n = 1
+            for n, raw in enumerate(csv.DictReader(f), start=2):
                 try:
                     row = {k: raw[k] for k in TEXT}
                     for k, parse in PARSED.items():
@@ -160,6 +158,8 @@ def read_batch_files(directory: Path) -> list[dict]:
                     raise ValueError(f"{path}, line {n}: holds batch {row['batch']!r}")
                 row["stop_reason"] = row["stop_reason"] or None
                 rows.append(row)
+            if n == 1:  # an export writes no file without runs: this one was cut short
+                raise ValueError(f"{path}: no run in it, not a batch file")
     return rows
 
 

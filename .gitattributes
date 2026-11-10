@@ -1,0 +1,2 @@
+# What `write_csv` writes, on every platform.
+*.csv text eol=lf

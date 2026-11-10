@@ -550,18 +550,25 @@ def test_results_needs_the_batch_file_of_the_plan(clone, tmp_path):
 
 def test_a_job_refuses_a_machine_whose_watchdog_is_not_running(tmp_path):
     """Without the watchdog nothing stops the machine; it holds this lock while it runs."""
-    env = {"POD_START_LOCK": str(tmp_path / "lock")}
+    import fcntl
+    import time
+
+    env = {"POD_START_LOCK": str(tmp_path / "lock"), "SEQREC_HOME": str(tmp_path)}
     result = steps("watchdog-running", env=env)
     assert result.returncode == 1
-    assert "watchdog" in result.stderr
-    holder = subprocess.Popen(["flock", str(tmp_path / "lock"), "sleep", "5"])
+    assert "watchdog is not running" in result.stderr
+    with (tmp_path / "lock").open("w") as other:  # held, but not by the watchdog
+        fcntl.flock(other, fcntl.LOCK_EX)
+        result = steps("watchdog-running", env=env)
+    assert result.returncode == 1
+    assert "not by the watchdog" in result.stderr
+    fake(tmp_path, "pod_start.sh", f"exec 9> {tmp_path}/lock; flock 9; sleep 5 9>&-")
+    watchdog = subprocess.Popen([str(tmp_path / "pod_start.sh")])
     try:
-        import time
-
         time.sleep(0.3)
         assert steps("watchdog-running", env=env).returncode == 0
     finally:
-        holder.kill()
+        watchdog.kill()
 
 
 def test_export_leaves_only_a_batch_file_written_from_this_machine(clone, tmp_path):

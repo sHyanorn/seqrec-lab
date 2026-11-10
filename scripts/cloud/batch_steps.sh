@@ -204,6 +204,8 @@ watchdog_running() {
         0) die "the watchdog is not running: nothing would stop this machine" ;;
         *) die "cannot check the watchdog's lock: nothing may be there to stop this machine" ;;
     esac
+    pgrep -f "^bash ${SEQREC_HOME:-/workspace/seqrec}/pod_start\.sh\$" > /dev/null ||
+        die "the lock is held, but not by the watchdog: nothing would stop this machine"
 }
 
 # Export the volume, once every run of the plan is trained or given up: a run that never

@@ -1169,6 +1169,12 @@ def test_export_with_a_plan_refuses_until_every_run_is_trained_or_given_up(works
         except RuntimeError:
             record_failure(lost, "train")
     assert cli_main(export_plan) == 0  # given up counts as finished (D031)
+    plan.write_text(plan.read_text().replace("max_epochs = 6", "max_epochs = 9"))
+    with pytest.raises(run_mod.RunConflict):  # not the plan these runs were trained from
+        cli_main(export_plan)
+    plan.write_text(plan.read_text() + '[[studies]]\narm = "pop"\ntrials = 1\n')
+    with pytest.raises(ValueError, match="both"):
+        cli_main(export_plan)
 
 
 def test_an_earlier_export_without_runs_is_an_error_not_zero_reads(workspace, tmp_path):
@@ -1185,9 +1191,10 @@ def test_an_earlier_export_without_runs_is_an_error_not_zero_reads(workspace, tm
     assert cli_main(["run", *args]) == 0
     with pytest.raises(FileNotFoundError, match="no exported run"):
         cli_main(["test", *args, "--earlier-exports", str(empty)])
-    (empty / "b.csv").write_text("", encoding="utf-8")  # a truncated copy
-    with pytest.raises(ValueError, match="empty"):
-        read_batch_files(empty)
+    for truncated in ("", "\n", "run_id,batch\n"):  # a file cut short, down to its header
+        (empty / "b.csv").write_text(truncated, encoding="utf-8")
+        with pytest.raises(ValueError, match="no run"):
+            read_batch_files(empty)
 
 
 @pytest.mark.parametrize("more", [[], ["--summaries-only"]])
@@ -1200,5 +1207,5 @@ def test_export_reads_the_earlier_exports_it_is_given_and_the_laptop_by_default(
     with pytest.raises(FileNotFoundError, match="elsewhere"):
         cli_main([*export_here, "--earlier-exports", str(tmp_path / "elsewhere")])
     monkeypatch.chdir(tmp_path)  # no results/laptop here
-    with pytest.raises(FileNotFoundError, match="results/laptop"):
+    with pytest.raises(FileNotFoundError, match="laptop"):
         cli_main(export_here)

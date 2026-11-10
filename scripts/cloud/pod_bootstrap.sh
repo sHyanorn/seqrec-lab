@@ -55,7 +55,7 @@ main() {
         command -v "$tool" > /dev/null || die "$tool is missing"
     done
     # The loop of the container start command; without it nothing runs after the next start.
-    pgrep -f 'while true; do \[ -x /workspace/seqrec/pod_start.sh' > /dev/null ||
+    pgrep -f "while true; do \[ -x $HOME_DIR/pod_start.sh" > /dev/null ||
         die "the container start command is not set as documented: stop this machine and fix it"
     driver=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -1)
     echo "GPU: $(nvidia-smi --query-gpu=name --format=csv,noheader | head -1), driver $driver"

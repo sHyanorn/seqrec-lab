@@ -117,6 +117,7 @@ def main(argv=None) -> int:
     from seqrec.runner.export import export, summarize
 
     if args.plan:
+        from seqrec import models  # noqa: F401  registers the arms
         from seqrec.runner.batch import unfinished
 
         left = unfinished(args.plan, args.runs_dir)

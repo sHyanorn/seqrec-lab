@@ -1,5 +1,7 @@
 import csv
 import gzip
+import itertools
+import subprocess
 import zipfile
 from pathlib import Path
 
@@ -215,7 +217,7 @@ RESULT_FILES = ("sources.csv", "stats.csv", "published_comparison.csv")
 
 def _datasets_in_file_order(path):
     with path.open(encoding="utf-8") as f:
-        return list(dict.fromkeys(r["dataset"] for r in csv.DictReader(f)))
+        return [name for name, _ in itertools.groupby(r["dataset"] for r in csv.DictReader(f))]
 
 
 def test_result_files_do_not_depend_on_the_order_of_preparation(tmp_path, monkeypatch):
@@ -253,3 +255,13 @@ def test_written_csv_matches_the_committed_bytes_on_any_platform(tmp_path):
             rows = list(csv.DictReader(f))
         write_csv(tmp_path / file, rows)
         assert (tmp_path / file).read_bytes() == (committed / file).read_bytes(), file
+
+
+def test_csv_files_are_checked_out_with_lf_on_every_platform():
+    """Otherwise a checkout that converts line endings differs from what `write_csv` writes."""
+    root = Path(__file__).resolve().parents[1]
+    attr = subprocess.run(
+        ["git", "check-attr", "eol", "--", "results/data/stats.csv"],
+        cwd=root, capture_output=True, text=True, check=True,
+    )  # fmt: skip
+    assert attr.stdout.strip().endswith("eol: lf")

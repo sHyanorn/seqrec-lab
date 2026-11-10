@@ -278,7 +278,7 @@ def test_a_config_conflict_in_one_study_is_reported_and_others_run(workspace):
     assert len(list((root / "runs" / "t").glob("sasrec-bce-*"))) == 6
 
 
-def test_export_with_a_tuning_plan_refuses_until_every_study_reached_its_budget(workspace):
+def test_export_with_a_tuning_plan_refuses_until_every_study_reached_its_budget(workspace, capsys):
     root, plan = workspace
     out = root / "results"
     export_plan = ["export", "--runs-dir", str(root / "runs"), "--out-dir", str(out),
@@ -294,3 +294,4 @@ def test_export_with_a_tuning_plan_refuses_until_every_study_reached_its_budget(
     assert cli_main(export_plan) == 0
     opt.ask()  # a trial left running, as after an interruption
     assert cli_main(export_plan) == 1
+    assert "1 running" in capsys.readouterr().err

@@ -6,6 +6,7 @@ from __future__ import annotations
 import fcntl
 import os
 import shutil
+import signal
 import subprocess
 from pathlib import Path
 
@@ -22,28 +23,35 @@ def fake(bin_dir: Path, name: str, body: str) -> None:
     path.chmod(0o755)
 
 
+# Everything the two scripts call before the bootstrap's later checks. The fixture's PATH holds
+# these and the fakes only, so the tests see the same machine wherever they run.
+TOOLS = (
+    "bash env flock pgrep pkill timeout sleep nohup mkdir chmod mv cp rm tr sed date head cat tar"
+)
+
+
 @pytest.fixture
 def machine(tmp_path):
     """Fakes: /workspace is a volume, `curl -o FILE` delivers the repository's pod_start.sh,
     and there is no nvidia-smi."""
     bin_dir, home = tmp_path / "bin", tmp_path / "home"
     bin_dir.mkdir()
+    for tool in TOOLS.split():
+        (bin_dir / tool).symlink_to(shutil.which(tool))
     fake(bin_dir, "mountpoint", "true")
     fake(bin_dir, "runpodctl", "true")
     deliver = f'[ "$1" = -o ] && cp {CLOUD}/pod_start.sh "$2"'
     fake(bin_dir, "curl", f"while [ $# -gt 1 ]; do {deliver}; shift; done")
-    assert shutil.which("nvidia-smi") is None
-    env = os.environ | {
-        "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
-        "SEQREC_HOME": str(home), "RUNNER_DIR": str(tmp_path / "runner"),
+    env = {
+        "PATH": str(bin_dir), "SEQREC_HOME": str(home), "RUNNER_DIR": str(tmp_path / "runner"),
         "POD_START_LOCK": str(tmp_path / "lock"), "CHECK_SECONDS": "1", "RUNPOD_POD_ID": "pod1",
     }  # fmt: skip
     watchdog = f"^bash {home}/pod_start\\.sh$"
 
     def bootstrap(**more):
         return subprocess.run(
-            ["bash", str(CLOUD / "pod_bootstrap.sh")], env=env | more, capture_output=True,
-            text=True, timeout=60, stdin=subprocess.DEVNULL,
+            [shutil.which("bash"), str(CLOUD / "pod_bootstrap.sh")], env=env | more,
+            capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL,
         )  # fmt: skip
 
     yield tmp_path, bootstrap, watchdog
@@ -72,7 +80,7 @@ def test_a_lock_held_by_something_else_is_not_reported_as_a_started_watchdog(mac
         result = bootstrap()
     assert result.returncode == 1
     assert "Watchdog started" not in result.stdout
-    assert "Stop this machine by hand" in result.stderr
+    assert "not by the watchdog" in result.stderr
 
 
 def test_a_lock_that_cannot_be_checked_is_not_reported_as_a_started_watchdog(machine):
@@ -80,12 +88,33 @@ def test_a_lock_that_cannot_be_checked_is_not_reported_as_a_started_watchdog(mac
     result = bootstrap(POD_START_LOCK=str(tmp / "missing" / "lock"))
     assert result.returncode == 1
     assert "Watchdog started" not in result.stdout
-    assert "Stop this machine by hand" in result.stderr
+    assert "cannot be checked" in result.stderr
 
 
 def test_a_machine_that_could_not_stop_itself_is_not_reported_as_watched(machine):
     tmp, bootstrap, watchdog = machine
+    try:
+        known = b"RUNPOD_POD_ID=" in Path("/proc/1/environ").read_bytes()
+    except OSError:
+        known = False
+    if known:
+        pytest.skip("this machine's id is in its init environment")
     result = bootstrap(RUNPOD_POD_ID="")
     assert result.returncode == 1
     assert "Watchdog started" not in result.stdout
-    assert "Stop this machine by hand" in result.stderr
+    assert "RUNPOD_POD_ID is not set" in result.stderr
+
+
+def test_the_start_loop_must_run_the_copy_this_script_installed(machine):
+    """A start loop for another path would start no watchdog after the next machine start."""
+    tmp, bootstrap, watchdog = machine
+    fake(tmp / "bin", "nvidia-smi", "echo 580.00")
+    loop = "while true; do [ -x /workspace/seqrec/pod_start.sh ] && true; sleep 60; done"
+    decoy = subprocess.Popen(["bash", "-c", loop], start_new_session=True)
+    try:
+        result = bootstrap()
+    finally:
+        os.killpg(decoy.pid, signal.SIGKILL)
+    assert result.returncode == 1
+    assert "Watchdog started" in result.stdout
+    assert "start command is not set as documented" in result.stderr
