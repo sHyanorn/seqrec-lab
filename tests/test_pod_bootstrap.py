@@ -39,7 +39,6 @@ def machine(tmp_path):
     for tool in TOOLS.split():
         (bin_dir / tool).symlink_to(shutil.which(tool))
     fake(bin_dir, "mountpoint", "true")
-    fake(bin_dir, "runpodctl", "true")
     deliver = f'[ "$1" = -o ] && cp {CLOUD}/pod_start.sh "$2"'
     fake(bin_dir, "curl", f"while [ $# -gt 1 ]; do {deliver}; shift; done")
     env = {
@@ -67,7 +66,7 @@ def test_the_watchdog_runs_before_anything_else_can_fail(machine):
     result = bootstrap()
     assert result.returncode == 1
     assert "Watchdog started" in result.stdout
-    assert "start command is not set" in result.stderr  # a later check; the watchdog is up by then
+    assert "start command is not the one in" in result.stderr  # a later check
     assert running(watchdog)
     held = subprocess.run(["flock", "-n", "-E", "75", str(tmp / "lock"), "true"])
     assert held.returncode == 75
@@ -116,7 +115,7 @@ def test_the_start_loop_must_run_the_copy_this_script_installed(machine):
         os.killpg(decoy.pid, signal.SIGKILL)
     assert result.returncode == 1
     assert "Watchdog started" in result.stdout
-    assert "start command is not set as documented" in result.stderr
+    assert "start command is not the one in" in result.stderr
 
 
 def test_a_machine_without_a_gpu_gets_as_far_as_the_registration_token(machine):

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # The machine's watchdog. The container start command runs it at every start and again
-# whenever it exits. It keeps the GitHub Actions runner online and stops the machine when a
+# whenever it exits. It keeps the GitHub Actions runner online and deletes the machine when a
 # job asks for it, when no job has run for IDLE_MINUTES, or when one job has run longer than
-# any job may. Only /workspace survives a stop.
+# any job may. Only the network volume at /workspace outlives the machine (D046).
 set -uo pipefail
 
 HOME_DIR=${SEQREC_HOME:-/workspace/seqrec}
@@ -23,15 +23,12 @@ from_init() { tr '\0' '\n' < /proc/1/environ 2> /dev/null | sed -n "s/^$1=//p" |
 export RUNPOD_POD_ID=${RUNPOD_POD_ID:-$(from_init RUNPOD_POD_ID)}
 export RUNPOD_API_KEY=${RUNPOD_API_KEY:-$(from_init RUNPOD_API_KEY)}
 
-# Both ways, every time: a stop that worked ends this script before the next line.
-stop_machine() {
-    log "stopping the machine: $1"
-    timeout 60 runpodctl pod stop "$RUNPOD_POD_ID" 9>&-
-    sleep "${STOP_WAIT_SECONDS:-20}" 9>&-
-    curl -fsS -m 30 -X POST "https://api.runpod.io/v2/pods/$RUNPOD_POD_ID/action" \
-        -H @- -H "Content-Type: application/json" -d '{"action":"stop"}' 9>&- \
+# With the key the platform gives every Pod. A delete that worked ends this script; one that
+# did not is repeated at the next check.
+delete_machine() {
+    log "deleting the machine: $1"
+    curl -fsS -m 30 -X DELETE "https://api.runpod.io/v2/pods/$RUNPOD_POD_ID" -H @- 9>&- \
         <<< "Authorization: Bearer $RUNPOD_API_KEY"
-    log "STILL RUNNING AFTER TWO STOP ATTEMPTS; trying again at the next check"
 }
 
 listener() { pgrep -f "$RUNNER_DIR/(run\.sh|run-helper|bin[^/]*/Runner\.Listener)" > /dev/null; }
@@ -50,7 +47,7 @@ start_runner() {
         PATH="$HOME_DIR/bin:$PATH" RUNNER_ALLOW_RUNASROOT=1 ./run.sh) < /dev/null 9>&- &
 }
 
-[ -n "$RUNPOD_POD_ID" ] || log "RUNPOD_POD_ID IS NOT SET: THIS SCRIPT CANNOT STOP THE MACHINE"
+[ -n "$RUNPOD_POD_ID" ] || log "RUNPOD_POD_ID IS NOT SET: THIS SCRIPT CANNOT DELETE THE MACHINE"
 idle=0 busy=0 asked=0 job=""
 while true; do
     start_runner
@@ -58,15 +55,15 @@ while true; do
     if now=$(worker); then
         [ "$now" = "$job" ] || busy=0 # another job than at the last check
         job=$now idle=0 asked=0 busy=$((busy + 1))
-        if [ "$busy" -ge "$BUSY_MINUTES" ]; then stop_machine "one job has run for $busy checks"; fi
+        if [ "$busy" -ge "$BUSY_MINUTES" ]; then delete_machine "one job has run for $busy checks"; fi
         continue
     fi
     job="" busy=0 idle=$((idle + 1))
     if [ -e "$STOP_REQUEST" ]; then asked=$((asked + 1)); else asked=0; fi
     # Two checks in a row: the job has reported by then, and a job queued behind it has started.
     if [ "$asked" -ge 2 ]; then
-        stop_machine "a job asked for it"
+        delete_machine "a job asked for it"
     elif [ "$idle" -ge "$IDLE_MINUTES" ]; then
-        stop_machine "no job for $idle checks"
+        delete_machine "no job for $idle checks"
     fi
 done

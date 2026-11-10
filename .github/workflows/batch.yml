@@ -24,7 +24,7 @@ on:
         type: number
         default: 5
       stop:
-        description: stop the machine when the job ends
+        description: delete the machine when the job ends
         type: boolean
         default: true
 
@@ -37,12 +37,12 @@ concurrency:
   queue: max # later jobs wait their turn instead of replacing the one already waiting
 
 env:
-  # Everything that must survive a machine stop lives on the volume, outside the checkout.
+  # Everything that must outlive the machine is on the network volume, outside the checkout.
   SEQREC_HOME: /workspace/seqrec
   UV_PROJECT_ENVIRONMENT: /workspace/seqrec/venv
   UV_CACHE_DIR: /workspace/seqrec/uv-cache
   UV_PYTHON_INSTALL_DIR: /workspace/seqrec/uv-python
-  STOP_REQUEST: /run/seqrec-stop-request # on the container disk: gone after a stop
+  STOP_REQUEST: /run/seqrec-stop-request # on the container disk: gone with the machine
   MACHINE: gpu
   TASK: ${{ inputs.task }}
   PLAN: ${{ inputs.plan }}
@@ -142,4 +142,4 @@ jobs:
           bash scripts/cloud/batch_steps.sh status "$state" "$TASK ${PLAN%.toml} on $MACHINE ended: $JOB_STATUS"
       - name: Request stop
         if: always() && inputs.stop
-        run: touch "$STOP_REQUEST" # pod_start.sh stops the machine once the job has reported
+        run: touch "$STOP_REQUEST" # pod_start.sh deletes the machine once the job has reported
