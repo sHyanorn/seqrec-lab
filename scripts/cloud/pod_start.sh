@@ -19,9 +19,12 @@ exec 9> "$LOCK" || { log "cannot open $LOCK"; exit 1; }
 flock -n 9 || exit 0 # another instance is running
 
 # A shell opened later may lack the variables the container was started with.
-from_init() { tr '\0' '\n' < /proc/1/environ 2> /dev/null | sed -n "s/^$1=//p" | head -1; }
+from_init() {
+    tr '\0' '\n' < "${INIT_ENVIRON:-/proc/1/environ}" 2> /dev/null | sed -n "s/^$1=//p" | head -1
+}
 export RUNPOD_POD_ID=${RUNPOD_POD_ID:-$(from_init RUNPOD_POD_ID)}
 export RUNPOD_API_KEY=${RUNPOD_API_KEY:-$(from_init RUNPOD_API_KEY)}
+export RUNPOD_DC_ID=${RUNPOD_DC_ID:-$(from_init RUNPOD_DC_ID)} # part of a run's host signature
 
 # With the key the platform gives every Pod. A delete that worked ends this script; one that
 # did not is repeated at the next check.
@@ -47,7 +50,9 @@ start_runner() {
         PATH="$HOME_DIR/bin:$PATH" RUNNER_ALLOW_RUNASROOT=1 ./run.sh) < /dev/null 9>&- &
 }
 
-[ -n "$RUNPOD_POD_ID" ] || log "RUNPOD_POD_ID IS NOT SET: THIS SCRIPT CANNOT DELETE THE MACHINE"
+for name in RUNPOD_POD_ID RUNPOD_API_KEY; do
+    [ -n "${!name}" ] || log "$name IS NOT SET: THIS SCRIPT CANNOT DELETE THE MACHINE"
+done
 idle=0 busy=0 asked=0 job=""
 while true; do
     start_runner

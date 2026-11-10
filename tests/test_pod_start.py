@@ -46,7 +46,7 @@ def machine(tmp_path):
 
     def start(**more):
         proc = subprocess.Popen(
-            ["bash", str(SCRIPT)], env=env | more, stdout=subprocess.DEVNULL,
+            ["bash", str(SCRIPT)], env=env | more, stdout=(tmp_path / "log").open("a"),
             stderr=subprocess.STDOUT,
         )  # fmt: skip
         procs.append(proc)
@@ -75,6 +75,25 @@ def test_the_runner_starts_with_uv_on_path_and_without_the_machine_key(machine):
     assert f"PATH={tmp}/home/bin:" in env
     assert "RUNNER_ALLOW_RUNASROOT=1" in env
     assert "k3y" not in env
+
+
+def test_the_runner_gets_the_data_centre_the_container_was_started_with(machine):
+    """A shell opened later lacks it, and runs started from there would record no data centre."""
+    tmp, start = machine
+    (tmp / "init").write_bytes(b"A=1\0RUNPOD_DC_ID=DC-9\0")
+    start(RUNPOD_DC_ID="", INIT_ENVIRON=str(tmp / "init"))
+    assert wait_for(tmp / "runner-env", 3)
+    time.sleep(0.1)
+    assert "RUNPOD_DC_ID=DC-9\n" in (tmp / "runner-env").read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("missing", ["RUNPOD_POD_ID", "RUNPOD_API_KEY"])
+def test_a_machine_that_cannot_delete_itself_says_so(machine, missing):
+    tmp, start = machine
+    (tmp / "init").touch()
+    start(INIT_ENVIRON=str(tmp / "init"), **{missing: ""})
+    time.sleep(0.5)
+    assert f"{missing} IS NOT SET" in (tmp / "log").read_text(encoding="utf-8")
 
 
 def test_an_idle_machine_stops_after_the_idle_limit_and_not_before(machine):
