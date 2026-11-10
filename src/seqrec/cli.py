@@ -11,10 +11,6 @@ import torch
 
 from seqrec.data.registry import DATASETS
 
-# Batch files exported from another machine. Their anchor reads count toward the limit of
-# METHODS 11.5; their runs stay out of the summaries of results/runs.
-EARLIER_EXPORTS = [Path("results/laptop")]
-
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="seqrec")
@@ -39,6 +35,13 @@ def main(argv=None) -> int:
         cmd.add_argument("--device", default=None)
         if name == "test":
             _earlier_exports(cmd)
+            cmd.add_argument(
+                "--committed",
+                type=Path,
+                default=Path("results/runs"),
+                help="batch files exported from this machine; a test read recorded there and "
+                "not made in the runs directory stops the task",
+            )
 
     seeds = sub.add_parser("seeds", help="seed count from pilot validation scores (METHODS 7.5)")
     seeds.add_argument(
@@ -88,6 +91,15 @@ def main(argv=None) -> int:
         help="fail, writing nothing, unless every run of this plan is trained or given up "
         "(for a tuning plan: every study has reached its trial budget)",
     )
+    exp.add_argument(
+        "--check-reads",
+        action="store_true",
+        help="write nothing; fail if a batch file in the output directory records a test "
+        "read that was not made in the runs directory",
+    )
+    exp.add_argument(
+        "--written", type=Path, help="list the batch files written in this file, one per line"
+    )
     _earlier_exports(exp)
 
     args = parser.parse_args(argv)
@@ -102,7 +114,9 @@ def main(argv=None) -> int:
 
         device = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
         step = {"run": run_batch, "test": test_batch, "tune": tune_batch}[args.command]
-        more = {"earlier": args.earlier_exports} if args.command == "test" else {}
+        more = {}
+        if args.command == "test":
+            more = {"earlier": _earlier(args), "committed": args.committed}
         failed = step(args.plan, args.runs_dir, args.data_dir, device, **more)
         return 1 if failed else 0
     if args.command in ("seeds", "anchors", "budget"):
@@ -114,8 +128,19 @@ def main(argv=None) -> int:
             print(f"[{args.command}] {e}", file=sys.stderr)
             return 1
         return 0
-    from seqrec.runner.export import export, summarize
+    from seqrec.runner.export import export, summarize, unbacked_reads
 
+    if args.check_reads:
+        problems = unbacked_reads(args.out_dir, args.runs_dir)
+        for p in problems:
+            print(f"[export] {p}", file=sys.stderr)
+        if problems:
+            print(
+                f"[export] {args.out_dir} records test reads made on another volume; move its "
+                "batch files to results/<name>/ (D045)",
+                file=sys.stderr,
+            )
+        return 1 if problems else 0
     if args.plan:
         from seqrec import models  # noqa: F401  registers the arms
         from seqrec.runner.batch import unfinished
@@ -126,9 +151,9 @@ def main(argv=None) -> int:
                   file=sys.stderr)  # fmt: skip
             return 1
     if args.summaries_only:
-        problems = summarize(args.out_dir, args.earlier_exports)
+        problems = summarize(args.out_dir, _earlier(args))
     else:
-        problems = export(args.runs_dir, args.out_dir, args.earlier_exports)
+        problems = export(args.runs_dir, args.out_dir, _earlier(args), args.written)
     for p in problems:
         print(f"[export] {p}", file=sys.stderr)
     return 1 if problems else 0
@@ -139,10 +164,17 @@ def _earlier_exports(cmd: argparse.ArgumentParser) -> None:
         "--earlier-exports",
         type=Path,
         nargs="*",
-        default=EARLIER_EXPORTS,
         help="directories of batch files exported from another machine, whose anchor reads "
-        "count toward the limit (default: results/laptop; give no directory for none)",
+        "count toward the limit of METHODS 11.5 and whose runs stay out of the summaries "
+        "(default: results/laptop and every other directory under results/ but runs, data "
+        "and env; give no directory for none)",
     )
+
+
+def _earlier(args) -> list[Path]:
+    from seqrec.runner.export import earlier_exports
+
+    return earlier_exports() if args.earlier_exports is None else args.earlier_exports
 
 
 def _analysis(args) -> str:

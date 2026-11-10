@@ -63,6 +63,8 @@ def workspace(tmp_path, monkeypatch):
     data_dir = tmp_path / "data"
     build_log(random_frame()).save(log_path(data_dir, "ml-1m"))
     load_splits.cache_clear()
+    monkeypatch.chdir(tmp_path)  # the CLI's defaults under results/ are the test's own
+    _anchor_export(tmp_path / "results" / "laptop", 0)
     yield tmp_path / "runs", data_dir
     load_splits.cache_clear()
 
@@ -1121,15 +1123,28 @@ def test_a_missing_directory_of_earlier_exports_stops_before_any_read(workspace)
         cli_main(["test", str(plan), *args, "--earlier-exports", str(missing)])
 
 
-def test_the_cli_counts_the_laptop_exports_unless_told_otherwise():
-    """The default must be the committed directory: `seqrec test` in the workflow names none."""
+def test_the_cli_counts_the_laptop_exports_unless_told_otherwise(tmp_path):
+    """The default must be what is committed: `seqrec test` in the workflow names no directory.
+    In the repository's `results/` that is the laptop's exports, and no directory that would
+    stop every job for holding none."""
     from pathlib import Path
 
-    from seqrec.cli import EARLIER_EXPORTS
-    from seqrec.runner.export import read_batch_files
+    from seqrec.runner.export import (
+        NOT_EXPORTS,
+        earlier_exports,
+        read_batch_files,
+        read_earlier_exports,
+    )
 
     root = Path(__file__).resolve().parents[1]
-    assert EARLIER_EXPORTS == [Path("results/laptop")]
+    committed = earlier_exports(root / "results")
+    assert root / "results/laptop" in committed
+    assert read_earlier_exports(committed)
+    for name in (*NOT_EXPORTS, "old-pod"):
+        (tmp_path / name).mkdir()
+    (tmp_path / "notes.txt").write_text("a file is not a directory of exports")
+    assert earlier_exports(tmp_path) == [tmp_path / "laptop", tmp_path / "old-pod"]
+    assert earlier_exports(tmp_path / "nowhere") == [tmp_path / "nowhere" / "laptop"]
     rows = read_batch_files(root / "results/laptop")
     reads = {(r["dataset"], r["arm"]): r["reads_anchor"] for r in rows if r["phase"] == "anchor"}
     assert reads and set(reads.values()) == {1}
@@ -1153,7 +1168,7 @@ def test_export_with_a_plan_refuses_until_every_run_is_trained_or_given_up(works
 
     runs, data = workspace
     plan = _plan(runs.parent, seeds=(1, 2))
-    out = runs.parent / "results"
+    out = runs.parent / "out"
     export_plan = ["export", "--runs-dir", str(runs), "--out-dir", str(out), "--plan", str(plan)]
     assert cli_main(export_plan) == 1
     assert not out.exists() or not list(out.iterdir())  # nothing is written on a refusal
@@ -1251,3 +1266,171 @@ def test_export_reads_the_earlier_exports_it_is_given_and_the_laptop_by_default(
     monkeypatch.chdir(tmp_path)  # no results/laptop here
     with pytest.raises(FileNotFoundError, match="laptop"):
         cli_main(export_here)
+
+
+# --- test reads recorded on main and made on another volume (D045) ------------------------
+
+
+def _read_plan(root, tags="a", phase="anchor"):
+    plan = root / "b.toml"
+    plan.write_text(
+        f'batch = "b"\n[defaults]\ndataset = "ml-1m"\nsplit = "loo"\nphase = "{phase}"\n'
+        "max_epochs = 50\npatience = 3\n"
+        + "".join(f'[[runs]]\narm = "pop"\nseeds = [1]\ntag = "{t}"\n' for t in tags),
+        encoding="utf-8",
+    )
+    return plan
+
+
+def _read_on_another_volume(root, data, cfg, committed="committed"):
+    """Train and test `cfg` on a volume of its own; export it where main keeps batch files."""
+    run_mod.execute(cfg, root / "old-volume", data, CPU, **QUIET)
+    run_mod.test_run(cfg, root / "old-volume", data, CPU, **QUIET)
+    assert export(root / "old-volume", root / committed) == []
+    return root / committed
+
+
+@pytest.mark.parametrize("phase", ["anchor", "final"])
+def test_a_read_main_records_and_this_volume_lacks_stops_the_test_task(workspace, phase):
+    """Counted nowhere, it would let a fourth anchor read or a second final read through."""
+    from seqrec.runner.batch import test_batch
+
+    runs, data = workspace
+    cfg = _cfg(phase, tag="a")
+    committed = _read_on_another_volume(runs.parent, data, cfg)
+    plan = _read_plan(runs.parent, phase=phase)
+    run_mod.execute(cfg, runs, data, CPU, **QUIET)  # trained again on a new volume
+    with pytest.raises(run_mod.TestRefused, match=r"b/.*results/<name>/"):
+        test_batch(plan, runs, data, CPU, committed=committed, **QUIET)
+    assert not (runs / "b" / cfg.run_id / "test_access.jsonl").exists()
+    same_volume = runs.parent / "old-volume"
+    assert test_batch(plan, same_volume, data, CPU, committed=committed, **QUIET) == []
+    nothing_committed = runs.parent / "absent"
+    assert test_batch(plan, runs, data, CPU, committed=nothing_committed, **QUIET) == []
+
+
+def test_a_read_recorded_for_another_batch_is_missed_just_the_same(workspace):
+    """The limit is per dataset and arm across batches, so every batch file on main counts."""
+    from seqrec.runner.batch import test_batch
+
+    runs, data = workspace
+    other_batch = _cfg("anchor", batch="earlier", tag="a")
+    committed = _read_on_another_volume(runs.parent, data, other_batch)
+    cfg = _cfg("anchor", tag="a")
+    run_mod.execute(cfg, runs, data, CPU, **QUIET)
+    with pytest.raises(run_mod.TestRefused, match=f"earlier/{other_batch.run_id}"):
+        test_batch(_read_plan(runs.parent), runs, data, CPU, committed=committed, **QUIET)
+    assert not (runs / "b" / cfg.run_id / "test_access.jsonl").exists()
+
+
+def test_export_keeps_a_batch_file_whose_reads_this_volume_lacks(workspace, capsys):
+    """Replacing it would take the record of those reads off main."""
+    from seqrec.runner.export import UnbackedReads
+
+    runs, data = workspace
+    cfg = _cfg("anchor", tag="a")
+    committed = _read_on_another_volume(runs.parent, data, cfg)
+    run_mod.execute(cfg, runs, data, CPU, **QUIET)
+
+    def tree():
+        return {p: p.read_bytes() for p in runs.parent.rglob("*") if p.is_file()}
+
+    before = tree()
+    with pytest.raises(UnbackedReads, match=cfg.run_id):
+        export(runs, committed)
+    assert tree() == before
+    check = ["export", "--check-reads", "--out-dir", str(committed), "--runs-dir"]
+    assert cli_main([*check, str(runs)]) == 1
+    assert "results/<name>/" in capsys.readouterr().err  # what to do about it
+    assert cli_main([*check, str(runs.parent / "new-volume")]) == 1
+    assert cli_main([*check, str(runs.parent / "old-volume")]) == 0
+    not_yet = runs.parent / "no-export-yet"
+    assert cli_main(["export", "--check-reads", "--out-dir", str(not_yet)]) == 0
+    assert tree() == before  # a check writes nothing, whatever it finds
+    assert not not_yet.exists() and not (runs.parent / "new-volume").exists()
+
+
+def test_the_test_task_checks_results_runs_unless_told_otherwise(workspace, monkeypatch):
+    runs, data = workspace
+    root = runs.parent
+    cfg = _cfg("anchor", tag="a")
+    _read_on_another_volume(root, data, cfg, committed="results/runs")
+    _anchor_export(root / "results" / "laptop", 0)
+    monkeypatch.chdir(root)
+    args = [str(_read_plan(root)), "--runs-dir", str(runs), "--data-dir", str(data)]
+    args += ["--device", "cpu"]
+    assert cli_main(["run", *args]) == 0
+    with pytest.raises(run_mod.TestRefused):
+        cli_main(["test", *args])
+    assert not (runs / "b" / cfg.run_id / "test_access.jsonl").exists()
+    assert cli_main(["test", *args, "--committed", str(root / "absent")]) == 0
+
+
+def test_exports_set_aside_under_results_count_without_being_named(workspace, monkeypatch):
+    """Moving a lost volume's batch files to results/<name>/ is all it takes (D045)."""
+    runs, data = workspace
+    root = runs.parent
+    _anchor_export(root / "results" / "laptop", 1)
+    _anchor_export(root / "results" / "old-pod", 1)
+    for name in ("data", "env"):  # hold no batch files and are not asked for any
+        (root / "results" / name).mkdir()
+    monkeypatch.chdir(root)
+    args = [str(_read_plan(root, "ab")), "--runs-dir", str(runs), "--data-dir", str(data)]
+    args += ["--device", "cpu"]
+    assert cli_main(["run", *args]) == 0
+    assert cli_main(["test", *args]) == 1  # the laptop's read, the old pod's and one here
+    first, second = (runs / "b" / _cfg("anchor", tag=t).run_id for t in "ab")
+    assert (first / "test_access.jsonl").exists()
+    assert not (second / "test_access.jsonl").exists()
+    assert cli_main(["export", "--runs-dir", str(runs)]) == 0
+    _anchor_export(root / "results" / "third", 1)
+    assert cli_main(["export", "--runs-dir", str(runs)]) == 1  # four reads of one arm
+    assert cli_main(["export", "--summaries-only"]) == 1
+    (root / "results" / "figures").mkdir()
+    for command in (["test", *args], ["export", "--runs-dir", str(runs)]):
+        with pytest.raises(FileNotFoundError, match="figures.*NOT_EXPORTS"):
+            cli_main(command)
+
+
+def test_export_lists_the_batch_files_it_wrote(workspace):
+    """The workflow commits a batch file only if this export wrote it."""
+    runs, data = workspace
+    out, written = runs.parent / "results", runs.parent / "written"
+    _batch_file(out, "stale", [_trial_row("t00", 0.2)])
+    export_here = ["export", "--out-dir", str(out), "--earlier-exports", "--written", str(written)]
+    assert cli_main([*export_here, "--runs-dir", str(runs)]) == 0
+    assert written.read_text(encoding="utf-8") == ""
+    run_mod.execute(_cfg("tune"), runs, data, CPU, **QUIET)
+    assert cli_main([*export_here, "--runs-dir", str(runs)]) == 0
+    assert written.read_text(encoding="utf-8") == "b.csv\n"
+
+
+def test_a_final_read_set_aside_with_an_earlier_export_is_not_made_again(workspace):
+    """A final run reads test data once, on whichever machine (METHODS 11.6)."""
+    from seqrec.runner.batch import test_batch
+
+    runs, data = workspace
+    cfg = _cfg("final", tag="a")
+    earlier = _read_on_another_volume(runs.parent, data, cfg, committed="pod1")
+    plan = _read_plan(runs.parent, phase="final")
+    run_mod.execute(cfg, runs, data, CPU, **QUIET)
+    assert test_batch(plan, runs, data, CPU, earlier=[earlier], **QUIET) == [cfg.run_id]
+    assert not (runs / "b" / cfg.run_id / "test_access.jsonl").exists()
+    run_mod.test_run(cfg, runs, data, CPU, **QUIET)  # made all the same: the export says so
+    problems = export(runs, runs.parent / "results", earlier=[earlier])
+    assert problems == [f"{cfg.run_id}: final run read test data on another machine too"]
+
+
+def test_reads_are_unbacked_when_the_volume_has_fewer_not_only_none(workspace):
+    from seqrec.runner.export import unbacked_reads
+
+    runs, data = workspace
+    cfg = _cfg("anchor", tag="a")
+    run_mod.execute(cfg, runs, data, CPU, **QUIET)
+    run_mod.test_run(cfg, runs, data, CPU, **QUIET)
+    row = _trial_row("a", 0.2) | {"run_id": cfg.run_id, "arm": "pop", "phase": "anchor"}
+    committed = runs.parent / "committed"
+    _batch_file(committed, "b", [row | {"reads_anchor": 2, "reads_completed": 2}])
+    assert len(unbacked_reads(committed, runs)) == 1
+    _batch_file(committed, "b", [row | {"reads_anchor": 1, "reads_completed": 1}])
+    assert unbacked_reads(committed, runs) == []

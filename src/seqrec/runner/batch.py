@@ -20,7 +20,7 @@ from seqrec.runner.attempts import (
     train_with_retry,
 )
 from seqrec.runner.config import Plan, load_plan, read_plan
-from seqrec.runner.export import read_earlier_exports
+from seqrec.runner.export import read_earlier_exports, require_backed_reads
 from seqrec.runner.run import (
     ARMS,
     RunConflict,
@@ -85,12 +85,11 @@ def _train(cfg, runs_dir: Path, data_dir: Path, device, log) -> None:
     )
 
 
-def _test(cfg, runs_dir: Path, data_dir: Path, device, log, earlier_anchor_reads: int) -> bool:
-    """Read test data for one run; a refusal is reported but not recorded as a failure."""
+def _test(cfg, runs_dir: Path, data_dir: Path, device, log, earlier: dict) -> bool:
+    """Read test data for one run; a refusal is reported but not recorded as a failure.
+    `earlier` are the reads made on another machine, as `test_run` takes them."""
     try:
-        test_run(
-            cfg, runs_dir, data_dir, device, log=log, earlier_anchor_reads=earlier_anchor_reads
-        )
+        test_run(cfg, runs_dir, data_dir, device, log=log, **earlier)
         return True
     except TestRefused as err:
         log(f"[batch] {cfg.run_id}: test read refused: {err}")
@@ -142,14 +141,20 @@ def test_batch(
     device: torch.device,
     log=print,
     earlier: Sequence[Path] = (),
+    committed: Path | None = None,
 ):
     """Refuses until every run of the plan has finished training (METHODS 5.5); a run whose
     training failed twice has finished (D031) and is not tested, nor is a diverged run.
     `earlier` are directories of batch files exported from another machine; the anchor reads
-    in them count toward the limit of METHODS 11.5."""
-    earlier_reads = Counter()
+    in them count toward the limit of METHODS 11.5. `committed` is the directory of batch
+    files exported from this machine: a read recorded there and not made in `runs_dir` would
+    be in neither count, so it stops the task."""
+    if committed:  # before any test data, as the earlier exports below
+        require_backed_reads(committed, runs_dir)
+    earlier_anchor, earlier_final = Counter(), Counter()
     for r in read_earlier_exports(earlier):  # before any test data: a bad directory stops here
-        earlier_reads[(r["dataset"], r["arm"])] += r["reads_anchor"]
+        earlier_anchor[(r["dataset"], r["arm"])] += r["reads_anchor"]
+        earlier_final[r["run_id"]] += r["reads_final"]
     plan = load_plan(plan_path)
     _check_plan(plan, runs_dir)
     require_data({r.dataset for r in plan.runs}, data_dir)
@@ -168,7 +173,11 @@ def test_batch(
         if status != "trained":
             log(f"[batch] {cfg.run_id}: {status}; not tested")
             continue
-        if not _test(cfg, runs_dir, data_dir, device, log, earlier_reads[(cfg.dataset, cfg.arm)]):
+        elsewhere = {
+            "earlier_anchor_reads": earlier_anchor[(cfg.dataset, cfg.arm)],
+            "earlier_final_reads": earlier_final[cfg.run_id],
+        }
+        if not _test(cfg, runs_dir, data_dir, device, log, elsewhere):
             failed.append(cfg.run_id)
             if not device_usable(device):
                 log("[batch] the GPU stopped working; rerun the same command to continue")

@@ -502,10 +502,12 @@ def test_run(
     device: torch.device,
     log=print,
     earlier_anchor_reads: int = 0,
+    earlier_final_reads: int = 0,
 ):
     """Read test data once for a trained final or anchor run and write test.json.
     `earlier_anchor_reads` are the anchor reads of this dataset and arm made on another
-    machine; they count toward the limit."""
+    machine; they count toward the limit. `earlier_final_reads` are the final reads of this
+    run made there; a final run reads test data once, wherever."""
     if cfg.phase not in ("final", "anchor"):
         raise TestRefused("only final and anchor runs are tested")
     run_dir = run_dir_of(cfg, runs_dir)
@@ -518,6 +520,9 @@ def test_run(
     used = anchor_reads(runs_dir, cfg.dataset, cfg.arm) + earlier_anchor_reads
     if cfg.phase == "anchor" and used >= MAX_ANCHOR_READS:
         raise TestRefused(f"{cfg.arm} on {cfg.dataset} used its {MAX_ANCHOR_READS} anchor reads")
+
+    if cfg.phase == "final" and earlier_final_reads:
+        raise TestRefused(f"{cfg.run_id}: final run read test data on another machine")
 
     access_log = run_dir / "test_access.jsonl"
     if cfg.phase == "final" and count_reads(access_log)["final"]:

@@ -19,7 +19,7 @@ from pathlib import Path
 from seqrec.data.stats import write_csv
 from seqrec.eval.test_access import count_reads
 from seqrec.runner.attempts import failures
-from seqrec.runner.run import MAX_ANCHOR_READS
+from seqrec.runner.run import MAX_ANCHOR_READS, TestRefused
 
 HARDWARE_EVENTS = ("hw_slowdown", "hw_thermal", "hw_power_brake")
 TRIAL_TAG = re.compile(r"t\d+")
@@ -163,6 +163,20 @@ def read_batch_files(directory: Path) -> list[dict]:
     return rows
 
 
+# Directories under results/ that are not exports of another machine: results/runs holds this
+# machine's, the others hold no runs.
+NOT_EXPORTS = ("runs", "data", "env")
+
+
+def earlier_exports(results: Path = Path("results")) -> list[Path]:
+    """The directories of batch files exported from another machine: results/laptop, there or
+    not, and every other directory under results/ outside NOT_EXPORTS. A lost volume's batch
+    files are set aside by moving them to a directory of their own (D045); none is named
+    anywhere, so none can be left out."""
+    found = {d for d in results.iterdir() if d.is_dir()} if results.is_dir() else set()
+    return sorted({d for d in found if d.name not in NOT_EXPORTS} | {results / "laptop"})
+
+
 def read_earlier_exports(directories: Iterable[Path]) -> list[dict]:
     """The rows of batch files exported from another machine. A directory without any is an
     error: its test reads would count as none."""
@@ -170,21 +184,64 @@ def read_earlier_exports(directories: Iterable[Path]) -> list[dict]:
     for directory in directories:
         found = read_batch_files(directory)
         if not found:
-            raise FileNotFoundError(f"{directory} holds no exported run")
+            raise FileNotFoundError(
+                f"{directory} holds no exported run: a directory under results/ either holds "
+                "batch files exported from another machine or is named in NOT_EXPORTS "
+                "(seqrec/runner/export.py)"
+            )
         rows += found
     return rows
 
 
+class UnbackedReads(TestRefused):
+    """Batch files record test reads that the run directories they are checked against lack."""
+
+
+def unbacked_reads(committed: Path, runs_dir: Path) -> list[str]:
+    """Runs whose batch file in `committed` records more test reads than their run directory
+    in `runs_dir` logged. Such a file was exported from another volume: its reads are counted
+    neither here nor among the earlier exports, and an export from here would replace their
+    record. A directory that does not exist yet holds no export."""
+    if not committed.exists():
+        return []
+    problems = []
+    for r in read_batch_files(committed):
+        here = count_reads(runs_dir / r["batch"] / r["run_id"] / "test_access.jsonl")
+        for phase in ("final", "anchor"):
+            if r[f"reads_{phase}"] > here[phase]:
+                problems.append(
+                    f"{r['batch']}/{r['run_id']}: {r[f'reads_{phase}']} {phase} reads recorded, "
+                    f"{here[phase]} in {runs_dir}"
+                )
+    return problems
+
+
+def require_backed_reads(committed: Path, runs_dir: Path) -> None:
+    """Stop unless every test read recorded in `committed` was made in `runs_dir`."""
+    problems = unbacked_reads(committed, runs_dir)
+    if problems:
+        raise UnbackedReads(
+            f"{committed} records test reads made on another volume, e.g. {problems[0]} "
+            f"({len(problems)} in all). Move its batch files to results/<name>/, where they "
+            "count as an earlier export (D045)"
+        )
+
+
 def access_problems(rows: list[dict], earlier: Iterable[dict] = ()) -> list[str]:
     """Test reads that break METHODS 11.5 and 11.6 among `rows`. `earlier` are runs exported
-    from another machine: their anchor reads count toward the limit per dataset and arm."""
+    from another machine: their anchor reads count toward the limit per dataset and arm, and
+    a final run read there is not read again."""
     problems = []
+    earlier = list(earlier)
+    read_elsewhere = {r["run_id"] for r in earlier if r["reads_final"]}
     for r in rows:
         reads = r["reads_final"] + r["reads_anchor"]
         if r["phase"] == "tune" and reads:
             problems.append(f"{r['run_id']}: tuning run read test data")
         if r["phase"] == "final" and (r["reads_anchor"] or r["reads_final"] > 1):
             problems.append(f"{r['run_id']}: final run read test data more than once")
+        if r["phase"] == "final" and r["reads_final"] and r["run_id"] in read_elsewhere:
+            problems.append(f"{r['run_id']}: final run read test data on another machine too")
         if r["phase"] == "anchor" and r["reads_final"]:
             problems.append(f"{r['run_id']}: anchor run used a final read")
         if reads != r["reads_completed"]:
@@ -287,12 +344,20 @@ def summarize(out_dir: Path, earlier: Sequence[Path] = ()) -> list[str]:
     return access_problems(rows, earlier_rows)
 
 
-def export(runs_dir: Path, out_dir: Path, earlier: Sequence[Path] = ()) -> list[str]:
+def export(
+    runs_dir: Path, out_dir: Path, earlier: Sequence[Path] = (), written: Path | None = None
+) -> list[str]:
     """Write one CSV per batch in `runs_dir`, then the summaries (`summarize`); return any
-    test-access problems."""
+    test-access problems. Nothing is written over batch files that record test reads made
+    elsewhere (`require_backed_reads`). `written` is a file to list the batch files in, one
+    name per line."""
+    require_backed_reads(out_dir, runs_dir)
     rows = [_row(p.parent) for p in sorted(runs_dir.glob("*/*/config.json"))]
     flag_slow_epochs(rows)
-    for batch in sorted({r["batch"] for r in rows}):
+    batches = sorted({r["batch"] for r in rows})
+    for batch in batches:
         write_csv(out_dir / f"{batch}.csv", [r for r in rows if r["batch"] == batch])
     out_dir.mkdir(parents=True, exist_ok=True)  # no run yet: nothing to summarise, no error
+    if written:
+        written.write_text("".join(f"{b}.csv\n" for b in batches), encoding="utf-8")
     return summarize(out_dir, earlier)

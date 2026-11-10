@@ -485,8 +485,10 @@ def test_commit_with_push_dry_run_leaves_the_remote_alone(clone):
 # Stands in for `seqrec export --summaries-only --out-dir DIR`: the "summary" lists the batch
 # files it found in DIR, which shows where and from what it was computed.
 SUMMARIZE = (
-    'echo "$@" >> {0}/uv-args; [ -z "${{UV_FAIL:-}}" ] || exit 1; '
-    'dir="${{@: -1}}"; (cd "$dir" && ls | grep -v overview > overview.csv)'
+    'echo "$@" >> {0}/uv-args; dir="${{@: -1}}"; '
+    'if [[ " $* " == *" --check-reads "* ]]; then cp "$dir/b1.csv" {0}/main-b1; '
+    'exit "${{CHECK_FAIL:-0}}"; fi; [ -z "${{UV_FAIL:-}}" ] || exit 1; '
+    '(cd "$dir" && ls | grep -v overview > overview.csv)'
 )
 
 
@@ -495,7 +497,7 @@ def results_env(work):
     plans.mkdir(parents=True)
     (plans / "b1.toml").write_text('batch = "b1"\n', encoding="utf-8")
     (work / "results/runs/b1.csv").write_text("run_id,x\nr1,v2\n", encoding="utf-8")
-    return {"TASK": "run", "PLAN": "b1.toml"}
+    return {"TASK": "run", "PLAN": "b1.toml", "SEQREC_HOME": str(work.parent / "home")}
 
 
 def test_results_commits_the_batch_file_and_summaries_of_all_batch_files_on_main(clone, tmp_path):
@@ -518,9 +520,26 @@ def test_results_commits_the_batch_file_and_summaries_of_all_batch_files_on_main
         text=True,
     )
     assert shown.stdout.split() == ["b1.csv", "b2.csv", "b3.csv"]  # b3 is not in this checkout
-    args = (tmp_path / "uv-args").read_text(encoding="utf-8").split()
+    check, args = (a.split() for a in (tmp_path / "uv-args").read_text("utf-8").splitlines())
+    assert check[:7] == ["run", "--no-sync", "seqrec", "export", "--check-reads", "--runs-dir",
+                         f"{tmp_path}/home/runs"]  # fmt: skip
+    assert check[7:] == ["--out-dir", args[6]]
     assert args[:6] == ["run", "--no-sync", "seqrec", "export", "--summaries-only", "--out-dir"]
     assert args[6].endswith("/main/results/runs") and not args[6].startswith(str(work))
+
+
+def test_results_pushes_nothing_when_main_records_reads_this_machine_lacks(clone, tmp_path):
+    """Main may have moved since the checkout: its batch files are checked as they are now,
+    before any of them is replaced."""
+    work, other, origin = clone
+    fake(tmp_path / "bin", "uv", SUMMARIZE.format(tmp_path))
+    push(other, "results/runs/b1.csv", "run_id,x\nr1,elsewhere\n", "chore(results): other volume")
+    env = results_env(work) | {"CHECK_FAIL": "1"}
+    result = steps("results", cwd=work, env=env, path_prefix=tmp_path / "bin")
+    assert result.returncode == 1
+    assert "test reads" in result.stderr
+    assert log(origin, "%s") == "chore(results): other volume"
+    assert (tmp_path / "main-b1").read_text(encoding="utf-8") == "run_id,x\nr1,elsewhere\n"
 
 
 def test_results_pushes_nothing_when_the_summaries_fail(clone, tmp_path):
@@ -573,22 +592,37 @@ def test_a_job_refuses_a_machine_whose_watchdog_is_not_running(tmp_path):
         watchdog.wait()
 
 
-def test_export_leaves_only_a_batch_file_written_from_this_machine(clone, tmp_path):
-    """A file that came with the checkout must not pass for this machine's export."""
+# Stands in for `seqrec export`: lists $WROTE in the file named after --written.
+EXPORT = (
+    'echo "$@" > {0}/uv-args; ls results/runs > {0}/seen; while [ $# -gt 1 ]; do '
+    '[ "$1" != --written ] || printf "%s" "${{WROTE:-}}" > "$2"; shift; done; '
+    'exit "${{UV_EXIT:-0}}"'
+)
+
+
+def test_export_passes_only_a_batch_file_this_export_wrote(clone, tmp_path):
+    """A file that came with the checkout must not pass for this machine's export. It stays
+    where it is all the same: the export refuses to replace one whose reads it lacks."""
     work, _, _ = clone
-    env = results_env(work) | {"SEQREC_HOME": str(tmp_path / "home")}
-    fake(tmp_path / "bin", "uv", f'echo "$@" > {tmp_path}/uv-args')  # writes no batch file
-    result = steps("export", cwd=work, env=env, path_prefix=tmp_path / "bin")
+    env = results_env(work)
+    fake(tmp_path / "bin", "uv", EXPORT.format(tmp_path))
+
+    def export_step(**more):
+        return steps("export", cwd=work, env=env | more, path_prefix=tmp_path / "bin")
+
+    result = export_step()  # wrote nothing
     assert result.returncode == 1
     assert "no run of b1" in result.stderr
-    assert (tmp_path / "uv-args").read_text(encoding="utf-8").split() == [
+    assert "b1.csv" in (tmp_path / "seen").read_text(encoding="utf-8").split()
+    args = (tmp_path / "uv-args").read_text(encoding="utf-8").split()
+    assert args[:9] == [
         "run", "--no-sync", "seqrec", "export", "--runs-dir", f"{tmp_path}/home/runs",
-        "--plan", "configs/plans/b1.toml",
+        "--plan", "configs/plans/b1.toml", "--written",
     ]  # fmt: skip
-    fake(tmp_path / "bin", "uv", "echo run_id > results/runs/b1.csv")
-    assert steps("export", cwd=work, env=env, path_prefix=tmp_path / "bin").returncode == 0
-    fake(tmp_path / "bin", "uv", "echo run_id > results/runs/b1.csv; exit 1")
-    assert steps("export", cwd=work, env=env, path_prefix=tmp_path / "bin").returncode == 1
+    assert len(args) == 10 and not Path(args[9]).exists()  # the list is removed afterwards
+    assert export_step(WROTE="b1.csv\n").returncode == 0
+    assert export_step(WROTE="b1.csv\n", UV_EXIT="1").returncode == 1
+    assert export_step(WROTE="b2.csv\nxb1.csv\n").returncode == 1  # other batches only
 
 
 def test_a_lock_that_cannot_be_checked_does_not_pass_for_a_running_watchdog(tmp_path):
@@ -600,7 +634,7 @@ def test_a_lock_that_cannot_be_checked_does_not_pass_for_a_running_watchdog(tmp_
 def test_the_summaries_are_computed_without_the_push_token(clone, tmp_path):
     """The summaries run repository code; the token is for the push alone."""
     work, _, origin = clone
-    fake(tmp_path / "bin", "uv", f"env > {tmp_path}/uv-env; " + SUMMARIZE.format(tmp_path))
+    fake(tmp_path / "bin", "uv", f"env >> {tmp_path}/uv-env; " + SUMMARIZE.format(tmp_path))
     env = results_env(work) | {"GH_TOKEN": "s3cret"}
     result = steps("results", cwd=work, env=env, path_prefix=tmp_path / "bin")
     assert result.returncode == 0, result.stderr

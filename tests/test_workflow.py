@@ -79,3 +79,15 @@ def test_the_watchdog_is_checked_and_the_export_is_fresh():
     assert STEPS["Watchdog"]["run"].strip() == "bash scripts/cloud/batch_steps.sh watchdog-running"
     assert names.index("Watchdog") < names.index("Sync")
     assert STEPS["Export"]["run"].strip() == "bash scripts/cloud/batch_steps.sh export"
+
+
+def test_recorded_test_reads_are_checked_before_any_gpu_work():
+    """Batch files on main that this volume did not write stop the job before it trains."""
+    name = "Recorded test reads (on failure, move results/runs/* to results/<name>/)"
+    step = STEPS[name]
+    assert step["if"] == 'contains(fromJSON(\'["run", "tune", "test", "export"]\'), inputs.task)'
+    assert step["run"].strip() == (
+        'uv run --no-sync seqrec export --check-reads --runs-dir "$SEQREC_HOME/runs"'
+    )
+    names = [s.get("name") for s in JOB["steps"]]
+    assert names.index(name) == names.index("Sync") + 1

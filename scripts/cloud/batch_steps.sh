@@ -144,11 +144,17 @@ data_unchanged() {
     die "results/data differs from the committed files"
 }
 
+# Repository code gets no token and no push credentials.
+without_token() {
+    env -u GH_TOKEN -u GIT_CONFIG_COUNT -u GIT_CONFIG_KEY_0 -u GIT_CONFIG_VALUE_0 "$@"
+}
+
 # Put the named paths, and only those, on top of main as it is now and push. Each file
 # replaces main's version whole; a CSV that lacks rows main has is refused, so a batch
 # exported on another machine cannot be dropped. With `summaries` set to a directory of batch
-# files, its overview.csv and tuning_best.csv are computed in the tree that is pushed, from
-# every batch file main has at that moment, and committed too.
+# files, main's files there must record no test read this machine lacks (their record would
+# be replaced), and its overview.csv and tuning_best.csv are computed in the tree that is
+# pushed, from every batch file main has at that moment, and committed too.
 commit() {
     local message=$1 path lost
     shift
@@ -165,6 +171,11 @@ commit() {
     for _ in 1 2 3; do
         if git fetch --quiet origin main; then
             git worktree add --quiet --detach "$tree/main" FETCH_HEAD
+            if [ -n "${summaries:-}" ]; then
+                without_token uv run --no-sync seqrec export --check-reads \
+                    --runs-dir "$SEQREC_HOME/runs" --out-dir "$tree/main/$summaries" ||
+                    die "commit: main's $summaries did not pass the check for test reads this machine lacks"
+            fi
             for path in "$@"; do
                 if [[ "$path" == *.csv && -f "$tree/main/$path" ]]; then
                     lost=$(LC_ALL=C comm -23 <(cut -d, -f1 "$tree/main/$path" | LC_ALL=C sort) \
@@ -175,9 +186,8 @@ commit() {
                 cp -rT "$path" "$tree/main/$path"
             done
             if [ -n "${summaries:-}" ]; then
-                # The code that computes them gets no token.
-                env -u GH_TOKEN -u GIT_CONFIG_COUNT -u GIT_CONFIG_KEY_0 -u GIT_CONFIG_VALUE_0 \
-                    uv run --no-sync seqrec export --summaries-only --out-dir "$tree/main/$summaries" ||
+                without_token uv run --no-sync seqrec export --summaries-only \
+                    --out-dir "$tree/main/$summaries" ||
                     die "commit: the summaries of $summaries could not be computed"
             fi
             git -C "$tree/main" add -- "$@" ${summaries:+"$summaries"}
@@ -210,14 +220,17 @@ watchdog_running() {
 
 # Export the volume, once every run of the plan is trained or given up: a run that never
 # started has no row, so its batch file would pass for complete. The plan's batch file must
-# come out of the export: a copy that came with the checkout is removed first, so it cannot
-# be committed as this machine's result.
+# be among those the export lists as written: the copy that came with the checkout is not
+# this machine's result. That copy stays in place for the export, which refuses to replace a
+# batch file recording test reads this machine lacks.
 export_batch() {
     local batch
     batch=$(plan_batch)
-    rm -f "results/runs/$batch.csv"
-    uv run --no-sync seqrec export --runs-dir "$SEQREC_HOME/runs" --plan "configs/plans/$PLAN"
-    [ -f "results/runs/$batch.csv" ] || die "export: no run of $batch on this machine"
+    written=$(mktemp) # not local: the exit trap reads it
+    trap 'rm -f "$written"' EXIT
+    uv run --no-sync seqrec export --runs-dir "$SEQREC_HOME/runs" --plan "configs/plans/$PLAN" \
+        --written "$written"
+    grep -qxF "$batch.csv" "$written" || die "export: no run of $batch on this machine"
 }
 
 # The plan's batch file and the summaries of results/runs.
