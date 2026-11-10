@@ -456,8 +456,8 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
 
 ## D045 GPU runs move to a rented machine
 
-- Date: 2026-11-10. Status: accepted by the owner. Deviation from SPEC sections 1, 4, 8, 9 and 10 and from METHODS 9.2 and 12. Made after the M2 pilot and anchor results from the laptop were seen, and before any tuning run, final run or RQ3 measurement.
-- Decision: every GPU run from here on happens on one rented machine: an RTX 5090 (32 GB, 9 vCPUs) in RunPod Secure Cloud, on demand and not interruptible, in a Linux container, at 1.19 USD per hour [34]. The laptop makes no further measurement.
+- Date: 2026-11-10. Status: accepted by the owner. Deviation from SPEC sections 1, 4, 8, 9 and 10 and from METHODS 9.2 and 12. Made after the M2 pilot and anchor results from the laptop were seen, and before any tuning run, final run or RQ3 measurement. How the machine is released, "One machine for all timing" and the admission test are replaced by D046.
+- Decision: every GPU run from here on happens on one rented machine: an RTX 5090 (32 GB, 16 vCPUs in the catalogue) in Runpod Secure Cloud, on demand and not interruptible, in a Linux container, at 1.19 USD per hour [34]. The laptop makes no further measurement.
 - Reason: run times on the laptop were unstable under the Windows driver, and diagnosing that took longer than the runs themselves (D042). The remaining plan, about 470 projected laptop hours at about 50 hours per week, would also keep that one machine busy for more than nine weeks.
 - What stays: research questions, hypotheses, datasets, models, splits, the tuning and seed rules, the statistical analysis and every decision rule. The GPU is still a consumer card, so the cost claims of RQ2 and RQ3 are still about consumer hardware; they now describe a desktop card in a data centre next to a server CPU, and the report says so.
 - Laptop results:
@@ -480,3 +480,24 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
   - Earlier exports are found only in directories directly under `results/`. A batch file in `results/` itself, in a nested directory, in `results/env` or `results/data`, or with another extension than `.csv` is not read. Deleting the files of `results/runs/` instead of moving them passes every check and shows only in the git history.
   - A job's read checks see `main` as it was when the job was triggered. A job that waits across a volume replacement can miss a read committed in between, so queued jobs are cancelled before a volume is replaced.
   - A test read that was never committed (a `test` job that failed after reading) is recorded on the volume only and is lost with it.
+
+## D046 A network volume and a new machine for every batch
+
+- Date: 2026-11-10. Status: accepted by the owner. Replaces three parts of D045: how the machine is released, "One machine for all timing" and the admission test. The rest of D045 stands. Made before any run on a rented machine.
+- Reason: a Pod with a volume disk stays on the host it was created on, and after a stop it starts again only while that host's GPU is free. The RTX 5090 was at low stock in a single data centre, and three attempts to create such a Pod were refused for lack of capacity.
+- Decision:
+  - One network volume, mounted at `/workspace`, holds everything that outlives a machine: run directories, datasets, the Python environment, the runner and its registration.
+  - Every batch runs on a new Pod, created from `configs/cloud/pod.json` on any free host of the volume's data centre and deleted when its jobs have ended. A stopped Pod would keep its host, so nothing is stopped and started again.
+  - One Pod at a time: a Pod is created only while the account has none. Two Pods writing to the volume can corrupt it, and they would share one runner registration.
+  - Two guards against a Pod that keeps running. On the Pod, the watchdog (`scripts/cloud/pod_start.sh`) releases it when a job asks for it, after 30 minutes without a job, and when one job outlasts the workflow's limit. Off the Pod, whoever creates one schedules a check after the batch's expected end and deletes the Pod if it is still there. The account does not top up by itself, so its balance bounds a loss that passes both.
+  - The runner is registered once, on any Pod that mounts the volume; a GPU is not needed for that, and every job checks the driver itself. Later Pods reuse the registration. GitHub removes a runner that was offline for 14 days; it is then registered again.
+  - Test reads are counted per volume, as in D045; a new Pod changes nothing there.
+- Timing (replaces "One machine for all timing"). A new Pod can be on another host with another CPU, and small configurations are bound by the CPU (D039).
+  - RQ3 sessions, and every comparison that is a ratio of step times: all measurements of one comparison are made within the lifetime of one Pod.
+  - RQ2 run times are compared only between runs with the same host signature: GPU model, driver branch, CPU model, CPU count and data centre. Every run records it, and the batch file has it in the column `host`. A run that trained on more than one signature lists them all; its times are reported separately. Quality results are not affected.
+- Admission test (replaces the one in D045), before any timing run: the same two configurations, 5 processes each of `scripts/profile_step.py`.
+  - Within one Pod, the spread of the step time, (max − min) / median, must be at most 5% for each configuration.
+  - On a second Pod, created at least 6 hours after the first was deleted and with the same CPU model and CPU count, each configuration's median must differ from the first Pod's by at most 5%. A second Pod with another CPU is deleted and created again, at most 3 times; every signature seen is recorded.
+  - If two Pods with one signature differ by more than 5%, run times are not compared across Pods in this data centre. The owner then chooses between timing RQ2 within one Pod's lifetime and the dedicated server of D045.
+- Costs accepted: time comparisons across batches rest on the signature and the admission test, not on one physical machine; the volume is billed for as long as it exists (50 GB at 0.07 USD per GB per month) and ties the work to its data centre; every batch pays a few minutes of start-up.
+- Alternatives: the volume disk of D045 (creation refused; every later start depends on one host); a volume without a data centre (no file locks and no atomic rename, and run files are written by renaming); stopping instead of deleting (the stopped Pod keeps its host).

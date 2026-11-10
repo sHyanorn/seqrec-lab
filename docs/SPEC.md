@@ -96,7 +96,7 @@ SASRec arms tune whether output embeddings are shared with input embeddings. Chu
 
 | Item | Choice | Source |
 |---|---|---|
-| GPU | NVIDIA GeForce RTX 5090, 32 GB, Blackwell; rented, one machine for all runs (D045) | [34] |
+| GPU | NVIDIA GeForce RTX 5090, 32 GB, Blackwell; rented, a new machine of this type for every batch (D045, D046) | [34] |
 | OS for GPU runs | Linux container on the provider's host driver (D045) | |
 | Python | 3.12 | |
 | PyTorch | 2.15.x, CUDA 13.2 wheels (`cu132`) | [21, 22] |
@@ -112,7 +112,7 @@ M0 to the M2 pilot ran on an RTX 5080 Laptop GPU under native Windows (D002); it
 
 ## 9. Execution model
 
-GPU work runs on the rented machine. A batch is one manual run of the `batch` workflow: it runs a plan, resumes after interruption, skips finished runs and writes configs, metrics, logs and NVML traces to the machine's volume. Its export step writes the batch's aggregated CSV file and the summaries, and commits them when the plan finished without a failure. Datasets, checkpoints and per-user scores stay on the machine.
+GPU work runs on a rented machine, a new one for every batch (D046). A batch is one manual run of the `batch` workflow: it runs a plan, resumes after interruption, skips finished runs and writes configs, metrics, logs and NVML traces to a network volume that outlives the machine. Its export step writes the batch's aggregated CSV file and the summaries, and commits them when the plan finished without a failure. Datasets, checkpoints and per-user scores stay on the volume.
 
 ## 10. Compute budget
 
@@ -159,4 +159,4 @@ The total cap is 500 GPU hours on the rented machine (D045; the hours in D012 an
 31. SASRec official code. https://github.com/kang205/SASRec
 32. BERT4Rec official code. https://github.com/FeiSun/BERT4Rec
 33. gSASRec PyTorch code. https://github.com/asash/gSASRec-pytorch
-34. RunPod pricing, read 2026-11-10. https://www.runpod.io/pricing
+34. Runpod pricing, read 2026-11-10. https://www.runpod.io/pricing

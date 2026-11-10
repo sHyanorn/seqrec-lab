@@ -35,7 +35,7 @@ uv run pytest
 
 ## GPU batches
 
-GPU runs happen on a rented machine through the manual `batch` workflow (D045); `scripts/cloud/` holds the machine's setup. Its exports are in `results/runs/`; those of the laptop used up to the M2 pilot are in `results/laptop/`.
+GPU runs happen on a rented machine through the manual `batch` workflow (D045, D046); `scripts/cloud/` holds the machine's setup and `configs/cloud/pod.json` the request a batch's machine is created from. Its exports are in `results/runs/`; those of the laptop used up to the M2 pilot are in `results/laptop/`.
 
 ## Data
 
