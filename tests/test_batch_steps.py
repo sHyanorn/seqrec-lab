@@ -48,7 +48,7 @@ def fake(bin_dir: Path, name: str, body: str) -> None:
 # --- check-inputs -------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("task", ["run", "tune", "test"])
+@pytest.mark.parametrize("task", ["run", "tune", "test", "export"])
 def test_a_plan_in_the_repository_is_accepted(task):
     assert steps("check-inputs", env={"TASK": task, "PLAN": "m2-anchor.toml"}).returncode == 0
 
@@ -144,6 +144,14 @@ def test_the_test_task_has_no_hour_limit_to_check():
     assert steps("check-inputs", env=env).returncode == 0
 
 
+def test_the_export_task_needs_a_plan_and_no_hour_limit():
+    env = {"TASK": "export", "PLAN": "m2-anchor.toml", "HOURS": ""}
+    assert steps("check-inputs", env=env).returncode == 0
+    result = steps("check-inputs", env={"TASK": "export", "PLAN": ""})
+    assert result.returncode == 1
+    assert "plan" in result.stderr
+
+
 def test_setup_needs_no_other_input():
     assert steps("check-inputs", env={"TASK": "setup"}).returncode == 0
 
@@ -219,7 +227,51 @@ def test_plan_runs_the_task_and_reports_start_and_success(tmp_path):
     assert '"state":"pending"' in posts[-1]  # success is reported only after the commit step
     assert "1 runs trained" in posts[-1]
     assert "plan finished" in posts[-1]
+    assert "last" not in posts[-1]  # a summary without the three fields is not described
     assert "t0ken" not in (tmp_path / "uv-env").read_text(encoding="utf-8")
+
+
+def summary(run_dir: Path, stop: str, epochs: int, wall_s: float, mtime: int) -> None:
+    run_dir.mkdir(parents=True)
+    path = run_dir / "summary.json"
+    nested = {"status": "x", "stop_reason": "nested", "epochs": 1, "wall_s": 1.0}
+    path.write_text(
+        json.dumps(
+            {"run_id": run_dir.name, "stop_reason": stop, "epochs": epochs, "wall_s": wall_s,
+             "nvml": nested},
+            indent=1,
+        ),
+        encoding="utf-8",
+    )  # fmt: skip
+    os.utime(path, (mtime, mtime))
+
+
+def test_progress_describes_the_run_that_finished_last(tmp_path):
+    fake(tmp_path / "bin", "curl", RECORD_POSTS.format(tmp_path))
+    fake(tmp_path / "bin", "uv", "true")
+    runs = tmp_path / "home" / "runs" / "m2-anchor"
+    summary(runs / "older", "max_epochs", 200, 100.4, 1_000)
+    summary(runs / "later", "patience", 384, 3868.2, 2_000)
+    (runs / "running").mkdir()
+    result = steps("plan", env=plan_env(tmp_path), path_prefix=tmp_path / "bin")
+    assert result.returncode == 0, result.stderr
+    sent = json.loads((tmp_path / "posts").read_text(encoding="utf-8").splitlines()[0])
+    text = sent["description"]
+    assert "2 runs trained" in text
+    assert "last later: patience, 384 epochs, 64 min" in text
+    assert "newest running" in text
+
+
+def test_the_end_of_a_plan_is_reported_before_the_run_names(tmp_path):
+    """The description is cut at 140 characters; how the plan ended must survive that."""
+    fake(tmp_path / "bin", "curl", RECORD_POSTS.format(tmp_path))
+    fake(tmp_path / "bin", "uv", "exit 3")
+    runs = tmp_path / "home" / "runs" / "m2-anchor"
+    summary(runs / ("r" * 120), "patience", 384, 3868.2, 2_000)
+    result = steps("plan", env=plan_env(tmp_path), path_prefix=tmp_path / "bin")
+    assert result.returncode == 3
+    sent = json.loads((tmp_path / "posts").read_text(encoding="utf-8").splitlines()[-1])
+    assert "exit code 3" in sent["description"]
 
 
 def test_plan_passes_a_failure_on_and_reports_it(tmp_path):
@@ -319,7 +371,7 @@ def test_data_unchanged_passes_on_a_clean_tree_and_fails_on_any_difference(clone
     assert "new.csv" in result.stdout
 
 
-BOT = "github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>"
+OWNER = "Aaron Yang <yang341133@gmail.com>"
 
 
 def push(repo, rel, text, subject):
@@ -336,8 +388,8 @@ def test_commit_pushes_only_the_named_paths_under_a_fixed_identity(clone):
     result = steps("commit", "chore(results): add run b1 results", "results/runs/b1.csv",
                    cwd=work, env={"GITHUB_RUN_ID": "77", "GITHUB_SHA": "abc123"})  # fmt: skip
     assert result.returncode == 0, result.stderr
-    assert log(origin) == f"{BOT} chore(results): add run b1 results"
-    assert log(origin, "%cn <%ce>") == BOT
+    assert log(origin) == f"{OWNER} chore(results): add run b1 results"
+    assert log(origin, "%cn <%ce>") == OWNER
     assert log(origin, "%b") == "Run 77 at abc123"
     names = subprocess.run(
         ["git", "show", "--name-only", "--format=", "main"],

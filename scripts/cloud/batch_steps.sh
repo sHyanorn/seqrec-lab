@@ -53,7 +53,7 @@ check_inputs() {
     [ "${GITHUB_REF:-}" = refs/heads/main ] || die "ref: batches run from main only"
     case "${TASK:-}" in
         setup) ;;
-        test) plan_batch > /dev/null ;;
+        test | export) plan_batch > /dev/null ;;
         run | tune)
             plan_batch > /dev/null
             [[ "${HOURS:-}" =~ ^([1-9]|1[0-9]|2[0-2])$ ]] || die "hours: a whole number from 1 to 22"
@@ -82,11 +82,23 @@ plan() {
     local -a limit=()
     batch=$(plan_batch)
     runs="$SEQREC_HOME/runs"
-    progress() { # finished runs of this batch and the run directory written last
-        local trained newest
+    field() { sed -n "s/^ \"$1\": \"\{0,1\}\([A-Za-z0-9_.]*\)\"\{0,1\},\{0,1\}\$/\1/p" "$2" | sed -n 1p; }
+    # Finished runs of this batch, how the last of them ended and the run directory written
+    # last. How the plan ended comes first: the description is cut at 140 characters.
+    progress() {
+        local trained newest last="" stop epochs wall
         trained=$({ find "$runs/$batch" -name summary.json 2> /dev/null || true; } | wc -l)
         newest=$({ ls -t "$runs/$batch" 2> /dev/null || true; } | sed -n 1p)
-        status "$1" "$TASK $batch: $trained runs trained, newest ${newest:-none}${2:+, $2}"
+        last=$({ ls -t "$runs/$batch"/*/summary.json 2> /dev/null || true; } | sed -n 1p)
+        if [ -n "$last" ]; then
+            stop=$(field stop_reason "$last") epochs=$(field epochs "$last") wall=$(field wall_s "$last")
+            if [[ -n "$stop" && "$epochs" =~ ^[0-9]+$ && "$wall" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+                last=", last $(basename "$(dirname "$last")"): $stop, $epochs epochs, $((${wall%.*} / 60)) min"
+            else
+                last=""
+            fi
+        fi
+        status "$1" "$TASK $batch${2:+ $2}: $trained runs trained$last, newest ${newest:-none}"
     }
     progress pending
     (while sleep "${PROGRESS_SECONDS:-600}"; do progress pending; done) &
@@ -163,8 +175,7 @@ commit() {
                 echo "nothing to commit"
                 return 0
             fi
-            git -C "$tree/main" -c user.name="github-actions[bot]" \
-                -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            git -C "$tree/main" -c user.name="Aaron Yang" -c user.email="yang341133@gmail.com" \
                 commit --quiet -m "$message" ${GITHUB_RUN_ID:+-m "Run $GITHUB_RUN_ID at $GITHUB_SHA"}
             if git -C "$tree/main" push ${PUSH_DRY_RUN:+--dry-run} origin HEAD:main; then return 0; fi
             git worktree remove --force "$tree/main"

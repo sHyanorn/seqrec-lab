@@ -1,17 +1,16 @@
 name: batch
 
 # Manual runs only: nothing here is triggered by pushes or pull requests.
-# Trial on a hosted runner without a GPU: the steps of a batch, with pushes as dry runs.
 on:
   workflow_dispatch:
     inputs:
       task:
         description: what to do
         type: choice
-        options: [setup, profile, run, tune, test]
+        options: [setup, profile, run, tune, test, export]
         default: run
       plan:
-        description: plan file name in configs/plans (run, tune, test)
+        description: plan file name in configs/plans (run, tune, test, export)
         type: string
       hours:
         description: stop the plan after this many hours, 1 to 22 (run, tune)
@@ -34,14 +33,17 @@ permissions:
   statuses: write # progress of a running job; its log is readable only after it ends
 
 concurrency:
-  group: batch # one job at a time
+  group: batch # one job at a time on the machine
   queue: max # later jobs wait their turn instead of replacing the one already waiting
 
 env:
-  SEQREC_HOME: /tmp/seqrec
-  STOP_REQUEST: /tmp/seqrec/stop-request
-  MACHINE: hosted
-  PUSH_DRY_RUN: "1"
+  # Everything that must survive a machine stop lives on the volume, outside the checkout.
+  SEQREC_HOME: /workspace/seqrec
+  UV_PROJECT_ENVIRONMENT: /workspace/seqrec/venv
+  UV_CACHE_DIR: /workspace/seqrec/uv-cache
+  UV_PYTHON_INSTALL_DIR: /workspace/seqrec/uv-python
+  STOP_REQUEST: /run/seqrec-stop-request # on the container disk: gone after a stop
+  MACHINE: gpu
   TASK: ${{ inputs.task }}
   PLAN: ${{ inputs.plan }}
   HOURS: ${{ inputs.hours }}
@@ -50,16 +52,15 @@ env:
 
 jobs:
   batch:
-    if: github.ref == 'refs/heads/main' # a guard against a mistaken ref
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
+    if: github.ref == 'refs/heads/main' # a guard against a mistaken ref, checked before the machine is touched
+    runs-on: [self-hosted, linux, x64, gpu]
+    timeout-minutes: 1380 # the job token lasts 24 hours; the push must happen before that
     steps:
       - name: Claim the machine
         run: |
-          mkdir -p "$SEQREC_HOME/bin"
           rm -f "$STOP_REQUEST" # a request left by the job before this one
+          pgrep -f pod_start.sh > /dev/null || { echo "the watchdog is not running: nothing would stop this machine"; exit 1; }
           echo "$SEQREC_HOME/bin" >> "$GITHUB_PATH"
-          curl -LsSf https://astral.sh/uv/0.11.32/install.sh | env UV_INSTALL_DIR="$SEQREC_HOME/bin" UV_NO_MODIFY_PATH=1 sh
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false # the token is given to single steps, never to the code under test
@@ -67,14 +68,16 @@ jobs:
         run: bash scripts/cloud/batch_steps.sh check-inputs
       - name: Sync
         timeout-minutes: 30
-        run: uv sync --locked --extra cpu
+        run: uv sync --locked --extra cu132
       - name: Machine
         run: |
+          nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv
           lscpu | grep "Model name"; nproc; uname -r
           uv --version
-          uv run --no-sync python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
+          echo "runner $(/workspace/actions-runner/bin/Runner.Listener --version)"
+          uv run --no-sync python -c "import torch; assert torch.cuda.is_available(), 'no CUDA device'; print(torch.__version__, torch.cuda.get_device_name(0))"
       - name: Report start
-        if: inputs.task == 'setup' || inputs.task == 'profile'
+        if: contains(fromJSON('["setup", "profile", "export"]'), inputs.task)
         env:
           GH_TOKEN: ${{ github.token }}
         run: bash scripts/cloud/batch_steps.sh status pending "$TASK started on $MACHINE"
@@ -86,7 +89,7 @@ jobs:
           uv run --no-sync pytest -q
           uv run --no-sync seqrec data prepare --data-dir "$SEQREC_HOME/data"
           bash scripts/cloud/batch_steps.sh data-unchanged
-          uv run --no-sync python scripts/check_env.py --quick --device cpu
+          uv run --no-sync python scripts/check_env.py
       - name: Commit the environment report
         if: steps.setup.outcome == 'success'
         timeout-minutes: 10
@@ -113,14 +116,16 @@ jobs:
         run: bash scripts/cloud/batch_steps.sh plan
       # Results are committed only when the plan step succeeded. After a failure, a
       # cancellation or a timeout the runs stay on the volume and the same job resumes them.
+      # The export task commits what is on the volume as it is, for a batch whose plan cannot
+      # succeed any more (a run given up after repeated failures).
       - name: Export
-        if: steps.plan.outcome == 'success'
+        if: steps.plan.outcome == 'success' || inputs.task == 'export'
         timeout-minutes: 30
         run: uv run --no-sync seqrec export --runs-dir "$SEQREC_HOME/runs"
       # Only this batch's file: overview.csv and tuning_best.csv cover whatever is on this
       # machine's volume, not what is in the repository.
       - name: Commit results
-        if: steps.plan.outcome == 'success'
+        if: steps.plan.outcome == 'success' || inputs.task == 'export'
         timeout-minutes: 10
         env:
           GH_TOKEN: ${{ github.token }}
@@ -137,4 +142,4 @@ jobs:
           bash scripts/cloud/batch_steps.sh status "$state" "$TASK ${PLAN%.toml} on $MACHINE ended: $JOB_STATUS"
       - name: Request stop
         if: always() && inputs.stop
-        run: touch "$STOP_REQUEST" # the machine's watchdog acts on this file
+        run: touch "$STOP_REQUEST" # pod_start.sh stops the machine once the job has reported
