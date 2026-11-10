@@ -9,9 +9,9 @@ from conftest import random_frame
 from seqrec import models  # noqa: F401  registers the arms
 from seqrec.data.preprocess import build_log
 from seqrec.data.store import build_splits
-from seqrec.runner.config import load_plan
+from seqrec.runner.config import default_limits, load_plan
 from seqrec.runner.run import ARMS
-from seqrec.runner.tune import load_tuning_plan
+from seqrec.runner.tune import SPACES, load_tuning_plan
 
 PLANS = Path(__file__).resolve().parents[1] / "configs" / "plans"
 
@@ -55,3 +55,16 @@ def test_the_gsasrec_rerun_repeats_the_pilot_runs():
     assert [replace(r, batch="m2-pilot") for r in rerun] == [
         r for r in pilot if r.arm == "gsasrec" and r.tag == "sigma"
     ]
+
+
+def test_the_movielens_1m_tuning_plan_follows_the_registered_procedure():
+    """METHODS 5.2 to 5.4: one study per neural arm, 20 trials, the arm's own limits, and a
+    warm-up before the first trial."""
+    batch, warmup_s, studies = load_tuning_plan(PLANS / "m3-tune-ml-1m.toml")
+    assert batch == "m3-tune-ml-1m" and warmup_s == 180
+    assert sorted(s.arm for s in studies) == sorted(SPACES)
+    assert {(s.dataset, s.trials, s.sampler_seed) for s in studies} == {("ml-1m", 20, 0)}
+    for s in studies:
+        cfg = s.config(0, {})
+        assert (cfg.max_epochs, cfg.patience) == default_limits(s.arm)
+        assert (cfg.start_limit, cfg.guard_hours, cfg.max_len) == (300, 8.0, None)

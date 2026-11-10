@@ -190,6 +190,20 @@ def test_a_trial_stopped_at_its_start_limit_is_a_complete_trial(workspace, monke
         assert summary["stop_reason"] == "no_start" and summary["epochs"] == 2
 
 
+def test_a_tuning_plan_sets_the_start_limit_of_its_trials(workspace, monkeypatch):
+    """D035: a plan with doubled limits doubles the start limit next to the caps."""
+    root, plan = workspace
+    plan.write_text(plan.read_text().replace("patience = 3\n", "patience = 3\nstart_limit = 2\n"))
+    monkeypatch.setattr(run_mod, "START_FACTOR", 1e9)
+    study = tune.load_tuning_plan(plan)[2][0]
+    assert study.config(0, {}).start_limit == 2
+    tune.run_study(study, root / "runs", root / "data", CPU, **QUIET)
+    summary = json.loads(
+        (root / "runs" / "t" / "sasrec-ce-ml-1m-loo-s0-t00" / "summary.json").read_text()
+    )
+    assert summary["stop_reason"] == "no_start" and summary["epochs"] == 2
+
+
 def test_trials_that_never_started_enable_pruning_but_stay_out_of_the_median():
     """Optuna's median is taken over the complete trials that reported the step; the count
     of 5 complete trials includes those that reported nothing (D044)."""

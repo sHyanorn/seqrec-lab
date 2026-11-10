@@ -72,7 +72,7 @@ Before M3 tuning starts
 ## M3 RQ1 and RQ2 runs (6 h / projection pending the pilot rerun, D045 / no owner time per batch)
 
 - [ ] Check whether the negative-sampling comparison announced in the amazon-science/RecArena repository has been published; record its overlap with RQ2 in DECISIONS
-- [ ] Tuning plans take a `start_limit` field, doubled together with the caps when a plan is doubled (D035)
+- [x] Tuning plans take a `start_limit` field, doubled together with the caps when a plan is doubled (D035, D049)
 - [ ] Tuning batches per dataset (leave-one-out)
 - [ ] After the first gSASRec study: read the share of trials that start, and decide whether `no_start` trials need another treatment in TPE (D044)
 - [ ] Truncation check per arm; doubled caps where required (METHODS 5.2)

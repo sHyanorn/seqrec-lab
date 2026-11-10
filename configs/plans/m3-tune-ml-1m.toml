@@ -1,0 +1,23 @@
+# MovieLens-1M tuning (METHODS 5.3, 5.4): one study per neural arm, 20 trials each, training
+# seed 0, the limits of METHODS 5.2 and the start limit of D035.
+batch = "m3-tune-ml-1m"
+warmup_s = 180
+
+[defaults]
+dataset = "ml-1m"
+trials = 20
+
+[[studies]]
+arm = "sasrec-bce"
+
+[[studies]]
+arm = "sasrec-ce"
+
+[[studies]]
+arm = "sasrec-ss"
+
+[[studies]]
+arm = "gsasrec"
+
+[[studies]]
+arm = "bert4rec"

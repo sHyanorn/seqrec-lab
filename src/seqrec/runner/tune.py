@@ -69,6 +69,7 @@ class Study:
     sampler_seed: int = 0
     max_epochs: int | None = None  # None: the arm's cap (METHODS 5.2)
     patience: int | None = None
+    start_limit: int | None = None  # None: the arm's default (D035)
     max_len: int | None = None
 
     @property
@@ -79,7 +80,8 @@ class Study:
         return RunConfig(
             batch=self.batch, dataset=self.dataset, split="loo", arm=self.arm,
             seed=TRAINING_SEED, phase="tune", params=params, max_epochs=self.max_epochs,
-            patience=self.patience, max_len=self.max_len, tag=f"t{number:02d}",
+            patience=self.patience, start_limit=self.start_limit, max_len=self.max_len,
+            tag=f"t{number:02d}",
         )  # fmt: skip
 
 
