@@ -133,6 +133,23 @@ def test_the_host_signature_names_gpu_driver_cpu_cpu_count_and_data_centre(monke
     assert cpu and int(count) >= 1
 
 
+def test_the_cpu_count_of_a_signature_is_the_containers_quota(tmp_path, monkeypatch):
+    """A container sees every thread of its host; two hosts that allocate the same number of
+    CPUs must not differ in it, and two allocations on one host must (D046)."""
+    monkeypatch.setattr(run_mod.os, "sched_getaffinity", lambda pid: set(range(32)), raising=False)
+    monkeypatch.setattr(run_mod, "CPU_QUOTA", tmp_path / "cpu.max")
+
+    def count():
+        return run_mod.host_signature(CPU).split(" | ")[3]
+
+    (tmp_path / "cpu.max").write_text("1600000 100000\n")
+    assert count() == "16"
+    (tmp_path / "cpu.max").write_text("max 100000\n")  # no quota
+    assert count() == "32"
+    (tmp_path / "cpu.max").unlink()  # no cgroup v2
+    assert count() == "32"
+
+
 def test_an_exported_run_names_every_host_it_trained_on(workspace, monkeypatch):
     """Run times are compared only between runs of one host signature (D046), so a run
     resumed on another machine must not pass for a run of either."""

@@ -657,7 +657,9 @@ def machine_step(tmp_path, driver):
     fake(bin_dir, "uv", '[ "$1" = --version ] && echo "uv 0.11.32" || echo "2.9.0+cu132 RTX 5090"')
     (tmp_path / "runner").mkdir()
     fake(tmp_path / "runner" / "bin", "Runner.Listener", "echo 2.330.0")
-    return steps("machine", env={"RUNNER_DIR": str(tmp_path / "runner")}, path_prefix=bin_dir)
+    (tmp_path / "runner.log").write_text("starting the runner\n", encoding="utf-8")
+    env = {"RUNNER_DIR": str(tmp_path / "runner"), "SEQREC_HOME": str(tmp_path)}
+    return steps("machine", env=env, path_prefix=bin_dir)
 
 
 def test_the_machine_step_refuses_a_driver_the_cuda_13_wheels_do_not_run_on(tmp_path):
@@ -672,3 +674,4 @@ def test_the_machine_step_describes_a_machine_with_a_new_enough_driver(tmp_path)
     for text in ("RTX 5090, 580.95.05, 32607 MiB", "Model name: Fake CPU", "16", "6.8.0-fake",
                  "uv 0.11.32", "runner 2.330.0", "2.9.0+cu132 RTX 5090"):  # fmt: skip
         assert text in result.stdout.splitlines()
+    assert result.stdout.endswith("starting the runner\n")  # the end of the watchdog's log

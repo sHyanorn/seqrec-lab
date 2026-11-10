@@ -20,6 +20,7 @@ from __future__ import annotations
 import gc
 import hashlib
 import json
+import math
 import os
 import platform
 import random
@@ -44,6 +45,7 @@ from seqrec.telemetry import NvmlSampler, nvml_static, summarize_samples
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 MAX_ANCHOR_READS = 3
+CPU_QUOTA = Path("/sys/fs/cgroup/cpu.max")  # cgroup v2: "<quota> <period>" or "max <period>"
 START_FACTOR = 1.5  # D035: a run starts once validation NDCG@10 exceeds this times MostPop's
 
 
@@ -309,8 +311,18 @@ def host_signature(device: torch.device) -> str:
     if cpuinfo.exists():
         models = [x for x in cpuinfo.read_text().splitlines() if x.startswith("model name")]
         cpu = models[0].split(":", 1)[1].strip() if models else cpu
+    return " | ".join([gpu, driver, cpu, str(allocated_cpus()), os.environ.get("RUNPOD_DC_ID", "")])
+
+
+def allocated_cpus() -> int:
+    """CPUs this process may use. A container can run on every thread of its host and still
+    be limited to fewer by its cgroup's quota."""
     count = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else os.cpu_count()
-    return " | ".join([gpu, driver, cpu, str(count), os.environ.get("RUNPOD_DC_ID", "")])
+    try:
+        quota, period = CPU_QUOTA.read_text().split()
+        return min(count, math.ceil(int(quota) / int(period)))
+    except (OSError, ValueError):  # no cgroup v2, or "max": no quota
+        return count
 
 
 def execute(

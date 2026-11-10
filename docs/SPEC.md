@@ -160,3 +160,6 @@ The total cap is 500 GPU hours on the rented machine (D045; the hours in D012 an
 32. BERT4Rec official code. https://github.com/FeiSun/BERT4Rec
 33. gSASRec PyTorch code. https://github.com/asash/gSASRec-pytorch
 34. Runpod pricing, read 2026-11-10. https://www.runpod.io/pricing
+35. NVIDIA CUDA Compiler Driver NVCC, v13.5, chapter 5 (GPU compilation: binary compatibility, just-in-time compilation, fatbinaries). https://docs.nvidia.com/cuda/cuda-compiler-driver-nvcc/index.html
+36. PyTorch v2.15.0, `torch/cuda/__init__.py` (`DEVICE_REQUIREMENT`, `PYTORCH_RELEASES_CODE_CC`, `_check_capability`). https://github.com/pytorch/pytorch/blob/v2.15.0/torch/cuda/__init__.py
+37. Triton v3.9.0, NVIDIA backend driver (`get_current_target`). https://github.com/triton-lang/triton/blob/v3.9.0/third_party/nvidia/backend/driver.py

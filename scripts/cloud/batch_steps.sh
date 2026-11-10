@@ -81,6 +81,9 @@ machine() {
     uv --version
     echo "runner $("${RUNNER_DIR:-/workspace/actions-runner}/bin/Runner.Listener" --version)"
     uv run --no-sync python -c "import torch; assert torch.cuda.is_available(), 'no CUDA device'; print(torch.__version__, torch.cuda.get_device_name(0))"
+    uv run --no-sync python -c "import torch; from seqrec.runner.run import host_signature; print('host', host_signature(torch.device('cuda')))"
+    echo "cpu.max $(cat /sys/fs/cgroup/cpu.max 2>&1), RUNPOD_CPU_COUNT ${RUNPOD_CPU_COUNT:-unset}"
+    tail -n 20 "$SEQREC_HOME/runner.log" # when the watchdog started the runner and when it listened
 }
 
 # Commit status "batch/<run id>" on the commit the job runs from. The job log is readable
