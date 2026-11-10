@@ -6,7 +6,7 @@ Milestones and checklists. Estimates: development hours / GPU hours / owner time
 
 - [x] Literature, reference code, dataset terms and platform research
 - [x] `docs/SPEC.md`, `docs/METHODS.md` (draft), `docs/TASKS.md`, `docs/DECISIONS.md` (D001 to D018)
-- [x] uv project with locked PyTorch 2.15 (`cu132` on Windows, CPU on Linux)
+- [x] uv project with locked PyTorch 2.15 (`cu132` on Windows; `cpu` and `cu132` extras on Linux)
 - [x] `scripts/check_env.py` with CPU tests
 - [x] Owner runs `scripts/check_env.py` on the laptop; JSON and summary committed under `results/env/`
 - [x] Review the check results: SDPA backend availability and accuracy, `torch.compile`, memory per catalogue size, thermal behaviour; update D002, D003, D011 or the budget if they contradict assumptions
@@ -50,9 +50,11 @@ Freeze
 - [x] Causality perturbation test; planted-rule test (NDCG@10 at least 0.95); shuffled-label and shuffled-order known-answer tests (D027)
 - [x] Remaining mutation tests (label shift, causal mask removed, test read during tuning)
 - [x] Tuning harness: Optuna TPE studies in SQLite, pruning, caps and truncation records (D028)
-- [ ] Pilot on the laptop: anchors on MovieLens-1M (METHODS 11.5), 3 seeds per arm for σ (validation only), epoch-time measurements on all datasets
+- [x] Pilot on the laptop: anchors on MovieLens-1M (METHODS 11.5), 3 seeds per arm for σ (validation only), epoch-time measurements on all datasets
+- [ ] Rented machine (D045): runner set up, `check_env` report committed, admission test passed
+- [ ] Pilot, anchors and the gSASRec rerun of D035 on the rented machine
 - [x] Anchors inside their bands within three anchor reads per arm, or the arm flagged as in METHODS 11.5 (D032: all four inside after one read)
-- [ ] Seed count from METHODS 7.5 (rule implemented: `seqrec seeds`); updated GPU projection; descoping decisions if needed
+- [ ] Seed count from METHODS 7.5 (rule implemented: `seqrec seeds`); updated GPU projection from the rerun; descoping decisions if needed
 - [ ] Silent-error review and whole-diff review; fixes
 
 Before M3 tuning starts
@@ -63,9 +65,9 @@ Before M3 tuning starts
 - [ ] The known-answer test for the shuffled-order transform (METHODS 3.3) is weak; test exact orders on a hand-made case
 - [ ] The anchor-read limit is enforced in `test_run`, not in `read_test`; move it into the reader so every caller is bound by it
 - [x] Median pruning counts its steps from a trial's start epoch, so gSASRec trials are not compared inside the plateau before the start rule fires (D044; deviation from METHODS 5.4)
-- [ ] Training steps of small configurations on Steam and Video_Games are bound by kernel launches (about 6.3 ms per step against 1.1 to 1.8 ms of GPU work, D039), so wall-clock time to target (H2a) mostly measures launch overhead. Decide the execution mode before any M3 run, applied to every arm: fixed shapes (loss over all positions with a mask instead of boolean indexing), fused Adam, then CUDA Graphs, with a prototype in `scripts/profile_step.py` measuring the gain first. Record the effect on RQ2 and repeat the pilot timings and the D034 projection afterwards
+- [ ] Training steps of small configurations on Steam and Video_Games are bound by kernel launches (about 6.3 ms per step against 1.1 to 1.8 ms of GPU work, D039; laptop numbers, to be measured again on the rented machine, D045), so wall-clock time to target (H2a) mostly measures launch overhead. Decide the execution mode before any M3 run, applied to every arm: fixed shapes (loss over all positions with a mask instead of boolean indexing), fused Adam, then CUDA Graphs, with a prototype in `scripts/profile_step.py` measuring the gain first. Record the effect on RQ2 and repeat the pilot timings and the D034 projection afterwards
 
-## M3 RQ1 and RQ2 runs (6 h / 128 to 163 h plus seed reserve / about 3 weeks of laptop time)
+## M3 RQ1 and RQ2 runs (6 h / projection pending the pilot rerun, D045 / no owner time per batch)
 
 - [ ] Check whether the negative-sampling comparison announced in the amazon-science/RecArena repository has been published; record its overlap with RQ2 in DECISIONS
 - [ ] Tuning plans take a `start_limit` field, doubled together with the caps when a plan is doubled (D035)
@@ -83,7 +85,7 @@ Before M3 tuning starts
 
 - [ ] Benchmark harness: backends, mask forms, precisions, lengths, catalogue sizes, `torch.compile`
 - [ ] Component timing with CUDA events and profiler attention share
-- [ ] Controlled sessions per METHODS 9 (2 to 3 sessions on the laptop)
+- [ ] Controlled sessions per METHODS 9 and D045 (2 to 3 sessions on the rented machine)
 - [ ] bf16 vs fp32 quality runs for H3c
 - [ ] Export results
 

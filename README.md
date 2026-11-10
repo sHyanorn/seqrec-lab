@@ -1,6 +1,6 @@
 # seqrec-lab
 
-A study of Transformer sequential recommenders (SASRec, BERT4Rec, gSASRec) on one consumer laptop GPU. It covers how robust published quality gaps are under equal tuning and several seeds, what training objectives cost in time and memory, and where training time goes.
+A study of Transformer sequential recommenders (SASRec, BERT4Rec, gSASRec) on one consumer GPU. It covers how robust published quality gaps are under equal tuning and several seeds, what training objectives cost in time and memory, and where training time goes.
 
 - [Specification](docs/SPEC.md)
 - [Methods (pre-registered, frozen)](docs/METHODS.md)
@@ -32,6 +32,10 @@ The report is written to `results/env/`. `--quick` runs tiny shapes and also wor
 ```
 uv run pytest
 ```
+
+## GPU batches
+
+GPU runs happen on a rented machine through the manual `batch` workflow (D045); `scripts/cloud/` holds the machine's setup. Its exports are in `results/runs/`; those of the laptop used up to the M2 pilot are in `results/laptop/`.
 
 ## Data
 

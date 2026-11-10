@@ -16,6 +16,7 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
 - Rationale: PyTorch 2.15 Windows CUDA wheels are built for `sm_120` [30] and, per the release notes, include the FlashAttention backend [22]. NVML in WSL2 does not support all queries [26]. Clock-lock commands have no effect inside WSL2 [27]. Per-submission launch overhead is higher under WSL2 [28], and small models launch many short kernels.
 - Alternatives: WSL2 for everything, which brings official Triton and `torch.compile` but less reliable telemetry and timing.
 - Amendment 2026-11-08: confirmed by the environment check (`results/env/check_env_nvidia-geforce-rtx-5080-laptop-gpu_20261108T221127Z.json`). `torch.compile` works natively with triton-windows (speedup 1.075 on the synthetic train step), so no planned work needs WSL2.
+- Amendment 2026-11-10: superseded for all later GPU runs by D045 (Linux container on a rented machine). The comparison with WSL2 no longer applies.
 
 ## D003 Software stack
 
@@ -29,6 +30,7 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
   - cuDNN runs for fp16 and bf16 up to head dimension 128;
   - all outputs and gradients match the fp32 math backend within tolerance;
   - the default dispatch picks memory-efficient attention whenever a padding mask is present.
+- Amendment 2026-11-10: on Linux the lock file carries two mutually exclusive extras, `cpu` (development) and `cu132` (GPU runs, D045); a Linux sync without an extra installs no torch, so a GPU run cannot fall back to a CPU build unnoticed (`tests/test_lock.py`). `triton-windows` is not used on Linux.
 
 ## D004 Own implementation of models, losses and evaluation
 
@@ -107,6 +109,7 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
   - Consequence: software thermal slowdown and power capping are the normal operating state and cannot be exclusion criteria.
   - Protocol change: steady-state measurement after at least 180 s of continuous load is primary; short measurements from a cool GPU are secondary. Exclusion and flagging rules use hardware slowdown events and SM clock deviation instead of software thermal events. M3 runs are interleaved across arms after a warm-up so that thermal state does not differ by arm. Details: METHODS sections 8 and 9.2.
   - Clock locking: application-clock queries are not supported on this GPU, but 389 graphics clock levels are reported. Locking is still tried by hand in M4.
+- Amendment 2026-11-10: the thermal behaviour recorded here is the laptop's. Conditions for RQ3 on the rented machine are in D045; both regimes and the exclusion rule are unchanged.
 
 ## D012 GPU budget
 
@@ -114,12 +117,14 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
 - Decision: at most 200 GPU hours in total. Core work is estimated at 153 to 188 hours; the rest is a reserve used first for extra seeds (D018), then for RQ4. Cuts if the projected core exceeds the cap, in order: halve MovieLens-20M tuning trials, drop the MovieLens-20M temporal split, drop Steam.
 - Rationale: estimates before measurement (METHODS section 12). About 50 laptop hours per week are available.
 - Amendment 2026-11-09: the cap is 500 GPU hours (D034). The cut order is unchanged and applies above it.
+- Amendment 2026-11-10: the cap stays at 500 GPU hours, now hours of the rented machine (D045). A cap in USD is set when the projection from the pilot rerun exists; until then only M2 work runs there, at most 15 GPU hours. The 50 hours per week no longer limit the calendar.
 
 ## D013 Execution model
 
 - Date: 2026-11-08. Status: accepted.
 - Decision: the owner runs one command per batch of runs on the laptop. The runner resumes after interruption and writes configs, metrics, logs and NVML traces to files. An export command writes aggregated CSV files, which the owner pushes. The environment check report (`results/env/`) is committed. Data, checkpoints and per-user outputs stay local. Reports never contain user names, host names or file paths.
 - Rationale: keeps the owner's time per batch to a few minutes, and makes every number traceable to committed files.
+- Amendment 2026-11-10: batches are started through the `batch` workflow on the rented machine, which also commits the exports (D045). Resuming, skipping finished runs and the export are unchanged.
 
 ## D014 Pre-registration timing
 
@@ -289,7 +294,7 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
 ## D032 Anchor results
 
 - Date: 2026-11-09. Status: accepted. Method fixed before any anchor result was seen; results added after the anchor reads.
-- Method: `seqrec anchors results/runs/m2-anchor.csv` lists every anchor run on MovieLens-1M.
+- Method: `seqrec anchors results/laptop/m2-anchor.csv` lists every anchor run on MovieLens-1M.
   - Stop conditions, each reported before any other step: a run not tested; anything other than one completed anchor read and no final read per run; a commit or parameters other than those of D026; test NDCG@10 outside the band of the METHODS 11.5 table (edges included in the band); test and validation NDCG@10 more than 3·sqrt((v(1 − v) + t(1 − t))/6,040) apart.
   - The last threshold is three standard errors of the difference. Per-user NDCG@10 lies in [0, 1], so m(1 − m)/U bounds the variance of a mean over U users, and the two means are treated as independent; at NDCG@10 0.18 the threshold is about 0.021. Test above validation by more is handled like a result above the band (the leakage checks of METHODS 11.5), below by more like a result below it.
   - Recorded without a stop rule: epochs; best epoch, counted from 1, against [5] (63 for SASRec-CE, 53 for SASRec-BCE, 197 for BERT4Rec) and about 1,790 for the gSASRec checkpoint of [33]; stop reason and truncation; test and validation tie rates, expected near 0 for neural models; test HR@10; NDCG@10 on shuffled test inputs, expected clearly lower (METHODS 3.3); hardware slowdown.
@@ -308,13 +313,14 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
   - Best epochs against the sources: SASRec-CE 68 (63 in [5]), SASRec-BCE 75 (53), BERT4Rec 200 of 200, so it was still improving at the cap, as in [5] (197 of 200). gSASRec reached its best at epoch 184 and stopped by patience at epoch 384, far earlier than the about 1,790 epochs of the [33] checkpoint, yet inside its band.
   - GPU time 1.13 h, of which gSASRec 1.07 h (1.9 s per training epoch against 0.35 to 0.45 s for the other arms).
   - These reads touched the MovieLens-1M test targets once per arm; RQ1 conclusions on MovieLens-1M carry the note of METHODS 11.5.
+- Amendment 2026-11-10: these are the laptop's results; its exports moved to `results/laptop/`. The rented machine repeats the anchor runs (D045), which is the second anchor read of each arm.
 
 ## D033 Seed variance and seed count
 
 - Date: 2026-11-09. Status: method fixed before any pilot result was seen; results pending.
 - Method:
-  - σ and n: `seqrec seeds results/runs/m2-pilot.csv --tag sigma --dataset ml-1m` (METHODS 7.5).
-  - What the METHODS 5.2 limits cost: `seqrec anchors results/runs/m2-anchor.csv --pilot results/runs/m2-pilot.csv`. Per arm, Δ is the mean log validation NDCG@10 of the three seed-variance runs (METHODS 5.2 limits) minus the log validation NDCG@10 of the latest anchor run (the source's limits, D026), and z = Δ/(σ·sqrt(1 + 1/3)).
+  - σ and n: `seqrec seeds results/laptop/m2-pilot.csv --tag sigma --dataset ml-1m` (METHODS 7.5).
+  - What the METHODS 5.2 limits cost: `seqrec anchors results/laptop/m2-anchor.csv --pilot results/laptop/m2-pilot.csv`. Per arm, Δ is the mean log validation NDCG@10 of the three seed-variance runs (METHODS 5.2 limits) minus the log validation NDCG@10 of the latest anchor run (the source's limits, D026), and z = Δ/(σ·sqrt(1 + 1/3)).
   - An increase of an arm's limits is recommended when Δ < −log(1.02), the SESOI, and z < −2. The limits stay as in METHODS 5.2 until that recommendation is decided.
   - SASRec-SS has no anchor and is reported without Δ. The METHODS 5.2 limits are longer than the source's for SASRec-CE, SASRec-BCE and BERT4Rec, and much shorter for gSASRec (300 epochs against up to 10,000).
 - Results: pending.
@@ -322,7 +328,7 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
 ## D034 GPU budget from the pilot
 
 - Date: 2026-11-09. Status: method fixed before any timing result was seen; results pending.
-- Method (`seqrec budget results/runs/m2-pilot.csv`):
+- Method (`seqrec budget results/laptop/m2-pilot.csv`):
   - Epoch time per dataset and arm: median training plus validation seconds per epoch of the pilot timing runs. Tuned and final configurations are unknown, so the central value is the mean of the anchor size (`time-small`) and the largest size in the search space (`time-large`).
   - Epochs per run: the mean best epoch (counted from 1) of the MovieLens-1M seed-variance runs, scaled by the best-epoch ratio of [5] Table 2, plus the patience, at most the epoch cap. Ratios against MovieLens-1M: MovieLens-20M 46/63 for cross-entropy and sampled softmax, 30/53 for BCE and gBCE, 68/197 for BERT4Rec; Steam 16/63, 39/53 and 74/197; Video_Games, absent from [5], 1. Epoch counts do not fall with dataset size: in [5], MovieLens-20M has 23 times the users of MovieLens-1M and a best epoch of 46 against 63 (SASRec+).
   - One run costs its epochs times the epoch time, plus one evaluation of the restored checkpoint.
@@ -337,6 +343,7 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
   - The BERT4Rec timing runs at the largest size use mask probability 0.4, the upper end of its search range.
   - Warm-ups are recounted after a cut.
 - Amendment 2026-11-09 (after the pilot projection was seen, before any tuning run): the owner raised the GPU cap from 200 to 500 hours, all on the laptop, and kept the full scope. The central core is 416.0 h, or 468.9 h with the start rule of D035; the three D012 cuts leave 222.6 h (246.7 h), still above 200 h, and the third cut drops Steam, the only dataset where G2 and G3 have a negative published sign. The D012 cut order stays and applies above 500 h. Before tuning starts on each dataset, the projection is repeated with the measured trial times of the datasets already tuned; if the central core then exceeds 500 h, the D012 cuts apply in order and each is recorded here. `seqrec budget` uses the 500 h cap; METHODS 12 still states 200 h, so this is a deviation from it.
+- Amendment 2026-11-10: 416.0 h and 468.9 h are laptop hours. The projection is repeated from the pilot rerun on the rented machine (D045) and replaces them; the method is unchanged.
 
 ## D035 Start rule for slow-starting runs
 
@@ -355,6 +362,7 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
 - Alternatives: the anchor limits for gSASRec (10,000 epochs, patience 200) add about 164 hours and stretch the pruning warm-up to 1,000 epochs; a lower t is already tuned over [0.5, 1.0], and changing it in the seed-variance runs would leave the anchor configuration; dropping stuck runs selects on the outcome.
 - Tests: the start-rule tests in `tests/test_runner.py` and `test_a_later_export_replaces_the_runs_it_repeats` failed before their changes (METHODS 11.5).
 - Run directories and checkpoints from before this rule, and a later export with unfinished runs: D040.
+- Amendment 2026-11-10: the gSASRec rerun did not run on the laptop. The pilot and the rerun both run on the rented machine (D045), so the two files read here come from one machine.
 
 ## D036 Time counted by the guard
 
@@ -367,6 +375,7 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
 - Date: 2026-11-09. Status: accepted. No training run compiles code, so no result depends on it.
 - Decision: importing `seqrec` sets `TRITON_DEFAULT_FP_FUSION=1` and overrides any inherited value. Every entry point imports the package before anything is compiled, including the `torch.compile` worker of `scripts/check_env.py`. `tests/test_package.py` failed before the change (METHODS 11.5).
 - Rationale: fusion is already the default of the locked triton-windows 3.9 (D003), so behaviour does not change. Fixing it keeps a later Triton release or a stray environment variable from changing the rounding of compiled kernels unnoticed, which the M4 `torch.compile` measurements (METHODS 9.1) would absorb.
+- Amendment 2026-11-10: the variable is set the same way on Linux, where `torch.compile` uses the Triton that the `cu132` wheel depends on (D045). That fusion is also that Triton's default is not verified here; it is checked on the rented machine before the M4 `torch.compile` measurements.
 
 ## D038 Slow-run flag
 
@@ -375,6 +384,7 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
 - Rationale: in the pilot, gSASRec seed 2 took 30.6 s per training epoch against 1.7 to 1.9 s for its other seeds and the anchor run, at a higher SM clock (median 2,917 against about 2,000 MHz) and with no hardware slowdown event. Neither flag of METHODS 8 catches such a run, and its times would enter time to target (H2a) unmarked.
 - Limitation: tuning trials have no other seeds, so a slowed trial is not flagged; under the guard (D036) it can be marked truncated and count toward the doubling rule of METHODS 5.2.
 - `test_export_flags_the_slow_seed` checks the exported values of the flag (D040).
+- Amendment 2026-11-10: the flag stays. The slow stretches that motivated it came from the Windows driver (D042) and are not expected on Linux.
 
 ## D039 Step-time profiler
 
@@ -383,6 +393,7 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
 - Rationale: in the pilot timing runs every arm took about 7 ms per step on Steam and Video_Games, at both configuration sizes, which points to a fixed cost per step outside GPU compute. What a change to the training loop could save depends on how much of a step the GPU is busy, which only the GPU machine can measure.
 - GPU time counted once per kernel, per-step times without the cost per epoch, and `--from-run`: D040.
 - The script prints a note above its JSON line when the busy share exceeds 1, since GPU time and wall time come from separate passes and the share then only says that the GPU limits the step, and when the cost per epoch is negative, since a one-step epoch then ran faster than a step of the long epoch and the split between the two is not meaningful (`test_results_outside_the_assumptions_carry_a_note`).
+- Amendment 2026-11-10: the step times here were measured on the laptop under Windows. Kernel-launch cost differs on Linux, so the profile is measured again on the rented machine (D045) before the execution mode is decided.
 
 ## D040 Fixes from the M2 close review
 
@@ -404,15 +415,17 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
   - Every epoch records `train_peak_reserved_gib`, the peak of memory PyTorch reserved, cached blocks included, next to `train_peak_memory_gib`. Summaries give the largest value of each over the run (`train_peak_memory_gib_max`, `train_peak_reserved_gib_max`), and export lists them as `torch_allocated_gib_max` and `torch_reserved_gib_max`, next to `nvml_mem_used_mib_max` (D040). Runs from before this change export no value (`test_epochs_record_the_memory_pytorch_reserved`, `test_runs_summarize_and_export_their_memory_peaks`, `test_runs_without_memory_records_summarize_to_none`).
   - Each run and tuning trial starts by collecting unreachable objects and emptying the CUDA cache, so blocks cached by an earlier run in the same process go back to the driver before the run builds its model; the check after a failed attempt (D031) uses the same step (`test_each_run_releases_cached_device_memory_before_it_builds_its_model`, `test_releasing_device_memory_empties_the_cuda_cache_only`).
 - Not decided here: the driver setting that keeps CUDA memory out of system RAM, and a gBCE implementation without the per-position gather. Both wait for a diagnosis on the GPU machine.
+- Amendment 2026-11-10: the two open points are closed in D042.
 
 ## D042 Device memory spilling into system RAM
 
-- Date: 2026-11-10. Status: accepted; the driver setting follows below once tested on the GPU machine. Code changes after the anchor reads (METHODS 11.5); each came with a test that failed before it. Decided before the gSASRec rerun of D035 and before any M3 run.
+- Date: 2026-11-10. Status: closed without the driver-setting test; GPU runs moved to Linux (D045). Code changes after the anchor reads (METHODS 11.5); each came with a test that failed before it. Decided before the gSASRec rerun of D035 and before any M3 run.
 - Diagnosis: on the GPU machine the driver's "CUDA - Sysmem Fallback Policy" was at its default, which lets CUDA allocations go to system RAM once device memory is full. Two profiling runs of the gSASRec anchor configuration on MovieLens-1M (`scripts/profile_step.py`) took 410 to 480 ms per step. Within 2 s of the start the process filled the 16 GB of device memory and about 12 GiB of shared system memory, and held both until it ended; meanwhile SM use was 95–100%, memory-controller use 1–4% and PCIe traffic 30–55 GB/s each way, against under 0.2 GB/s at idle. The PyTorch allocation peak of the same configuration in training was 4.6 GiB, so most of the memory held was the allocator's cache: gBCE gathers a (positions × 256 × d) tensor whose size changes with every batch, a request larger than every cached block makes the allocator ask the driver for a new one, and with the fallback that request never fails, so the allocator never frees its cache and retries (D041).
 - `scripts/profile_step.py` empties the CUDA cache and resets the allocator's statistics before it builds the model, and prints the peaks of memory PyTorch allocated and reserved, the number of device allocations and the number of retries after a failed one (`torch_allocated_gib_max`, `torch_reserved_gib_max`, `device_allocs`, `alloc_retries`), so a reserved peak far above the allocated one can be read off (`test_memory_readings_separate_memory_in_use_from_cached_blocks`).
 - gBCE (A4) no longer gathers the embeddings of every position's negatives at once. `losses.negative_logits` computes the (M, K) negative scores through the smaller of two intermediates: the scores of all items, (M, rows of the output table), from which each position's negatives are picked, when the table has at most K × d rows; otherwise the negatives' embeddings, (M, K, d). Positions are processed in slices whose intermediate holds at most 2²⁶ elements (256 MiB in fp32), recomputed in the backward pass as for chunked cross-entropy. Intermediates still change size from batch to batch below that bound, but never exceed it. The loss of METHODS 4.3 is unchanged and still computed in fp32 with autocast off; only the order of operations, and with it the rounding, differs. Both forms are fp32 matrix products under the TF32 setting of METHODS 5.1. Whether cuBLAS used TF32 for the old form's many small products was not checked; the one large product of the new form will use it, which rounds negative scores at about 1e-3 relative, within what METHODS 5.1 accepts for training.
 - Path by dataset over the search space (K ∈ {64, 128, 256}, d ∈ {64, 128, 256}, so K × d from 4,096 to 65,536; the table has N + 1 rows), on leave-one-out: MovieLens-1M (N 3,416) always scores all items; Steam (N 11,961) scores all items when K × d ≥ 16,384 and gathers embeddings below; MovieLens-20M (N 18,345) and Video_Games (N 25,612) score all items when K × d ≥ 32,768 and gather embeddings below. On the temporal split N is the training-period vocabulary (`results/data/stats.csv`), which moves MovieLens-20M (N 14,834) to scoring all items from K × d 16,384; the other datasets keep their thresholds. A batch has at most 128 × L positions (25,600 on the MovieLens sets, 6,400 on Steam and Video_Games); slicing starts above 2²⁶ / min(N + 1, K × d) positions. For the anchor configuration on MovieLens-1M (d 128) the largest intermediate falls from about 3.4 GB to at most 256 MiB.
 - Effect on existing results: in fp64 the new and old forms agree in loss and gradients to 1e-12, so the gSASRec anchor run and seed 2, trained with the old form, stand. `test_gbce_never_holds_a_negative_embedding_per_position` failed before the change (METHODS 11.5); `test_gbce_paths_match_the_gathered_form_in_value_and_gradient` covers both paths with one slice and with several; `test_negative_logits_take_the_smaller_intermediate`, `test_negative_logits_slices_stay_within_the_budget` and `test_sliced_gbce_under_bf16_autocast_matches_fp32` fix the path choice, the slice bound with a partial last slice, and autocast staying off when slices are recomputed. The fp64 agreement says nothing about TF32 rounding on the GPU.
+- Closure 2026-11-10: this was behaviour of the Windows driver. The old gBCE built large tensors of a different size for every batch, the driver's system-memory fallback let the allocator's cache grow without ever failing, and training took 410 to 480 ms per step. The planned comparison with the fallback switched off was not run, because GPU runs moved to a Linux machine (D045), where an allocation past device memory fails and the allocator frees its cache and retries. The gBCE change above stays: it bounds the intermediate tensors on every platform.
 
 ## D043 Execution-mode prototype in the step profiler
 
@@ -426,6 +439,7 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
   - Readings that are not measurements carry a note: no GPU events for the added steps, a profiler that stopped collecting GPU events early, and a synchronisation count of 0 in an epoch that reads its loss (`syncs_one_step_epoch`). The output names the device. `--warmup 0` skips the warm-up epoch.
   - `--check`: the loss difference is the one to read. Adam turns rounding differences in near-zero gradients into weight differences up to the size of the learning rate, so the weight difference of correct code can exceed that of two runs of the arm's own code.
 - Tests: `tests/test_step_modes.py` failed before the modes existed, and the tests of the items above before each change (METHODS 11.5). The losses under fixed shapes equal the arms' own losses given the same negatives; the CUDA graph and the synchronisation count need a GPU and are checked by `--check` and `--sync-debug` on the GPU machine.
+- Amendment 2026-11-10: the prototype is measured on the rented machine (D045); no laptop measurement of it enters a decision.
 
 ## D044 Pruning steps count from the start epoch
 
@@ -439,3 +453,23 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
   - An epoch repeated after a crash is not bit-identical on a GPU. If the crash falls between the report of the start epoch and its checkpoint and the repeated epoch misses the threshold, step 0 keeps the lost epoch's value and later steps shift by one; Optuna keeps the first value of a step, and the tuning code silences its warning about repeated steps.
 - Alternatives: a longer warm-up for gSASRec alone removes the noise comparisons but still prunes late starters against early ones, gives one arm its own tuning rule, and at 300 epochs disables pruning for it; Optuna's `PatientPruner` around the median pruner passes a trial on to the inner pruner when it has not improved for some steps, which is the state of a trial in the plateau.
 - Tests: `test_pruning_steps_count_from_the_start_epoch`, `test_a_resumed_run_reports_its_earlier_steps_again` and `test_a_trial_that_never_starts_completes_without_pruning_steps` failed before the change (METHODS 11.5). `test_trials_that_never_started_enable_pruning_but_stay_out_of_the_median` fixes the Optuna behaviour the decision relies on and failed before the minimum of 3 trials per step. `test_a_trial_stopped_at_its_start_limit_is_a_complete_trial` covers a trial that ends with `no_start`.
+
+## D045 GPU runs move to a rented machine
+
+- Date: 2026-11-10. Status: accepted by the owner. Deviation from SPEC sections 1, 4, 8, 9 and 10 and from METHODS 9.2 and 12. Made after the M2 pilot and anchor results from the laptop were seen, and before any tuning run, final run or RQ3 measurement.
+- Decision: every GPU run from here on happens on one rented machine: an RTX 5090 (32 GB, 9 vCPUs) in RunPod Secure Cloud, on demand and not interruptible, in a Linux container, at 1.19 USD per hour [34]. The laptop makes no further measurement.
+- Reason: run times on the laptop were unstable under the Windows driver, and diagnosing that took longer than the runs themselves (D042). The remaining plan, about 470 projected laptop hours at about 50 hours per week, would also keep that one machine busy for more than nine weeks.
+- What stays: research questions, hypotheses, datasets, models, splits, the tuning and seed rules, the statistical analysis and every decision rule. The GPU is still a consumer card, so the cost claims of RQ2 and RQ3 are still about consumer hardware; they now describe a desktop card in a data centre next to a server CPU, and the report says so.
+- Laptop results:
+  - Kept as they are, because they do not depend on the machine: the anchor quality inside the published bands (D032), the start rule and its basis (D035), the pruning rule (D044), the data statistics.
+  - Measured again on the rented machine: the whole M2 pilot, the anchors and the gSASRec rerun of D035 (57, 4 and 3 runs; the first two took 4.3 GPU hours on the laptop), so that every run of the study comes from one machine. σ and the seed count (D033), the budget projection (D034), the per-step profile (D039) and the execution-mode prototype (D043) are computed from the new runs.
+  - The laptop's exports are in `results/laptop/`. `results/runs/` holds the rented machine's; `overview.csv` and `tuning_best.csv` in a directory are computed from the batch files in that directory, so the two machines are never summed.
+  - Anchor reads are counted across both directories (METHODS 11.5 allows three per arm): the laptop made one per arm, so the rerun is each arm's second. `seqrec test` and `seqrec export` add the reads in `results/laptop/` to those on the machine and stop if that directory is missing.
+- Platform (replaces SPEC section 8 for GPU runs): Linux container on the host's NVIDIA driver, branch 580 or newer; PyTorch 2.15.0 `cu132` wheels through the `cu132` extra of the lock file (D003); `torch.compile` through the Triton that the Linux wheel depends on. `scripts/check_env.py` is run once on the machine and its report committed under `results/env/`. The container cannot choose the driver; a machine below branch 580 is not used.
+- Execution (replaces SPEC section 9): a batch is one manual run of the `batch` workflow on a self-hosted runner on the machine (`scripts/cloud/`). The workflow takes a plan file from `configs/plans/`, runs it, exports, and commits the batch's file and the summaries only when the plan finished without a failure. Its `export` task commits a batch as it is on the machine, for a plan that cannot finish because a run was given up (D031). Run directories, datasets and checkpoints stay on the machine's volume. The machine stops itself when a job ends, and after 30 minutes without a job.
+- Access: the workflow starts by hand only and runs from `main` only. A job on the machine runs as root, so workflows of pull requests from outside contributors require the owner's approval in the repository settings, and that approval is never given.
+- One machine for all timing: RQ2 and RQ3 times are compared only within one machine instance (the same GPU, host and CPU). Each job records GPU model, driver, CPU model, vCPU count and kernel. If the instance is lost, timing runs already made on it are repeated on the new one or reported separately, and its exports are set aside as the laptop's were; quality results are not affected.
+- Admission test before any timing run, because the CPU is shared with other tenants and small configurations are sensitive to it (D039): two configurations (SASRec with BCE on Steam; gSASRec on MovieLens-1M), 5 processes each of `scripts/profile_step.py`. The spread of the step time, (max − min) / median, must be at most 5% for each; the test is repeated at least 6 hours later after a stop and start, and the two medians must differ by at most 5% with the same CPU model and vCPU count. A machine that fails is not used for timing.
+- Deviation from METHODS 9.2 (conditions): "native Windows, AC power, power mode recorded, vendor performance profile fixed and recorded, other applications closed" is replaced by the machine above with nothing else running in the container. NVML sampling, the 5 randomised repeats, both regimes and the exclusion rule are unchanged. The cool-start regime was written for the laptop's thermal slowdown after about 40 s (D011); it is measured as written and reported, whether or not this machine shows such a slowdown. The clock lock is tried as written; a container that may not set it counts as "does not work".
+- Deviation from METHODS 12 (budget): hours in METHODS 12 and D034 are laptop hours. The cap is 500 GPU hours on the rented machine. A cap in USD is set when the D034 projection has been repeated from the rerun pilot; until then only M2 work runs, at most 15 GPU hours. The D012 cut order is unchanged and applies above the cap. The 8-hour guard of METHODS 5.2 is unchanged.
+- Alternatives: staying on the laptop (no cost, but the instability above and nine weeks of the owner's only machine); an interruptible or community-hosted machine at a lower price (the host can change or disappear between runs, which breaks the one-machine rule); a dedicated server with a workstation GPU (fixed CPU and the cleanest timing, kept as the fallback if the admission test fails); a data-centre GPU (not consumer hardware).

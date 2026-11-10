@@ -2,7 +2,7 @@
 
 ## 1. Goal
 
-Measure, on one consumer laptop GPU, three things about Transformer sequential recommenders:
+Measure, on one consumer GPU rented by the hour (D045), three things about Transformer sequential recommenders:
 
 1. how much of the published quality gap between SASRec, BERT4Rec and gSASRec survives an equal tuning budget, several seeds and full-ranking evaluation;
 2. what each training objective costs in wall-clock time and memory for the quality it reaches;
@@ -17,7 +17,7 @@ Every confirmatory claim follows the pre-registered analysis in [METHODS.md](MET
 - Sampled metrics can reorder models [6, 9, 16], so this project ranks the full catalogue. Leave-one-out splits leak future information and change model rankings [7, 8, 12]; a global temporal split is therefore added as a robustness check.
 - Memory-efficient losses for large catalogues are covered by [13, 14, 15]. These works use datacentre GPUs and mostly single runs. Measurements of PyTorch attention backends, mixed precision or `torch.compile` for SASRec-scale models were not found.
 
-The expected direction of RQ1 and the quality ordering in RQ2 are largely known. The contribution is the size of each effect with uncertainty attached, wall-clock costs on consumer hardware, and a time breakdown that links the loss choice to efficiency.
+The expected direction of RQ1 and the quality ordering in RQ2 are largely known. The contribution is the size of each effect with uncertainty attached, wall-clock costs on a consumer GPU, and a time breakdown that links the loss choice to efficiency.
 
 ## 3. Research questions
 
@@ -52,7 +52,7 @@ In scope:
 Out of scope:
 - New model proposals, LLM-based recommenders, HSTU-style long-sequence models, sequences longer than 800.
 - Sampled-metric evaluation, except to restate published numbers.
-- Multi-GPU, cloud GPUs, and comparisons between operating systems.
+- Multi-GPU, data-centre GPUs, and comparisons between machines or operating systems.
 - Datasets whose terms restrict publication (Yelp Open Dataset, D005).
 - Redistributing any dataset or derived interaction data.
 
@@ -96,27 +96,27 @@ SASRec arms tune whether output embeddings are shared with input embeddings. Chu
 
 | Item | Choice | Source |
 |---|---|---|
-| GPU | NVIDIA GeForce RTX 5080 Laptop GPU, 16 GB GDDR7, Blackwell | [20] |
-| OS for GPU runs | Windows 11, native (D002) | |
+| GPU | NVIDIA GeForce RTX 5090, 32 GB, Blackwell; rented, one machine for all runs (D045) | [34] |
+| OS for GPU runs | Linux container on the provider's host driver (D045) | |
 | Python | 3.12 | |
-| PyTorch | 2.15.x, CUDA 13.2 wheels (`cu132`), built for `sm_120` | [21, 22, 30] |
+| PyTorch | 2.15.x, CUDA 13.2 wheels (`cu132`) | [21, 22] |
 | NVIDIA driver | Branch 580 or newer for CUDA 13 wheels | [22] |
-| `torch.compile` on GPU | Best effort through the community `triton-windows` 3.9.x build | [23, 24] |
+| `torch.compile` on GPU | Triton from the Linux wheel's dependencies | |
 | Monitoring | NVML through `nvidia-ml-py` | [25] |
 | Environment manager | uv with a committed lock file | |
 | Development | Linux container without GPU, CPU wheels, small configurations | |
 
-Native Windows is preferred over WSL2 for three reasons. NVIDIA documents that NVML inside WSL2 does not support all queries [26]. Clock-lock commands have no effect inside WSL2 [27]. Launch and synchronisation overhead per submission is higher than native [28], and small models are sensitive to it. WSL2 is a fallback only for `torch.compile` work; timings from the two systems are never mixed in one comparison.
+M0 to the M2 pilot ran on an RTX 5080 Laptop GPU under native Windows (D002); its environment report stays under `results/env/` and its exports under `results/laptop/`. Times from the two machines are never mixed in one comparison.
 
 `scripts/check_env.py` verifies these assumptions on the target machine: wheel architecture, every attention backend by dtype and mask, bf16, matmul throughput, a synthetic SASRec train step at three catalogue sizes, full-ranking scoring speed, `torch.compile`, and two minutes of sustained load with clock, temperature and power logging. Its JSON report and text summary are committed under `results/env/`.
 
 ## 9. Execution model
 
-GPU work runs on the laptop. The owner runs one command per batch of runs; the runner resumes after interruption, skips finished runs and writes configs, metrics, logs and NVML traces to files. A separate export command writes aggregated CSV files, which are committed. Datasets, checkpoints and per-user scores stay local.
+GPU work runs on the rented machine. A batch is one manual run of the `batch` workflow: it runs a plan, resumes after interruption, skips finished runs and writes configs, metrics, logs and NVML traces to the machine's volume. Its export step writes the batch's aggregated CSV file and the summaries, and commits them when the plan finished without a failure. Datasets, checkpoints and per-user scores stay on the machine.
 
 ## 10. Compute budget
 
-The total cap is 500 GPU hours (D012, raised from 200 in D034 after the pilot). Before measurement, the core work is estimated at 153 to 188 hours. The rest of the cap is a reserve for extra seeds, then RQ4. METHODS section 12 has the breakdown and the descoping order. The M2 pilot replaces these estimates with measured times. With about 50 GPU hours available per week, M3 takes about three weeks of calendar time.
+The total cap is 500 GPU hours on the rented machine (D045; the hours in D012 and D034 were laptop hours). A cap in USD is set once the pilot rerun there has replaced the estimates; until then only M2 work runs, at most 15 GPU hours. METHODS section 12 has the breakdown before measurement and the descoping order.
 
 ## 11. Deliverables
 
@@ -159,3 +159,4 @@ The total cap is 500 GPU hours (D012, raised from 200 in D034 after the pilot). 
 31. SASRec official code. https://github.com/kang205/SASRec
 32. BERT4Rec official code. https://github.com/FeiSun/BERT4Rec
 33. gSASRec PyTorch code. https://github.com/asash/gSASRec-pytorch
+34. RunPod pricing, read 2026-11-10. https://www.runpod.io/pricing
