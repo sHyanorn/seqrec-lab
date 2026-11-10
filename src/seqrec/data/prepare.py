@@ -37,7 +37,14 @@ def prepare(datasets: list[str], data_dir: Path, results_dir: Path, log=print) -
 
 def _write_results(results_dir: Path, name: str, source: dict, stats: list[dict]) -> None:
     done = {name}
-    write_csv(results_dir / "sources.csv", merge_rows(results_dir / "sources.csv", [source], done))
-    all_stats = merge_rows(results_dir / "stats.csv", stats, done)
+    sources = _registry_order(merge_rows(results_dir / "sources.csv", [source], done))
+    write_csv(results_dir / "sources.csv", sources)
+    all_stats = _registry_order(merge_rows(results_dir / "stats.csv", stats, done))
     write_csv(results_dir / "stats.csv", all_stats)
     write_csv(results_dir / "published_comparison.csv", compare_published(all_stats, PUBLISHED))
+
+
+def _registry_order(rows: list[dict]) -> list[dict]:
+    """Order rows by dataset as in the registry, so files do not depend on preparation order."""
+    position = {name: i for i, name in enumerate(DATASETS)}
+    return sorted(rows, key=lambda row: position[row["dataset"]])

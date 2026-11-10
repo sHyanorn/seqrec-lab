@@ -1,6 +1,7 @@
 import csv
 import gzip
 import zipfile
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -10,7 +11,9 @@ from seqrec.data import prepare as prepare_mod
 from seqrec.data import readers
 from seqrec.data.invariants import InvariantError, item_popularity, require_from_train
 from seqrec.data.preprocess import Log, build_log, kcore_mask, leave_one_out_interactions
+from seqrec.data.registry import DATASETS
 from seqrec.data.splits import shuffle_eval_inputs, shuffle_order
+from seqrec.data.stats import write_csv
 from seqrec.data.store import build_splits
 
 
@@ -205,3 +208,48 @@ def test_certificate_errors_fall_back_to_curl_then_to_instructions(tmp_path, mon
     monkeypatch.setattr(dl, "_fetch_with_curl", curl_fails)
     with pytest.raises(RuntimeError, match="in a browser"):
         dl.download(spec, tmp_path / "b", log=lambda _: None)
+
+
+RESULT_FILES = ("sources.csv", "stats.csv", "published_comparison.csv")
+
+
+def _datasets_in_file_order(path):
+    with path.open(encoding="utf-8") as f:
+        return list(dict.fromkeys(r["dataset"] for r in csv.DictReader(f)))
+
+
+def test_result_files_do_not_depend_on_the_order_of_preparation(tmp_path, monkeypatch):
+    raw = tmp_path / "data" / "raw"
+    _write_raw_files(raw)
+
+    def offline(spec, raw_dir, log):
+        return {"dataset": spec.name, "url": spec.url, "file": spec.filename, "bytes": 1,
+                "sha256": "test"}  # fmt: skip
+
+    monkeypatch.setattr(prepare_mod, "download", offline)
+    quiet = {"log": lambda _: None}
+    names = list(DATASETS)
+    forward, backward = tmp_path / "forward", tmp_path / "backward"
+    prepare_mod.prepare(names, tmp_path / "data", forward, **quiet)
+    for name in reversed(names):
+        prepare_mod.prepare([name], tmp_path / "data", backward, **quiet)
+    for file in RESULT_FILES:
+        assert (backward / file).read_bytes() == (forward / file).read_bytes(), file
+    for file in ("sources.csv", "stats.csv"):
+        assert _datasets_in_file_order(backward / file) == names
+
+
+def test_committed_data_files_are_in_registry_order():
+    committed = Path(__file__).resolve().parents[1] / "results" / "data"
+    for file in ("sources.csv", "stats.csv"):
+        assert _datasets_in_file_order(committed / file) == list(DATASETS), file
+
+
+def test_written_csv_matches_the_committed_bytes_on_any_platform(tmp_path):
+    """Committed CSVs use LF; a rewrite of the same rows must not differ (data-unchanged)."""
+    committed = Path(__file__).resolve().parents[1] / "results" / "data"
+    for file in RESULT_FILES:
+        with (committed / file).open(encoding="utf-8", newline="") as f:
+            rows = list(csv.DictReader(f))
+        write_csv(tmp_path / file, rows)
+        assert (tmp_path / file).read_bytes() == (committed / file).read_bytes(), file

@@ -107,7 +107,7 @@ def write_csv(path: Path, rows: list[dict]) -> None:
     _check_aggregate(path.name, columns, len(rows))
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=columns)
+        writer = csv.DictWriter(f, fieldnames=columns, lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
 
