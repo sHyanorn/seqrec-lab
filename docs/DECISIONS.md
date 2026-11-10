@@ -511,6 +511,11 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
   - MovieLens-1M, gSASRec: 4.507, 4.619, 4.693, 4.712, 4.708. Median 4.693, spread 4.37%. Each process timed 47 steps: the script times full batches only, up to 200, and an epoch of this dataset has 47.
   - Observation, cause not examined: in both configurations the first process was the fastest and the later ones were slower.
   - The script now prints step times to the nanosecond (`test_step_times_keep_the_digits_that_decide_a_five_percent_spread` failed before).
+- Owner's decision, 2026-11-10, made after the first Pod's result above was seen and before any further Pod. The criteria are unchanged: both limits stay at 5%, computed as before.
+  - The first Pod stays recorded as undecidable at the precision it printed.
+  - The test within one Pod is repeated once, in full, on a new Pod: both configurations, with step times printed to the nanosecond. That repeat is the final result for both configurations, whatever it shows, and is not repeated again. Its Pod is the one the second Pod's medians are compared with.
+  - The test did not say what follows when a spread within one Pod exceeds 5%. If either configuration does so in the repeat, there is no further attempt. The owner then chooses between adding one warm-up process that is not counted, recorded as a deviation, and comparing run times only within one Pod's lifetime.
+  - Both results, the first Pod's and the repeat's, stay in this entry.
 
 ## D047 The rented GPU is an RTX 4090
 
