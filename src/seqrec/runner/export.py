@@ -113,14 +113,16 @@ def _row(run_dir: Path) -> dict:
 def flag_slow_epochs(rows: list[dict]) -> None:
     """Set `slow_epochs` on every row (D038): True when the run's median training plus
     validation time per epoch exceeds SLOW_FACTOR times the median of the other runs with
-    the same batch, dataset, split, shuffle, arm, parameters and tag (its other seeds).
-    None when the run has no epoch time or no such other run."""
+    the same batch, dataset, split, shuffle, arm, parameters, tag and host (its other seeds
+    on the same host signature, D046). None when the run has no epoch time or no such other
+    run."""
     groups = defaultdict(list)
     for r in rows:
         r["slow_epochs"] = None
         if r["epoch_train_s_median"] is not None and r["epoch_eval_s_median"] is not None:
             key = tuple(
-                r[k] for k in ("batch", "dataset", "split", "shuffle", "arm", "params", "tag")
+                r[k]
+                for k in ("batch", "dataset", "split", "shuffle", "arm", "params", "tag", "host")
             )
             groups[key].append(r)
     for runs in groups.values():

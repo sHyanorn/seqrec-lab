@@ -634,8 +634,9 @@ def test_the_guard_counts_training_and_validation_time_only(workspace, monkeypat
     assert summary["wall_s"] == pytest.approx(4.0) and summary["checkpoint_s"] >= 4 * 3600
 
 
-def _timed_row(seed, train_s, tag="sigma", params="{}", eval_s=0.1):
+def _timed_row(seed, train_s, tag="sigma", params="{}", eval_s=0.1, host="a"):
     return {
+        "host": host,
         "batch": "b", "dataset": "ml-1m", "split": "loo", "shuffle": "none", "arm": "sasrec-ce",
         "tag": tag, "params": params, "seed": seed, "run_id": f"r{seed}-{tag}-{params}",
         "epoch_train_s_median": train_s, "epoch_eval_s_median": eval_s,
@@ -652,6 +653,16 @@ def test_slow_epochs_flags_runs_far_slower_than_the_same_configuration():
     rows.append(_timed_row(4, None, eval_s=None))  # never finished an epoch
     flag_slow_epochs(rows)
     assert [r["slow_epochs"] for r in rows] == [False, True, False, None, None, False, False, None]
+
+
+def test_slow_epochs_compares_only_runs_on_the_same_host():
+    """A batch that went on on a slower host: its later seeds are not slow runs (D046)."""
+    from seqrec.runner.export import flag_slow_epochs
+
+    rows = [_timed_row(1, 1.0), _timed_row(2, 1.1)]
+    rows += [_timed_row(3, 2.0, host="b"), _timed_row(4, 2.1, host="b")]
+    flag_slow_epochs(rows)
+    assert [r["slow_epochs"] for r in rows] == [False, False, False, False]
 
 
 def test_patience_waits_until_a_run_beats_popularity(workspace):
