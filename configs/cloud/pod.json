@@ -14,7 +14,7 @@
   "mounts": {
     "network": [
       {
-        "volumeId": "REPLACE_WITH_VOLUME_ID",
+        "volumeId": "g2f1edjgjj",
         "path": "/workspace"
       }
     ]
