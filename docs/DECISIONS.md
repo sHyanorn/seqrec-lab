@@ -554,6 +554,38 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
   - Limit: this is one Pod. The admission test saw two kinds of host, so the result describes this Pod only, and the timing protocol states how it deals with differences between hosts.
   - Record: the step times at every length and every quantity above are written into this entry, none left out. The per-epoch step times and CPU numbers of every process are committed as `results/env/d046-diagnostic.csv`; `results/env` is not read as an export (D045).
   - Cost: about 33 minutes of one Pod, 0.48 USD, at worst about 0.62 USD. The check off the Pod is set at 40 minutes and deletes the Pod at 50.
+- Diagnostic measurement, result, 2026-11-10, as designed above. Pod `hv48mixx16ikf9`, created 08:02:45Z and gone by 09:36:17Z; workflow runs 15 to 24 at `38b1610`, one process each, all successful, in the designed order (Steam in runs 15, 17, 19, 21 and 23; MovieLens-1M in the others). Signature `NVIDIA GeForce RTX 4090 | 595 | AMD EPYC 7352 24-Core Processor | 14 | EU-RO-1`, kernel 6.8.0-138, CPU count from a cgroup v1 quota (`1360000 100000`), cgroup filesystem `tmpfs`, nominal count 16. Wall time per step in ms, processes in the order they ran; every epoch's value and the time of each timing line are in `results/env/d046-diagnostic.csv`.
+  - The host is of a third kind: both Pods of the admission test had an AMD Ryzen 9 7950X. Medians at the admission test's window (200 steps on Steam, 47 on MovieLens-1M), same request and same GPU model:
+
+    | Pod | CPU, kernel, CPU count | Steam, SASRec with BCE | MovieLens-1M, gSASRec |
+    |---|---|---|---|
+    | admission test, first | Ryzen 9 7950X, 6.8.0-147, 14 (cgroup v2 quota) | 3.075 | 4.693 |
+    | admission test, repeat | Ryzen 9 7950X, 6.8.0-138, 32 (no quota read) | 3.339909 | 4.821271 |
+    | diagnostic | EPYC 7352, 6.8.0-138, 14 (cgroup v1 quota) | 15.834245 | 16.408777 |
+
+    The diagnostic Pod's step is 4.7 to 5.1 times the Ryzen Pods' on Steam and 3.4 to 3.5 times on MovieLens-1M. Process CPU time per step equals wall time on this Pod as well (15.633552 against 15.620209 ms in the first process).
+  - Steam, between processes:
+    - first epoch (200 steps): 15.836222, 15.530501, 15.936126, 15.834245, 15.787577; median 15.834245, spread 2.56%, coefficient of variation 0.96%;
+    - first 10 epochs (2,000 steps): 15.622748, 15.911407, 15.857812, 15.949462, 15.768771; median 15.857812, spread 2.06%, coefficient of variation 0.82%;
+    - all 100 epochs (20,000 steps): 15.620209, 15.759198, 15.782608, 15.846889, 15.499937; median 15.759198, spread 2.20%, coefficient of variation 0.89%.
+  - MovieLens-1M, between processes:
+    - first epoch (47 steps): 16.580054, 16.414704, 16.245924, 16.352684, 16.408777; median 16.408777, spread 2.04%, coefficient of variation 0.74%;
+    - first 4 epochs (188 steps): 16.536952, 16.224175, 16.314757, 16.274782, 16.318279; median 16.314757, spread 1.92%, coefficient of variation 0.73%;
+    - first 40 epochs (1,880 steps): 16.092134, 16.012405, 16.131429, 16.185134, 16.243163; median 16.131429, spread 1.43%, coefficient of variation 0.55%;
+    - all 400 epochs (18,800 steps): 16.196095, 16.326716, 16.008951, 16.044149, 16.255774; median 16.196095, spread 1.96%, coefficient of variation 0.84%.
+  - Within each process, spread over its consecutive windows, with the coefficient of variation in brackets, processes in the order they ran:
+    - Steam, 100 windows of 200 steps: 11.78% (2.15%), 13.90% (1.68%), 11.61% (1.50%), 9.85% (1.36%), 8.24% (1.65%);
+    - Steam, 10 windows of 2,000 steps: 3.80% (1.20%), 2.55% (0.96%), 2.26% (0.75%), 2.91% (0.86%), 3.73% (1.29%);
+    - MovieLens-1M, 400 windows of 47 steps: 29.32% (3.38%), 21.69% (2.05%), 30.11% (2.82%), 12.47% (1.65%), 26.82% (2.09%);
+    - MovieLens-1M, 100 windows of 188 steps: 12.80% (2.32%), 8.75% (1.74%), 17.12% (2.23%), 4.92% (1.33%), 7.67% (1.51%);
+    - MovieLens-1M, 10 windows of 1,880 steps: 4.29% (1.21%), 3.31% (1.22%), 3.20% (1.02%), 2.74% (0.98%), 2.14% (0.64%).
+  - Variance components of the per-epoch step times: Steam, mean 15.701768 ms, standard deviation between processes 0.137370 ms (0.87%) and within processes 0.264515 ms (1.68%); MovieLens-1M, mean 16.166337 ms, between processes 0.134821 ms (0.83%) and within processes 0.399882 ms (2.47%).
+  - Readings fixed in the design:
+    - The spread between processes at the longest length is 0.86 times that at the shortest on Steam (2.20% against 2.56%) and 0.96 times on MovieLens-1M (1.96% against 2.04%). Neither is below three quarters, so on this Pod the noise is read as a level that belongs to a process, and the protocol relies on repeats in separate processes.
+    - Measured noise, the larger of the two configurations: 2.06% at 2,000 and 1,880 steps, 2.20% at 20,000 and 18,800 steps. At the shortest length the maximum with the admission test's four spreads is 9.08%; this Pod's own spreads there are 2.56% and 2.04%.
+  - Observations, causes not examined: the main thread was seen on 13 to 27 of the host's 48 CPUs in each process; single epochs of MovieLens-1M ran as fast as 12.1 ms per step against medians near 16.4 ms.
+  - Deviation from the design's cost: the Pod ran for 94 minutes, about 1.39 USD, because each process took about 9 minutes on this host. The deletion set at 50 minutes was moved to 100 minutes while the fifth process ran, so that all ten processes were measured; nothing else in the design changed.
+  - Limit, as designed: one Pod of one kind of host. Whether the Ryzen hosts, where the admission test saw spreads of 4.37% to 9.08% at the shortest length, behave the same at longer windows was not measured.
 
 ## D047 The rented GPU is an RTX 4090
 
