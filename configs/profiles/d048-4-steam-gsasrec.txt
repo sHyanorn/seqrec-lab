@@ -1,0 +1,32 @@
+# D048, configuration 4 of 8: Steam, gSASRec, anchor size. One process per line, run in this order.
+# Equivalence with the arm's own step.
+--dataset steam --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --check --fused-adam
+--dataset steam --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --check --fixed-shapes --fused-adam
+--dataset steam --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --check --fixed-shapes --fused-adam --cuda-graph
+# Timing: 5 rounds of the four modes, 20,000 steps each; the first mode moves on by
+# one every round.
+--dataset steam --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --steps 200 --epochs 100
+--dataset steam --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --steps 200 --epochs 100 --fused-adam
+--dataset steam --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --steps 200 --epochs 100 --fixed-shapes --fused-adam
+--dataset steam --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --steps 200 --epochs 100 --fixed-shapes --fused-adam --cuda-graph
+--dataset steam --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --steps 200 --epochs 100 --fused-adam
+--dataset steam --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --steps 200 --epochs 100 --fixed-shapes --fused-adam
+--dataset steam --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --steps 200 --epochs 100 --fixed-shapes --fused-adam --cuda-graph
+--dataset steam --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --steps 200 --epochs 100
+--dataset steam --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --steps 200 --epochs 100 --fixed-shapes --fused-adam
+--dataset steam --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --steps 200 --epochs 100 --fixed-shapes --fused-adam --cuda-graph
+--dataset steam --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --steps 200 --epochs 100
+--dataset steam --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --steps 200 --epochs 100 --fused-adam
+--dataset steam --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --steps 200 --epochs 100 --fixed-shapes --fused-adam --cuda-graph
+--dataset steam --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --steps 200 --epochs 100
+--dataset steam --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --steps 200 --epochs 100 --fused-adam
+--dataset steam --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --steps 200 --epochs 100 --fixed-shapes --fused-adam
+--dataset steam --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --steps 200 --epochs 100
+--dataset steam --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --steps 200 --epochs 100 --fused-adam
+--dataset steam --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --steps 200 --epochs 100 --fixed-shapes --fused-adam
+--dataset steam --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --steps 200 --epochs 100 --fixed-shapes --fused-adam --cuda-graph
+# Synchronisations per step.
+--dataset steam --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --sync-debug
+--dataset steam --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --sync-debug --fused-adam
+--dataset steam --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --sync-debug --fixed-shapes --fused-adam
+--dataset steam --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --sync-debug --fixed-shapes --fused-adam --cuda-graph

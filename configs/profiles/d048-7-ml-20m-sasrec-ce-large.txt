@@ -1,0 +1,27 @@
+# D048, configuration 7 of 8: MovieLens-20M, SASRec with full cross-entropy, largest size. One process per line, run in this order.
+# Equivalence with the arm's own step.
+--dataset ml-20m --arm sasrec-ce --params {"dim":256,"blocks":3,"heads":2,"shared_output":false} --check --fused-adam
+--dataset ml-20m --arm sasrec-ce --params {"dim":256,"blocks":3,"heads":2,"shared_output":false} --check --fixed-shapes --fused-adam
+--dataset ml-20m --arm sasrec-ce --params {"dim":256,"blocks":3,"heads":2,"shared_output":false} --check --fixed-shapes --fused-adam --cuda-graph
+# Timing: 5 rounds of the four modes, 3,400 steps each; the first mode moves on by
+# one every round.
+--dataset ml-20m --arm sasrec-ce --params {"dim":256,"blocks":3,"heads":2,"shared_output":false} --steps 200 --epochs 17
+--dataset ml-20m --arm sasrec-ce --params {"dim":256,"blocks":3,"heads":2,"shared_output":false} --steps 200 --epochs 17 --fused-adam
+--dataset ml-20m --arm sasrec-ce --params {"dim":256,"blocks":3,"heads":2,"shared_output":false} --steps 200 --epochs 17 --fixed-shapes --fused-adam
+--dataset ml-20m --arm sasrec-ce --params {"dim":256,"blocks":3,"heads":2,"shared_output":false} --steps 200 --epochs 17 --fixed-shapes --fused-adam --cuda-graph
+--dataset ml-20m --arm sasrec-ce --params {"dim":256,"blocks":3,"heads":2,"shared_output":false} --steps 200 --epochs 17 --fused-adam
+--dataset ml-20m --arm sasrec-ce --params {"dim":256,"blocks":3,"heads":2,"shared_output":false} --steps 200 --epochs 17 --fixed-shapes --fused-adam
+--dataset ml-20m --arm sasrec-ce --params {"dim":256,"blocks":3,"heads":2,"shared_output":false} --steps 200 --epochs 17 --fixed-shapes --fused-adam --cuda-graph
+--dataset ml-20m --arm sasrec-ce --params {"dim":256,"blocks":3,"heads":2,"shared_output":false} --steps 200 --epochs 17
+--dataset ml-20m --arm sasrec-ce --params {"dim":256,"blocks":3,"heads":2,"shared_output":false} --steps 200 --epochs 17 --fixed-shapes --fused-adam
+--dataset ml-20m --arm sasrec-ce --params {"dim":256,"blocks":3,"heads":2,"shared_output":false} --steps 200 --epochs 17 --fixed-shapes --fused-adam --cuda-graph
+--dataset ml-20m --arm sasrec-ce --params {"dim":256,"blocks":3,"heads":2,"shared_output":false} --steps 200 --epochs 17
+--dataset ml-20m --arm sasrec-ce --params {"dim":256,"blocks":3,"heads":2,"shared_output":false} --steps 200 --epochs 17 --fused-adam
+--dataset ml-20m --arm sasrec-ce --params {"dim":256,"blocks":3,"heads":2,"shared_output":false} --steps 200 --epochs 17 --fixed-shapes --fused-adam --cuda-graph
+--dataset ml-20m --arm sasrec-ce --params {"dim":256,"blocks":3,"heads":2,"shared_output":false} --steps 200 --epochs 17
+--dataset ml-20m --arm sasrec-ce --params {"dim":256,"blocks":3,"heads":2,"shared_output":false} --steps 200 --epochs 17 --fused-adam
+--dataset ml-20m --arm sasrec-ce --params {"dim":256,"blocks":3,"heads":2,"shared_output":false} --steps 200 --epochs 17 --fixed-shapes --fused-adam
+--dataset ml-20m --arm sasrec-ce --params {"dim":256,"blocks":3,"heads":2,"shared_output":false} --steps 200 --epochs 17
+--dataset ml-20m --arm sasrec-ce --params {"dim":256,"blocks":3,"heads":2,"shared_output":false} --steps 200 --epochs 17 --fused-adam
+--dataset ml-20m --arm sasrec-ce --params {"dim":256,"blocks":3,"heads":2,"shared_output":false} --steps 200 --epochs 17 --fixed-shapes --fused-adam
+--dataset ml-20m --arm sasrec-ce --params {"dim":256,"blocks":3,"heads":2,"shared_output":false} --steps 200 --epochs 17 --fixed-shapes --fused-adam --cuda-graph

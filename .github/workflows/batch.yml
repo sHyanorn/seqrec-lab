@@ -10,17 +10,17 @@ on:
         options: [setup, profile, run, tune, test, export]
         default: run
       plan:
-        description: plan file name in configs/plans (run, tune, test, export)
+        description: plan file name in configs/plans (run, tune, test, export), or a schedule in configs/profiles (profile)
         type: string
       hours:
         description: stop the plan after this many hours, 1 to 22 (run, tune)
         type: number
         default: 22
       profile_args:
-        description: profile_step.py arguments (profile)
+        description: profile_step.py arguments (profile without a schedule)
         type: string
       repeats:
-        description: profile repetitions, one process each
+        description: profile repetitions, one process each (every line of a schedule runs once)
         type: number
         default: 5
       stop:
@@ -102,7 +102,7 @@ jobs:
           "chore(env): add the check_env report of machine $MACHINE" results/env
       - name: Profile
         if: inputs.task == 'profile'
-        timeout-minutes: 120
+        timeout-minutes: 180
         run: bash scripts/cloud/batch_steps.sh profile
       # An export that already fails (a test read left incomplete) would fail again after the
       # plan; better before hours of training than after.

@@ -1,0 +1,27 @@
+# D048, configuration 8 of 8: MovieLens-20M, gSASRec, anchor size. One process per line, run in this order.
+# Equivalence with the arm's own step.
+--dataset ml-20m --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --check --fused-adam
+--dataset ml-20m --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --check --fixed-shapes --fused-adam
+--dataset ml-20m --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --check --fixed-shapes --fused-adam --cuda-graph
+# Timing: 5 rounds of the four modes, 6,000 steps each; the first mode moves on by
+# one every round.
+--dataset ml-20m --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --steps 200 --epochs 30
+--dataset ml-20m --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --steps 200 --epochs 30 --fused-adam
+--dataset ml-20m --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --steps 200 --epochs 30 --fixed-shapes --fused-adam
+--dataset ml-20m --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --steps 200 --epochs 30 --fixed-shapes --fused-adam --cuda-graph
+--dataset ml-20m --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --steps 200 --epochs 30 --fused-adam
+--dataset ml-20m --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --steps 200 --epochs 30 --fixed-shapes --fused-adam
+--dataset ml-20m --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --steps 200 --epochs 30 --fixed-shapes --fused-adam --cuda-graph
+--dataset ml-20m --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --steps 200 --epochs 30
+--dataset ml-20m --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --steps 200 --epochs 30 --fixed-shapes --fused-adam
+--dataset ml-20m --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --steps 200 --epochs 30 --fixed-shapes --fused-adam --cuda-graph
+--dataset ml-20m --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --steps 200 --epochs 30
+--dataset ml-20m --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --steps 200 --epochs 30 --fused-adam
+--dataset ml-20m --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --steps 200 --epochs 30 --fixed-shapes --fused-adam --cuda-graph
+--dataset ml-20m --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --steps 200 --epochs 30
+--dataset ml-20m --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --steps 200 --epochs 30 --fused-adam
+--dataset ml-20m --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --steps 200 --epochs 30 --fixed-shapes --fused-adam
+--dataset ml-20m --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --steps 200 --epochs 30
+--dataset ml-20m --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --steps 200 --epochs 30 --fused-adam
+--dataset ml-20m --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --steps 200 --epochs 30 --fixed-shapes --fused-adam
+--dataset ml-20m --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false} --steps 200 --epochs 30 --fixed-shapes --fused-adam --cuda-graph

@@ -102,6 +102,7 @@ def test_hours_outside_1_to_22_are_rejected(hours):
         "--dataset ml-1m --arm gsasrec --steps 47 --epochs 400",
         "--dataset steam --arm sasrec-ce --fixed-shapes --fused-adam --cuda-graph --sync-debug",
         "  --dataset   ml-20m --arm bert4rec --check ",
+        '--dataset steam --arm gsasrec --params {"dim":128,"dropout":0.5,"shared_output":false}',
     ],
 )
 def test_profile_arguments_the_script_knows_are_accepted(args):
@@ -122,6 +123,9 @@ def test_profile_arguments_the_script_knows_are_accepted(args):
         "--dataset steam --arm sasrec-bce --device cpu",
         "--dataset steam --arm sasrec-bce --data-dir /etc",
         "--dataset steam --arm sasrec-bce --params {}",
+        '--dataset steam --arm sasrec-bce --params {"dim":"$(id)"}',
+        '--dataset steam --arm sasrec-bce --params {"dim":64};id',
+        "--dataset steam --arm sasrec-bce --params [64]",
         "--dataset steam --arm sasrec-bce --from-run /tmp/x",
         "--dataset steam --arm $(id)",
         "--dataset steam --arm a;id",
@@ -141,6 +145,109 @@ def test_repeats_outside_1_to_20_are_rejected(repeats):
     result = steps("check-inputs", env=env)
     assert result.returncode == 1
     assert "repeats" in result.stderr
+
+
+SCHEDULES = sorted((REPO / "configs" / "profiles").glob("*.txt"))
+
+
+def schedule(tmp_path: Path, text: str, name: str = "s.txt") -> dict:
+    """A schedule file under tmp_path, and the inputs of a profile job that names it."""
+    profiles = tmp_path / "configs" / "profiles"
+    profiles.mkdir(parents=True, exist_ok=True)
+    (profiles / name).write_text(text, encoding="utf-8")
+    return {"TASK": "profile", "PLAN": name, "REPEATS": "5"}
+
+
+def test_the_repository_has_schedules():
+    assert SCHEDULES
+
+
+@pytest.mark.parametrize("path", SCHEDULES, ids=lambda p: p.name)
+def test_a_schedule_in_the_repository_is_accepted(path):
+    env = {"TASK": "profile", "PLAN": path.name, "PROFILE_ARGS": " ", "REPEATS": "5"}
+    result = steps("check-inputs", env=env)
+    assert result.returncode == 0, result.stderr
+
+
+D048 = [p for p in SCHEDULES if p.name.startswith("d048-")]
+D048_MODES = (
+    "",
+    " --fused-adam",
+    " --fixed-shapes --fused-adam",
+    " --fixed-shapes --fused-adam --cuda-graph",
+)
+D048_EPOCHS = (100, 100, 100, 100, 58, 25, 17, 30)  # of 200 steps, configurations 1 to 8
+
+
+def test_d048_has_a_schedule_for_each_of_its_eight_configurations():
+    assert [p.name.split("-")[1] for p in D048] == [str(n) for n in range(1, 9)]
+
+
+@pytest.mark.parametrize("path", D048, ids=lambda p: p.name)
+def test_a_d048_schedule_holds_the_processes_of_its_design_in_order(path):
+    """Three checks, then five rounds that time each mode once from a moving start, then in
+    configurations 1 to 4 one count of synchronisations per mode."""
+    n = int(path.name.split("-")[1])
+    lines = [x for x in path.read_text(encoding="utf-8").splitlines() if x.startswith("--")]
+    base = lines[0].removesuffix(" --check --fused-adam")
+    timed = f"{base} --steps 200 --epochs {D048_EPOCHS[n - 1]}"
+    want = [f"{base} --check{mode}" for mode in D048_MODES[1:]]
+    want += [timed + D048_MODES[(r + k) % 4] for r in range(5) for k in range(4)]
+    if n <= 4:
+        want += [f"{base} --sync-debug{mode}" for mode in D048_MODES]
+    assert lines == want
+
+
+@pytest.mark.parametrize("path", D048, ids=lambda p: p.name)
+def test_a_d048_schedule_names_only_hyperparameters_its_arm_takes(path):
+    from seqrec.models.sasrec import OBJECTIVES
+    from seqrec.models.trainer import SHARED_DEFAULTS, resolve
+
+    for line in path.read_text(encoding="utf-8").splitlines():
+        words = line.split()
+        if "--params" in words:
+            arm = words[words.index("--arm") + 1]
+            params = json.loads(words[words.index("--params") + 1])
+            resolve(params, SHARED_DEFAULTS | {"shared_output": True} | OBJECTIVES[arm])
+
+
+@pytest.mark.parametrize("name", ["../x.txt", "a;b.txt", "s", "s.txt x", "$(id).txt", "s.toml"])
+def test_other_schedule_names_are_rejected(tmp_path, name):
+    env = schedule(tmp_path, "--dataset steam --arm sasrec-bce\n") | {"PLAN": name}
+    result = steps("check-inputs", cwd=tmp_path, env=env)
+    assert result.returncode == 1
+    assert "plan: not a schedule file name" in result.stderr
+
+
+def test_a_schedule_that_does_not_exist_is_rejected(tmp_path):
+    env = schedule(tmp_path, "--dataset steam --arm sasrec-bce\n") | {"PLAN": "nope.txt"}
+    result = steps("check-inputs", cwd=tmp_path, env=env)
+    assert result.returncode == 1
+    assert "does not exist" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "",
+        "# nothing but a comment\n",
+        "--dataset steam --arm sasrec-bce\n--dataset steam --arm sasrec-bce --device cpu\n",
+        "--dataset steam --arm sasrec-bce\n--arm sasrec-bce\n",
+    ],
+)
+def test_a_schedule_with_no_line_or_a_refused_line_is_rejected(tmp_path, text):
+    result = steps("check-inputs", cwd=tmp_path, env=schedule(tmp_path, text))
+    assert result.returncode == 1
+    assert "profile_args" in result.stderr or "plan" in result.stderr
+
+
+def test_a_schedule_takes_the_place_of_profile_arguments(tmp_path):
+    env = schedule(tmp_path, "--dataset steam --arm sasrec-bce\n")
+    assert steps("check-inputs", cwd=tmp_path, env=env).returncode == 0
+    env["PROFILE_ARGS"] = "--dataset steam --arm sasrec-bce"
+    result = steps("check-inputs", cwd=tmp_path, env=env)
+    assert result.returncode == 1
+    assert "profile_args" in result.stderr
 
 
 def test_the_test_task_has_no_hour_limit_to_check():
@@ -327,6 +434,46 @@ def test_profile_runs_one_process_per_repeat(tmp_path):
         f"--data-dir {tmp_path}/home/data --dataset steam --arm sasrec-bce --steps 50"
     )
     assert calls == [one] * 3
+
+
+def test_profile_runs_every_line_of_a_schedule_once_in_order(tmp_path):
+    fake(tmp_path / "bin", "uv", f'echo "$@" >> {tmp_path}/uv-args')
+    text = (
+        "# round 1\n"
+        "--dataset steam --arm sasrec-ce --epochs 100\n"
+        "\n"
+        "--dataset steam --arm sasrec-ce --epochs 100 --fused-adam\n"
+        '--dataset steam --arm gsasrec --params {"dim":128,"shared_output":false} --check\n'
+    )
+    env = schedule(tmp_path, text) | {"SEQREC_HOME": str(tmp_path / "home")}
+    result = steps("profile", cwd=tmp_path, env=env, path_prefix=tmp_path / "bin")
+    assert result.returncode == 0, result.stderr
+    calls = (tmp_path / "uv-args").read_text(encoding="utf-8").splitlines()
+    head = f"run --no-sync python scripts/profile_step.py --data-dir {tmp_path}/home/data "
+    lines = [line for line in text.splitlines() if line.startswith("--")]
+    assert calls == [head + line for line in lines]
+    # Each process is announced by its line, so a log can be split by process.
+    assert [x for x in result.stdout.splitlines() if x.startswith("profile: ")] == [
+        f"profile: {line}" for line in lines
+    ]
+
+
+def test_profile_goes_on_after_a_failed_process_and_fails_at_the_end(tmp_path):
+    fake(
+        tmp_path / "bin",
+        "uv",
+        f'echo "$@" >> {tmp_path}/uv-args; case "$*" in *--fused-adam*) exit 1 ;; esac',
+    )
+    text = (
+        "--dataset steam --arm sasrec-ce\n"
+        "--dataset steam --arm sasrec-ce --fused-adam\n"
+        "--dataset steam --arm sasrec-ce --fixed-shapes\n"
+    )
+    env = schedule(tmp_path, text) | {"SEQREC_HOME": str(tmp_path / "home")}
+    result = steps("profile", cwd=tmp_path, env=env, path_prefix=tmp_path / "bin")
+    assert result.returncode == 1
+    assert len((tmp_path / "uv-args").read_text(encoding="utf-8").splitlines()) == 3
+    assert "failed: --dataset steam --arm sasrec-ce --fused-adam" in result.stderr
 
 
 # --- data-unchanged and commit ------------------------------------------------------------

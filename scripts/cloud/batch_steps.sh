@@ -22,11 +22,26 @@ plan_batch() {
     echo "$batch"
 }
 
-# PROFILE_ARGS as profile_step.py arguments, one per line; only the forms listed here pass.
+# The processes of a profile job, one line of profile_step.py arguments each: PROFILE_ARGS, or
+# the lines of the schedule in configs/profiles that PLAN names, in the file's order.
+profile_lines() {
+    if [ -z "${PLAN:-}" ]; then
+        printf '%s\n' "${PROFILE_ARGS:-}"
+        return
+    fi
+    [[ "$PLAN" =~ ^[A-Za-z0-9_-]+\.txt$ ]] || die "plan: not a schedule file name"
+    local file="configs/profiles/$PLAN" given=${PROFILE_ARGS:-}
+    [ -f "$file" ] || die "plan: $file does not exist"
+    [ -z "${given//[[:space:]]/}" ] || die "profile_args: a schedule takes their place"
+    LC_ALL=C grep -aE '^[[:space:]]*[^#[:space:]]' "$file" || die "plan: $file names no process"
+}
+
+# One line of profile_step.py arguments, one argument per output line; only the forms listed
+# here pass.
 profile_args() {
     local -a words
     local dataset="" arm="" i=0 word value
-    read -ra words <<< "${PROFILE_ARGS:-}"
+    read -ra words <<< "$1"
     while [ "$i" -lt "${#words[@]}" ]; do
         word=${words[$i]} value=${words[$((i + 1))]:-}
         case "$word" in
@@ -40,6 +55,11 @@ profile_args() {
                 ;;
             --steps | --warmup | --epochs)
                 [[ "$value" =~ ^[0-9]{1,6}$ ]] || die "profile_args: $word needs a number"
+                i=$((i + 1))
+                ;;
+            --params) # a flat JSON object without spaces: {"dim":128,"shared_output":false}
+                [[ "$value" =~ ^\{\"[a-z_]+\":[a-z0-9.]+(,\"[a-z_]+\":[a-z0-9.]+)*\}$ ]] ||
+                    die "profile_args: --params needs a flat JSON object without spaces"
                 i=$((i + 1))
                 ;;
             --fixed-shapes | --fused-adam | --cuda-graph | --sync-debug | --check) ;;
@@ -61,7 +81,13 @@ check_inputs() {
             [[ "${HOURS:-}" =~ ^([1-9]|1[0-9]|2[0-2])$ ]] || die "hours: a whole number from 1 to 22"
             ;;
         profile)
-            profile_args > /dev/null
+            local -a lines
+            local line
+            mapfile -t lines < <(profile_lines)
+            [ "${#lines[@]}" -gt 0 ] || exit 1
+            for line in "${lines[@]}"; do
+                profile_args "$line" > /dev/null
+            done
             [[ "${REPEATS:-}" =~ ^([1-9]|1[0-9]|20)$ ]] || die "repeats: a whole number from 1 to 20"
             ;;
         *) die "task: unknown" ;;
@@ -144,13 +170,27 @@ plan() {
     return "$code"
 }
 
+# PROFILE_ARGS is run REPEATS times; every line of a schedule once. A process that fails does
+# not stop the ones after it, and fails the step at the end.
 profile() {
-    local -a args
-    mapfile -t args < <(profile_args)
-    [ "${#args[@]}" -gt 0 ] || exit 1
-    for _ in $(seq "$REPEATS"); do
-        uv run --no-sync python scripts/profile_step.py --data-dir "$SEQREC_HOME/data" "${args[@]}"
+    local -a lines args
+    local line times=1 failed=0
+    [ -n "${PLAN:-}" ] || times=$REPEATS
+    mapfile -t lines < <(profile_lines)
+    [ "${#lines[@]}" -gt 0 ] || exit 1
+    for line in "${lines[@]}"; do
+        mapfile -t args < <(profile_args "$line")
+        [ "${#args[@]}" -gt 0 ] || exit 1
+        for _ in $(seq "$times"); do
+            echo "profile: $line"
+            uv run --no-sync python scripts/profile_step.py --data-dir "$SEQREC_HOME/data" \
+                "${args[@]}" || {
+                echo "failed: $line" >&2
+                failed=1
+            }
+        done
     done
+    return "$failed"
 }
 
 # `seqrec data prepare` rewrites results/data; a difference from the committed files means the
