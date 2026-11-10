@@ -3,8 +3,9 @@
 # Run it in the machine's terminal; it asks for the runner registration token. It can be run
 # again, for example after GitHub has removed a runner that was offline for 14 days.
 #   bash pod_bootstrap.sh
-# Once it has printed "Watchdog started" the machine deletes itself after 30 minutes without a
-# job, whether or not the rest of this script succeeds.
+# The machine must have been created from configs/cloud/pod.json: its start command runs the
+# watchdog, which deletes the machine after 30 minutes without a job, whether or not this script
+# succeeds.
 set -euo pipefail
 
 REPO_URL=https://github.com/sHyanorn/seqrec-lab
@@ -22,39 +23,22 @@ die() {
 main() {
     mountpoint -q /workspace || die "/workspace is not a volume: nothing would outlive this machine. Delete this machine by hand."
     mkdir -p "$HOME_DIR/bin" "$RUNNER_DIR"
-    curl -fsSL "$REPO_URL/raw/main/scripts/cloud/pod_start.sh" -o "$HOME_DIR/pod_start.sh.new"
-    chmod +x "$HOME_DIR/pod_start.sh.new"
-    mv "$HOME_DIR/pod_start.sh.new" "$HOME_DIR/pod_start.sh"
     # What the watchdog needs; without any of these it could not delete the machine.
-    for tool in curl pgrep pkill flock timeout; do
+    for tool in curl pgrep flock timeout; do
         command -v "$tool" > /dev/null || die "$tool is missing. Delete this machine by hand."
     done
-    [ -n "${RUNPOD_POD_ID:-$(tr '\0' '\n' < /proc/1/environ 2> /dev/null | sed -n 's/^RUNPOD_POD_ID=//p')}" ] ||
-        die "RUNPOD_POD_ID is not set: the machine could not delete itself. Delete this machine by hand."
-    # An older copy of the watchdog, and only that: the start command's loop names the same path.
-    local watchdog="^bash $HOME_DIR/pod_start\.sh\$" held
-    pkill -f "$watchdog" || true
-    nohup "$HOME_DIR/pod_start.sh" >> "$HOME_DIR/runner.log" 2>&1 < /dev/null &
-    for _ in {1..20}; do
-        sleep 1 # first: a probe that beat the watchdog to the lock would make it exit
-        held=0
-        flock -n -E 75 "$LOCK" true || held=$?
-        case "$held" in
-            75) break ;; # held
-            0) ;; # free: no watchdog holds it yet
-            *) die "the watchdog's lock cannot be checked. Delete this machine by hand." ;;
-        esac
+    local name
+    for name in RUNPOD_POD_ID RUNPOD_API_KEY; do
+        [ -n "${!name:-$(tr '\0' '\n' < /proc/1/environ 2> /dev/null | sed -n "s/^$name=//p")}" ] ||
+            die "$name is not set: the machine could not delete itself. Delete this machine by hand."
     done
-    [ "$held" -eq 75 ] || die "the watchdog did not start. Delete this machine by hand."
-    pgrep -f "$watchdog" > /dev/null ||
-        die "the lock is held, but not by the watchdog. Delete this machine by hand."
-    echo "Watchdog started: this machine deletes itself after 30 minutes without a job."
+    local held=0
+    flock -n -E 75 "$LOCK" true || held=$?
+    { [ "$held" -eq 75 ] && pgrep -f "^bash ${POD_START:-/run/seqrec-pod-start.sh}\$" > /dev/null; } ||
+        die "the watchdog is not running: nothing would delete this machine. Delete it by hand."
+    echo "Watchdog running: this machine deletes itself after 30 minutes without a job."
 
     command -v tar > /dev/null || die "tar is missing"
-    # The loop of the container start command; without it no watchdog runs on the next machine.
-    pgrep -f "while true; do \[ -x $HOME_DIR/pod_start.sh" > /dev/null ||
-        die "the container start command is not the one in configs/cloud/pod.json: delete this machine"
-
     local token=${RUNNER_TOKEN:-}
     if [ -z "$token" ]; then
         read -rsp "Runner registration token: " token < /dev/tty

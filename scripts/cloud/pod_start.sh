@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# The machine's watchdog. The container start command runs it at every start and again
-# whenever it exits. It keeps the GitHub Actions runner online and deletes the machine when a
-# job asks for it, when no job has run for IDLE_MINUTES, or when one job has run longer than
-# any job may. Only the network volume at /workspace outlives the machine (D046).
+# The machine's watchdog. The container start command (configs/cloud/pod.json) fetches it from
+# main and runs it at every start, and again whenever it exits. It keeps the GitHub Actions
+# runner online and deletes the machine when a job asks for it, when no job has run for
+# IDLE_MINUTES, or when one job has run longer than any job may. Only the network volume at
+# /workspace outlives the machine (D046).
 set -uo pipefail
 
 HOME_DIR=${SEQREC_HOME:-/workspace/seqrec}

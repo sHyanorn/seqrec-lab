@@ -227,7 +227,7 @@ watchdog_running() {
         0) die "the watchdog is not running: nothing would delete this machine" ;;
         *) die "cannot check the watchdog's lock: nothing may be there to delete this machine" ;;
     esac
-    pgrep -f "^bash ${SEQREC_HOME:-/workspace/seqrec}/pod_start\.sh\$" > /dev/null ||
+    pgrep -f "^bash ${POD_START:-/run/seqrec-pod-start.sh}\$" > /dev/null ||
         die "the lock is held, but not by the watchdog: nothing would delete this machine"
 }
 

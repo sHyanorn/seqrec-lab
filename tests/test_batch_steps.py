@@ -573,7 +573,7 @@ def test_a_job_refuses_a_machine_whose_watchdog_is_not_running(tmp_path):
     import fcntl
     import time
 
-    env = {"POD_START_LOCK": str(tmp_path / "lock"), "SEQREC_HOME": str(tmp_path)}
+    env = {"POD_START_LOCK": str(tmp_path / "lock"), "POD_START": f"{tmp_path}/pod_start.sh"}
     result = steps("watchdog-running", env=env)
     assert result.returncode == 1
     assert "watchdog is not running" in result.stderr

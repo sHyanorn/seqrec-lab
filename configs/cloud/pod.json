@@ -22,6 +22,6 @@
   "cmd": [
     "bash",
     "-c",
-    "while true; do [ -x /workspace/seqrec/pod_start.sh ] && /workspace/seqrec/pod_start.sh >> /workspace/seqrec/runner.log 2>&1; sleep 60; done & [ -x /start.sh ] && exec /start.sh; exec sleep infinity"
+    "mkdir -p /workspace/seqrec; while true; do curl -fsSL https://github.com/sHyanorn/seqrec-lab/raw/main/scripts/cloud/pod_start.sh -o /run/seqrec-pod-start.sh && bash /run/seqrec-pod-start.sh >> /workspace/seqrec/runner.log 2>&1; sleep 60; done & [ -x /start.sh ] && exec /start.sh; exec sleep infinity"
   ]
 }
