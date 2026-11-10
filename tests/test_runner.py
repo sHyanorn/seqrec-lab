@@ -126,6 +126,28 @@ def test_interrupted_run_resumes_without_duplicate_epochs(workspace):
     assert summary["epochs"] == 4
 
 
+def test_the_host_signature_names_gpu_driver_cpu_cpu_count_and_data_centre(monkeypatch):
+    monkeypatch.setenv("RUNPOD_DC_ID", "EU-RO-1")
+    gpu, driver, cpu, count, data_centre = run_mod.host_signature(CPU).split(" | ")
+    assert (gpu, driver, data_centre) == ("cpu", "none", "EU-RO-1")
+    assert cpu and int(count) >= 1
+
+
+def test_an_exported_run_names_every_host_it_trained_on(workspace, monkeypatch):
+    """Run times are compared only between runs of one host signature (D046), so a run
+    resumed on another machine must not pass for a run of either."""
+    runs, data = workspace
+    monkeypatch.setattr(run_mod, "host_signature", lambda device: "first")
+    PopularityModel.crash = "train@2"
+    with pytest.raises(RuntimeError):
+        run_mod.execute(_cfg(), runs, data, CPU, **QUIET)
+    monkeypatch.setattr(run_mod, "host_signature", lambda device: "second")
+    run_mod.execute(_cfg(), runs, data, CPU, **QUIET)
+    run_mod.execute(_cfg(seed=2), runs, data, CPU, **QUIET)
+    hosts = {r["seed"]: r["host"] for r in _exported(runs, runs.parent).values()}
+    assert hosts == {"1": "first + second", "2": "second"}
+
+
 def test_changed_configuration_is_refused(workspace):
     runs, data = workspace
     run_mod.execute(_cfg(), runs, data, CPU, **QUIET)

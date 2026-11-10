@@ -40,7 +40,7 @@ from seqrec.data.store import load_splits
 from seqrec.eval.ranking import NonFiniteScores, evaluate
 from seqrec.eval.test_access import count_reads, mark_completed, read_test
 from seqrec.runner.config import RunConfig, default_start_limit
-from seqrec.telemetry import NvmlSampler, summarize_samples
+from seqrec.telemetry import NvmlSampler, nvml_static, summarize_samples
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 MAX_ANCHOR_READS = 3
@@ -297,6 +297,22 @@ def popularity_reference(cfg: RunConfig, splits: SplitSet, device: torch.device)
     return evaluate(floor.score, splits.validation, max_len_of(cfg), device).metrics["ndcg@10"]
 
 
+def host_signature(device: torch.device) -> str:
+    """GPU model, driver branch, CPU model, CPU count and data centre of this machine. Run
+    times are compared only between runs with the same signature (D046)."""
+    gpu, driver = "cpu", "none"
+    if device.type == "cuda":
+        gpu = torch.cuda.get_device_name(device)
+        driver = str(nvml_static().get("driver_version")).split(".")[0]
+    cpu = platform.processor()
+    cpuinfo = Path("/proc/cpuinfo")
+    if cpuinfo.exists():
+        models = [x for x in cpuinfo.read_text().splitlines() if x.startswith("model name")]
+        cpu = models[0].split(":", 1)[1].strip() if models else cpu
+    count = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else os.cpu_count()
+    return " | ".join([gpu, driver, cpu, str(count), os.environ.get("RUNPOD_DC_ID", "")])
+
+
 def execute(
     cfg: RunConfig,
     runs_dir: Path,
@@ -337,6 +353,7 @@ def execute(
         "hparams": getattr(model, "hparams", None),
         "invariants_passed": checks,
         "start_reference": reference,
+        "hosts": [host_signature(device)],
     }
     manifest_path = run_dir / "manifest.json"
     if manifest_path.exists():
@@ -349,6 +366,7 @@ def execute(
         ):
             raise RunConflict(f"{run_dir}: full data changed since the run started")
         manifest["sessions"] = old.get("sessions", [old["git_commit"]]) + [commit]
+        manifest["hosts"] = old.get("hosts", []) + manifest["hosts"]
     _write_atomic(manifest_path, json.dumps(manifest, indent=1))
 
     state = {"epoch": 0, "best": -1.0, "best_epoch": -1, "bad": 0, "train_s": 0.0, "wall_s": 0.0}
@@ -447,6 +465,7 @@ def execute(
         "run_id": cfg.run_id,
         "config": json.loads(cfg.to_json()),
         "git_commit": commit,
+        "host": " + ".join(dict.fromkeys(manifest["hosts"])),  # every machine it trained on
         "status": "trained" if best_weights is not None else "diverged",
         "epochs": state["epoch"],
         "best_epoch": state["best_epoch"],

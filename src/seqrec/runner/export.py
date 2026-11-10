@@ -94,6 +94,7 @@ def _row(run_dir: Path) -> dict:
         "checkpoint_s": summary.get("checkpoint_s"),
         "gpu_hours": round(summary["wall_s"] / 3600, 4) if "wall_s" in summary else None,
         "git_commit": summary.get("git_commit", "")[:12],
+        "host": summary.get("host"),
         "sm_mhz_median": (nvml.get("sm_mhz") or {}).get("median"),
         "nvml_mem_used_mib_max": (nvml.get("mem_used_mib") or {}).get("max"),
         "torch_allocated_gib_max": summary.get("train_peak_memory_gib_max"),
