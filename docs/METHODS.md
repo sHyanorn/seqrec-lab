@@ -284,6 +284,33 @@ All intervals are percentile bootstraps with 10,000 resamples over the 5 repeats
   - Quality: family F3, comparing test NDCG@10 of the final A2 configuration with 5 seeds per precision. The bf16 runs are the M3 runs with seeds 1 to 5; strict-fp32 runs are added.
   - H3c holds if the throughput ratio's lower bound is at least 1.3 and F3 shows equivalence.
 
+### 9.4 Timing on the rented machine (D045, D046)
+
+This section amends sections 8 and 9.2. Where it differs from them it is a deviation, listed at the end.
+
+**One Pod.** Every comparison of times is made between measurements taken within the lifetime of one Pod, with nothing else running on it. Times from different Pods are reported and never compared (D046).
+
+**Hosts.** Every batch runs on a Pod whose CPU is a Ryzen 9 7950X. A new Pod is checked before any other work; a Pod with another CPU is deleted and another created, three at most per batch. The CPU count of every Pod is recorded. Conclusions about time hold for this kind of host.
+
+**Noise.** On the Ryzen 9 7950X hosts the step time of a short window varies by 30% to 37% between processes; at windows of about 20,000 steps (63 to 94 s) the spread was 6.84% and 3.07%. On the EPYC 7352 host it was about 2% at every length (D046). The protocol therefore times long windows and repeats every condition in rounds.
+
+**Step-time comparisons (RQ3, and the plain against chunked cross-entropy of section 8).**
+- Window: a repeat times one window of consecutive steps after the regime's warm-up, lasting at least 60 s and at least 2,000 steps, cut into blocks of 200 steps. The repeat's step time is the window's time divided by its steps; block times are kept. This replaces "median step time over 200 steps" for every configuration that enters a decision rule (H3a, H3b, H3c).
+- Rounds: 5 repeats per condition, as in 9.2, made in 5 rounds. A round holds each condition of the comparison once, in an order drawn at random per round. A comparison's conditions are the ones its decision rule compares (for H3a the fused backends of one configuration).
+- Noise of a comparison: the largest spread, (max − min) / median over the 5 repeats, among its conditions. It is reported with every comparison.
+- Smallest difference reported as a finding: a difference between two conditions' medians that does not exceed the comparison's noise is reported as "no difference measured", whatever its interval.
+- H3a: R is a ratio of the slowest to the fastest, which noise alone pushes above 1. The rule of 9.3 is unchanged. Next to each R the report gives the comparison's noise, and a failure of H3a in a configuration whose R − 1 does not exceed that noise is reported as "not decided at this precision", not as a difference between backends.
+- Grid cells of 9.1 that enter no decision rule keep the 200-step measurement of 9.2 and are descriptive; the report states the noise measured at that length in the same session.
+- The cool-start regime stays as written in 9.2 (at most 25 s per measurement), is descriptive, and carries the same statement.
+
+**Time to target (H2a).**
+- Group: on each dataset, the leave-one-out final runs of A1 to A4 with seeds 1 to 5, 20 runs, are trained on one Pod, one after another, seeds as rounds and the four arms in an order drawn at random within each seed. A group longer than one job's limit continues in further jobs on the same Pod.
+- Seeds beyond 5 (7.5) are quality runs only and do not enter H2a.
+- Interrupted group: if the Pod is lost before the 20 runs have finished, the finished runs keep their quality results. For H2a the whole group is trained once more on one new Pod as timing runs, whose quality results are not used. If that Pod is lost as well, H2a on that dataset is not tested; medians are reported per Pod.
+- Ratios of medians within 6.84% of 1, the noise of long windows on this kind of host (D046), are reported as "no difference measured".
+
+**Deviations.** From 9.2: the timed window and the order of repeats (rounds). From 8: the H2a group is tied to one Pod and to seeds 1 to 5, and a group may be trained twice. From 5.5: within the H2a group the order is random within each seed, not over the whole dataset. From 9.3: none; "not decided at this precision" is an addition to the report of H3a.
+
 ## 10. RQ4 (conditional, D015)
 
 If D015 selects RQ4:

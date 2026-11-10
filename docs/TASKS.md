@@ -52,11 +52,11 @@ Freeze
 - [x] Tuning harness: Optuna TPE studies in SQLite, pruning, caps and truncation records (D028)
 - [x] Pilot on the laptop: anchors on MovieLens-1M (METHODS 11.5), 3 seeds per arm for σ (validation only), epoch-time measurements on all datasets
 - [x] Rented machine (D045, D046): runner set up, `check_env` report committed. The admission test was not passed; run times are compared only within one Pod (D046)
-- [ ] Pilot, anchors and the gSASRec rerun of D035 on the rented machine (all 64 runs trained; the anchors' test reads follow the choice of execution mode, since each arm has two reads left and a read now would test a training step that may be replaced, D048)
+- [ ] Pilot, anchors and the gSASRec rerun of D035 on the rented machine (all 64 runs trained; the anchors' test reads are made on the four existing runs before M3, D048)
 - [x] Anchors inside their bands within three anchor reads per arm, or the arm flagged as in METHODS 11.5 (D032: all four inside after one read)
 - [x] Seed count from METHODS 7.5 (rule implemented: `seqrec seeds`); updated GPU projection from the rerun; descoping decisions if needed
 - [x] Diagnostic measurement of step-time spread against the length of the timed window, on one Pod (D046)
-- [ ] Timing protocol written into METHODS from its result (repeats per comparison, smallest difference reported as a finding, which runs of a comparison share a Pod), before any timing run of RQ2 or RQ3 (D046)
+- [x] Timing protocol written into METHODS (9.4) from its result (repeats per comparison, smallest difference reported as a finding, which runs of a comparison share a Pod), before any timing run of RQ2 or RQ3 (D046)
 - [ ] Silent-error review and whole-diff review; fixes
 
 Before M3 tuning starts
@@ -67,7 +67,7 @@ Before M3 tuning starts
 - [ ] The known-answer test for the shuffled-order transform (METHODS 3.3) is weak; test exact orders on a hand-made case
 - [ ] The anchor-read limit is enforced in `test_run`, not in `read_test`; move it into the reader so every caller is bound by it
 - [x] Median pruning counts its steps from a trial's start epoch, so gSASRec trials are not compared inside the plateau before the start rule fires (D044; deviation from METHODS 5.4)
-- [ ] Training steps of small configurations on Steam and Video_Games are bound by kernel launches (about 6.3 ms per step against 1.1 to 1.8 ms of GPU work, D039; laptop numbers, to be measured again on the rented machine, D045), so wall-clock time to target (H2a) mostly measures launch overhead. Decide the execution mode before any M3 run, applied to every arm: fixed shapes (loss over all positions with a mask instead of boolean indexing), fused Adam, then CUDA Graphs, with a prototype in `scripts/profile_step.py` measuring the gain first. Record the effect on RQ2 and repeat the pilot timings and the D034 projection afterwards
+- [x] Execution mode decided before any M3 run: the arm's own step stays in every arm (D048). On small configurations the step is bound by kernel launches, so wall-clock time to target (H2a) mostly measures launch overhead there, and the report says so. The pilot timings and the D034 projection stand
 
 ## M3 RQ1 and RQ2 runs (6 h / projection pending the pilot rerun, D045 / no owner time per batch)
 
