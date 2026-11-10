@@ -1,0 +1,27 @@
+{
+  "name": "seqrec-gpu",
+  "cloud": "SECURE",
+  "dataCenterIds": [
+    "EU-RO-1"
+  ],
+  "gpu": {
+    "id": "NVIDIA GeForce RTX 5090",
+    "count": 1,
+    "minCudaVersion": "13.2"
+  },
+  "image": "runpod/pytorch:1.0.2-cu1281-torch280-ubuntu2404",
+  "disk": 30,
+  "mounts": {
+    "network": [
+      {
+        "volumeId": "REPLACE_WITH_VOLUME_ID",
+        "path": "/workspace"
+      }
+    ]
+  },
+  "cmd": [
+    "bash",
+    "-c",
+    "while true; do [ -x /workspace/seqrec/pod_start.sh ] && /workspace/seqrec/pod_start.sh >> /workspace/seqrec/runner.log 2>&1; sleep 60; done & [ -x /start.sh ] && exec /start.sh; exec sleep infinity"
+  ]
+}
