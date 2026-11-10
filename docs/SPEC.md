@@ -112,7 +112,7 @@ M0 to the M2 pilot ran on an RTX 5080 Laptop GPU under native Windows (D002); it
 
 ## 9. Execution model
 
-GPU work runs on a rented machine, a new one for every batch (D046). A batch is one manual run of the `batch` workflow: it runs a plan, resumes after interruption, skips finished runs and writes configs, metrics, logs and NVML traces to a network volume that outlives the machine. Its export step writes the batch's aggregated CSV file and the summaries, and commits them when the plan finished without a failure. Datasets, checkpoints and per-user scores stay on the volume.
+GPU work runs on a rented machine, a new one for every batch (D046). A batch is one manual run of the `batch` workflow: it runs a plan, resumes after interruption, skips finished runs and writes configs, metrics, logs and NVML traces to a network volume that outlives the machine. Its export step writes the batch's aggregated CSV file and the summaries, and commits them when the plan finished without a failure. Datasets, checkpoints and per-user scores stay on the volume. Run times are compared only between runs made on one machine; times from different machines are reported and not compared (D046).
 
 ## 10. Compute budget
 

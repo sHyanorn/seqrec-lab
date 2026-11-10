@@ -385,6 +385,7 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
 - Limitation: tuning trials have no other seeds, so a slowed trial is not flagged; under the guard (D036) it can be marked truncated and count toward the doubling rule of METHODS 5.2.
 - `test_export_flags_the_slow_seed` checks the exported values of the flag (D040).
 - Amendment 2026-11-10: the flag stays. The slow stretches that motivated it came from the Windows driver (D042) and are not expected on Linux.
+- Amendment 2026-11-10, after the owner's decision in D046: the flag compares a run only with its other seeds made on the same Pod, in place of the same host signature. How a run records its Pod is in D046.
 
 ## D039 Step-time profiler
 
@@ -528,6 +529,12 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
   - Cost accepted. The spread within one Pod exceeded 5%, so the time-based conclusions of RQ2 and RQ3 are less precise than planned. A difference smaller than the measured noise is not reported as a finding, and the report's limits say so.
   - Pilot rerun. The M2 pilot, the anchors and the gSASRec rerun of D035 run on the rented machine as D045 planned. Their quality results are used as planned. Their run times are used for the GPU-hour projection of D034 and for no comparison between arms.
   - Diagnostic measurement, before any timing run of RQ2 or RQ3: one measurement of how the step-time spread within one Pod depends on the length of the timed window. Its design is written into this entry before its Pod is created. It is exploratory and is evidence for no hypothesis. From its result the timing protocol (repeats per comparison, the smallest difference reported as a finding) is written into METHODS before any timing run of RQ2 or RQ3.
+- Amendment 2026-11-10, after the owner's decision, before any training run on a rented machine: how the data identify a Pod.
+  - Every session of a run records the Pod it ran on (`RUNPOD_POD_ID`, which the platform sets) in the run's manifest. The summary and the batch file list a run's Pods in `pod`, joined with " + " when it trained on more than one. A machine that is not a Pod records an empty value.
+  - The slow-run flag of D038 groups by `pod` where it grouped by `host`. A run with no other seed on its Pod gets no value, and so does a run that trained on more than one Pod. A batch that is interrupted and resumed on a new Pod is not rerun for that.
+  - The `host` column stays as a description of the machine and enters no comparison.
+  - The `machine` step of a job prints the Pod and fails without one, so no job trains runs that record none.
+  - `test_an_exported_run_names_every_host_and_pod_it_trained_on`, `test_slow_epochs_compares_only_runs_made_on_one_pod` and `test_the_machine_step_refuses_a_machine_without_a_pod_id` failed before the change (METHODS 11.5).
 
 ## D047 The rented GPU is an RTX 4090
 
