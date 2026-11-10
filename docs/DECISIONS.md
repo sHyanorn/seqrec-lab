@@ -456,7 +456,7 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
 
 ## D045 GPU runs move to a rented machine
 
-- Date: 2026-11-10. Status: accepted by the owner. Deviation from SPEC sections 1, 4, 8, 9 and 10 and from METHODS 9.2 and 12. Made after the M2 pilot and anchor results from the laptop were seen, and before any tuning run, final run or RQ3 measurement. How the machine is released, "One machine for all timing" and the admission test are replaced by D046.
+- Date: 2026-11-10. Status: accepted by the owner. Deviation from SPEC sections 1, 4, 8, 9 and 10 and from METHODS 9.2 and 12. Made after the M2 pilot and anchor results from the laptop were seen, and before any tuning run, final run or RQ3 measurement. How the machine is released, "One machine for all timing" and the admission test are replaced by D046; the GPU model and its price by D047.
 - Decision: every GPU run from here on happens on one rented machine: an RTX 5090 (32 GB, 16 vCPUs in the catalogue) in Runpod Secure Cloud, on demand and not interruptible, in a Linux container, at 1.19 USD per hour [34]. The laptop makes no further measurement.
 - Reason: run times on the laptop were unstable under the Windows driver, and diagnosing that took longer than the runs themselves (D042). The remaining plan, about 470 projected laptop hours at about 50 hours per week, would also keep that one machine busy for more than nine weeks.
 - What stays: research questions, hypotheses, datasets, models, splits, the tuning and seed rules, the statistical analysis and every decision rule. The GPU is still a consumer card, so the cost claims of RQ2 and RQ3 are still about consumer hardware; they now describe a desktop card in a data centre next to a server CPU, and the report says so.
@@ -505,3 +505,15 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
   - A stop request is not tied to the job that made it. With three jobs queued and a short one in the middle, the third can be left with 0 to 60 seconds to start before the Pod is deleted.
   - The runner keeps listening until the Pod is gone, so a job that starts while the delete request is under way is cut off.
   - A Pod that cannot reach GitHub at its start runs no watchdog until a fetch succeeds; until then only the check off the Pod guards it.
+
+## D047 The rented GPU is an RTX 4090
+
+- Date: 2026-11-10. Status: accepted by the owner. Replaces the GPU model, its price and the catalogue figures of D045; the rest of D045 and D046 stands. Made before any run on a rented machine.
+- Decision: the rented machine is an RTX 4090 (24 GB; 12 vCPUs and 62 GB of memory in the catalogue) in Runpod Secure Cloud, data centre EU-RO-1, on demand, at 0.89 USD per hour [34]. `configs/cloud/pod.json` requests it.
+- Reason: within one day all five requests for an RTX 5090 Pod in EU-RO-1 were refused for lack of capacity while the catalogue listed the card as in stock. With the same data centre, image and CUDA requirement, the first request for an RTX 4090 was granted.
+- What stays: the RTX 4090 is a consumer card, so what D045 says about consumer hardware holds. Research questions, hypotheses, decision rules, the rules for test reads and the timing rules of D046 are unchanged.
+- Memory: no registered configuration needs more than 24 GB.
+  - Full cross-entropy takes about 12 bytes per logit (`scripts/check_env.py`), so its logits need batch × L × N × 12 bytes: 5.3 GiB for the largest training run (MovieLens-20M, N = 18,345, L = 200, batch 128) and 7.3 GiB for the plain workload of H3b (N = 25,600, L = 200). The M2 pilot ran on the laptop's 16 GB without a memory failure.
+  - RQ3 grid (METHODS 9.1): chunked cross-entropy is used wherever the plain form does not fit. The cells above 24 GiB are the ones that were above 28 GiB already (N = 25,600 at L = 800; N = 100,000 at L ≥ 200), so the same cells are chunked as on a 32 GB card. The largest plain cell is N = 18,345 at L = 800 with 21.0 GiB of logits; if it does not fit, the same rule applies.
+- Budget: the cap of 500 GPU hours and the limit of 15 GPU hours for M2 work (D045) are unchanged; they now count hours on the RTX 4090. The cap in USD is still set after the pilot rerun.
+- Alternative: further requests for an RTX 5090, one per hour (no date by which one would be granted).

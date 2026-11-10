@@ -96,7 +96,7 @@ SASRec arms tune whether output embeddings are shared with input embeddings. Chu
 
 | Item | Choice | Source |
 |---|---|---|
-| GPU | NVIDIA GeForce RTX 5090, 32 GB, Blackwell; rented, a new machine of this type for every batch (D045, D046) | [34] |
+| GPU | NVIDIA GeForce RTX 4090, 24 GB, Ada Lovelace; rented, a new machine of this type for every batch (D045, D046, D047) | [34] |
 | OS for GPU runs | Linux container on the provider's host driver (D045) | |
 | Python | 3.12 | |
 | PyTorch | 2.15.x, CUDA 13.2 wheels (`cu132`) | [21, 22] |

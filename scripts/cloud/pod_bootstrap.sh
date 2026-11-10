@@ -4,8 +4,8 @@
 # again, for example after GitHub has removed a runner that was offline for 14 days.
 #   bash pod_bootstrap.sh
 # The machine must have been created from configs/cloud/pod.json: its start command runs the
-# watchdog, which deletes the machine after 30 minutes without a job, whether or not this script
-# succeeds.
+# watchdog, which deletes the machine after IDLE_MINUTES (30 unless the machine was created with
+# another value) without a job, whether or not this script succeeds.
 set -euo pipefail
 
 REPO_URL=https://github.com/sHyanorn/seqrec-lab
@@ -36,7 +36,7 @@ main() {
     flock -n -E 75 "$LOCK" true || held=$?
     { [ "$held" -eq 75 ] && pgrep -f "^bash ${POD_START:-/run/seqrec-pod-start.sh}\$" > /dev/null; } ||
         die "the watchdog is not running: nothing would delete this machine. Delete it by hand."
-    echo "Watchdog running: this machine deletes itself after 30 minutes without a job."
+    echo "Watchdog running: this machine deletes itself when it has been without a job for its idle limit."
 
     command -v tar > /dev/null || die "tar is missing"
     local token=${RUNNER_TOKEN:-}
