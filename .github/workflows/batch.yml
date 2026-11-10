@@ -23,6 +23,10 @@ on:
         description: profile repetitions, one process each (every line of a schedule runs once)
         type: number
         default: 5
+      cpu:
+        description: CPU model the machine must have (METHODS 9.4); on another the job fails and the machine is deleted. Empty accepts any
+        type: string
+        default: Ryzen 9 7950X
       stop:
         description: delete the machine when the job ends
         type: boolean
@@ -49,6 +53,7 @@ env:
   HOURS: ${{ inputs.hours }}
   PROFILE_ARGS: ${{ inputs.profile_args }}
   REPEATS: ${{ inputs.repeats }}
+  CPU: ${{ inputs.cpu }}
 
 jobs:
   batch:

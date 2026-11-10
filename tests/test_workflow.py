@@ -40,7 +40,16 @@ def test_no_input_is_pasted_into_a_script():
     for step in JOB["steps"]:
         assert "${{" not in step.get("run", ""), step.get("name")
     assert all(re.fullmatch(r"\$\{\{ inputs\.\w+ \}\}", BATCH["env"][k])
-               for k in ("TASK", "PLAN", "HOURS", "PROFILE_ARGS", "REPEATS"))  # fmt: skip
+               for k in ("TASK", "PLAN", "HOURS", "PROFILE_ARGS", "REPEATS", "CPU"))  # fmt: skip
+
+
+def test_every_job_requires_the_registered_host_unless_told_otherwise():
+    """METHODS 9.4: every batch runs on a Ryzen 9 7950X. The machine step checks the model
+    before any work, so a job queued behind the first needs no separate probe."""
+    assert BATCH[True]["workflow_dispatch"]["inputs"]["cpu"]["default"] == "Ryzen 9 7950X"
+    names = [s.get("name") for s in JOB["steps"]]
+    assert STEPS["Machine"]["run"].strip() == "bash scripts/cloud/batch_steps.sh machine"
+    assert all(names.index("Machine") < names.index(n) for n in ("Setup", "Profile", "Plan"))
 
 
 def test_actions_are_pinned_to_a_commit():

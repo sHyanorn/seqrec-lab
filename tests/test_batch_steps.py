@@ -30,6 +30,8 @@ def steps(*args, cwd=REPO, env=None, path_prefix=None):
         "PROFILE_",
         "REPEATS",
         "RUNPOD_",
+        "CPU",
+        "STOP_",
     )
     full = {k: v for k, v in os.environ.items() if not k.startswith(job)}
     full |= {"GITHUB_REF": "refs/heads/main", "TASK": "run", "HOURS": "22"} | (env or {})
@@ -796,8 +798,9 @@ def test_the_summaries_are_computed_without_the_push_token(clone, tmp_path):
 # --- machine ------------------------------------------------------------------------------
 
 
-def machine_step(tmp_path, driver, pod="pod1"):
-    """`batch_steps.sh machine` on a fake machine whose GPU driver is `driver`."""
+def machine_step(tmp_path, driver, pod="pod1", cpu=""):
+    """`batch_steps.sh machine` on a fake machine whose GPU driver is `driver`, for a job that
+    requires the CPU model `cpu`."""
     bin_dir = tmp_path / "bin"
     table = f'echo "RTX 5090, {driver}, 32607 MiB"'
     fake(bin_dir, "nvidia-smi", f'[[ "$*" == *=driver_version* ]] && echo {driver} || {table}')
@@ -809,7 +812,8 @@ def machine_step(tmp_path, driver, pod="pod1"):
     fake(tmp_path / "runner" / "bin", "Runner.Listener", "echo 2.330.0")
     (tmp_path / "runner.log").write_text("starting the runner\n", encoding="utf-8")
     env = {"RUNNER_DIR": str(tmp_path / "runner"), "SEQREC_HOME": str(tmp_path)}
-    return steps("machine", env=env | {"RUNPOD_POD_ID": pod}, path_prefix=bin_dir)
+    env |= {"RUNPOD_POD_ID": pod, "CPU": cpu, "STOP_REQUEST": str(tmp_path / "stop-request")}
+    return steps("machine", env=env, path_prefix=bin_dir)
 
 
 def test_the_machine_step_refuses_a_driver_the_cuda_13_wheels_do_not_run_on(tmp_path):
@@ -825,6 +829,35 @@ def test_the_machine_step_describes_a_machine_with_a_new_enough_driver(tmp_path)
                  "uv 0.11.32", "runner 2.330.0", "2.9.0+cu132 RTX 5090", "pod pod1"):  # fmt: skip
         assert text in result.stdout.splitlines()
     assert result.stdout.endswith("starting the runner\n")  # the end of the watchdog's log
+
+
+def test_the_machine_step_refuses_another_cpu_and_asks_for_the_machine_to_be_deleted(tmp_path):
+    """METHODS 9.4: every batch runs on one kind of host. The job that finds another one
+    stops before any work, and the machine goes whatever the job's `stop` input says."""
+    result = machine_step(tmp_path, "580.95.05", cpu="Ryzen 9 7950X")
+    assert result.returncode == 1
+    assert "cpu: this machine has Fake CPU, not Ryzen 9 7950X" in result.stderr
+    assert (tmp_path / "stop-request").exists()
+    assert "pod pod1" in result.stdout.splitlines()  # described all the same
+
+
+@pytest.mark.parametrize("cpu", ["Fake CPU", "Fake", ""])
+def test_the_machine_step_accepts_the_required_cpu_or_any_when_none_is_required(tmp_path, cpu):
+    result = machine_step(tmp_path, "580.95.05", cpu=cpu)
+    assert result.returncode == 0, result.stderr
+    assert not (tmp_path / "stop-request").exists()
+
+
+@pytest.mark.parametrize("cpu", ["x;y", "$(id)", "a*", "é", "x" * 41])
+def test_other_cpu_names_are_rejected(cpu):
+    result = steps("check-inputs", env={"PLAN": "m2-anchor.toml", "CPU": cpu})
+    assert result.returncode == 1
+    assert "cpu" in result.stderr
+
+
+def test_a_cpu_name_of_letters_digits_and_spaces_is_accepted():
+    env = {"PLAN": "m2-anchor.toml", "CPU": "Ryzen 9 7950X"}
+    assert steps("check-inputs", env=env).returncode == 0
 
 
 def test_the_machine_step_refuses_a_machine_without_a_pod_id(tmp_path):

@@ -72,7 +72,9 @@ profile_args() {
 }
 
 check_inputs() {
+    local LC_ALL=C # ranges in the patterns below are ASCII
     [ "${GITHUB_REF:-}" = refs/heads/main ] || die "ref: batches run from main only"
+    [[ "${CPU:-}" =~ ^[A-Za-z0-9\ ]{0,40}$ ]] || die "cpu: letters, digits and spaces, 40 at most"
     case "${TASK:-}" in
         setup) ;;
         test | export) plan_batch > /dev/null ;;
@@ -97,11 +99,12 @@ check_inputs() {
 # What the job runs on, for the log. The runner is registered on a machine that may have no
 # GPU, so the driver is checked here, by every job.
 machine() {
-    local driver
+    local driver cpu
     nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv
     driver=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -1)
     [ "${driver%%.*}" -ge 580 ] || die "driver branch below 580: the CUDA 13 wheels will not run here"
-    lscpu | grep "Model name"
+    cpu=$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | sed -n 1p)
+    echo "Model name: $cpu"
     nproc
     uname -r
     uv --version
@@ -114,6 +117,12 @@ machine() {
     [ -n "${RUNPOD_POD_ID:-}" ] || die "RUNPOD_POD_ID is not set: this job's runs would record no Pod"
     echo "pod $RUNPOD_POD_ID"
     tail -n 20 "$SEQREC_HOME/runner.log" # when the watchdog started the runner and when it listened
+    # Every batch runs on one kind of host (METHODS 9.4). On another the job stops here, before
+    # any work, and the machine is deleted whatever the job's `stop` input says.
+    if [ -n "${CPU:-}" ] && [[ "$cpu" != *"$CPU"* ]]; then
+        touch "${STOP_REQUEST:?}"
+        die "cpu: this machine has $cpu, not $CPU; asked for its deletion"
+    fi
 }
 
 # Commit status "batch/<run id>" on the commit the job runs from. The job log is readable
