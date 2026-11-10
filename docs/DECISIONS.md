@@ -516,6 +516,12 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
   - The test within one Pod is repeated once, in full, on a new Pod: both configurations, with step times printed to the nanosecond. That repeat is the final result for both configurations, whatever it shows, and is not repeated again. Its Pod is the one the second Pod's medians are compared with.
   - The test did not say what follows when a spread within one Pod exceeds 5%. If either configuration does so in the repeat, there is no further attempt. The owner then chooses between adding one warm-up process that is not counted, recorded as a deviation, and comparing run times only within one Pod's lifetime.
   - Both results, the first Pod's and the repeat's, stay in this entry.
+- Admission test, the repeat, 2026-11-10: not passed. Pod created 06:57:16Z and gone by 07:12:46Z; workflow runs 13 and 14 at `127907b`; signature `NVIDIA GeForce RTX 4090 | 595 | AMD Ryzen 9 7950X 16-Core Processor | 32 | EU-RO-1`, kernel 6.8.0-138. Wall time per step in ms, five processes in the order they ran:
+  - Steam, SASRec with BCE, 200 steps per process: 3.395079, 3.368398, 3.091894, 3.339909, 3.105944. Median 3.339909, spread 9.08%, above 5%.
+  - MovieLens-1M, gSASRec, 47 steps per process: 4.813682, 4.821271, 4.899424, 5.040219, 4.784903. Median 4.821271, spread 5.30%, above 5%.
+  - Both configurations exceed the limit, and under the owner's decision above this result is final. No second Pod was created. The choice between the two options is the owner's and is open.
+  - In neither configuration was the first process the fastest, unlike on the first Pod.
+  - The CPU count of this signature is not comparable with the first Pod's 14. This container had no `/sys/fs/cgroup/cpu.max`, so the count is the 32 CPUs it may run on; the platform's nominal count was 16, as on the first Pod. Whether the container was limited in another way was not read.
 
 ## D047 The rented GPU is an RTX 4090
 
