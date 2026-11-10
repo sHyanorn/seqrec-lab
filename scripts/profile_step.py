@@ -199,8 +199,8 @@ def measure(
         "device": torch.cuda.get_device_name(device) if device.type == "cuda" else "cpu",
         "dataset": cfg.dataset, "arm": cfg.arm, "params": cfg.params, "steps": steps,
         "modes": [m for m in MODES if modes.get(m)], "loss": loss,
-        "wall_ms_per_step": round(wall_ms, 3),
-        "cpu_ms_per_step": round(cpu_ms, 3),
+        "wall_ms_per_step": round(wall_ms, 6),  # to the nanosecond: spreads are held to 5% (D046)
+        "cpu_ms_per_step": round(cpu_ms, 6),
         "epoch_overhead_ms": round(wall_1 * 1000 - wall_ms, 3),
     } | memory_readings(stats)  # fmt: skip
     log(result)

@@ -102,6 +102,21 @@ def test_time_per_step_leaves_out_the_cost_per_epoch(tmp_path, monkeypatch):
     load_splits.cache_clear()
 
 
+def test_step_times_keep_the_digits_that_decide_a_five_percent_spread(tmp_path, monkeypatch):
+    """Printed to the microsecond, the spread of five 3 ms steps is known to 0.03 points only."""
+    data = tmp_path / "data"
+    build_log(random_frame(users=300)).save(log_path(data, "ml-1m"))
+    load_splits.cache_clear()
+    monkeypatch.setitem(profile_step.ARMS, "fixed", _FixedCostModel)
+    monkeypatch.setattr(
+        profile_step, "_wall_cpu", lambda model, train, rows, n: (0.01 + n * 0.0030754321, 0.0, 0.5)
+    )
+    cfg = RunConfig("profile", "ml-1m", "loo", "fixed", 0, "tune")
+    result = profile_step.measure(cfg, data, torch.device("cpu"), steps=8, warmup=0)
+    assert result["wall_ms_per_step"] == pytest.approx(3.0754321, abs=1e-6)
+    load_splits.cache_clear()
+
+
 def test_a_run_directory_supplies_the_configuration(tmp_path, capsys):
     """--from-run reads dataset, arm and parameters from a run's config.json, so commands
     need no JSON on the command line."""
