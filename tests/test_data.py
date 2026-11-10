@@ -260,6 +260,8 @@ def test_written_csv_matches_the_committed_bytes_on_any_platform(tmp_path):
 def test_csv_files_are_checked_out_with_lf_on_every_platform():
     """Otherwise a checkout that converts line endings differs from what `write_csv` writes."""
     root = Path(__file__).resolve().parents[1]
+    if not (root / ".git").exists():
+        pytest.skip("not a git checkout")
     attr = subprocess.run(
         ["git", "check-attr", "eol", "--", "results/data/stats.csv"],
         cwd=root, capture_output=True, text=True, check=True,

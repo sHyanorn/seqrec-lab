@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import signal
 import subprocess
 from pathlib import Path
 
@@ -563,12 +564,13 @@ def test_a_job_refuses_a_machine_whose_watchdog_is_not_running(tmp_path):
     assert result.returncode == 1
     assert "not by the watchdog" in result.stderr
     fake(tmp_path, "pod_start.sh", f"exec 9> {tmp_path}/lock; flock 9; sleep 5 9>&-")
-    watchdog = subprocess.Popen([str(tmp_path / "pod_start.sh")])
+    watchdog = subprocess.Popen([str(tmp_path / "pod_start.sh")], start_new_session=True)
     try:
         time.sleep(0.3)
         assert steps("watchdog-running", env=env).returncode == 0
     finally:
-        watchdog.kill()
+        os.killpg(watchdog.pid, signal.SIGKILL)  # with its sleep: no process is left behind
+        watchdog.wait()
 
 
 def test_export_leaves_only_a_batch_file_written_from_this_machine(clone, tmp_path):
