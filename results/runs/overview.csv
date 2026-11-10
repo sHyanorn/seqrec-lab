@@ -1,4 +1,5 @@
 batch,dataset,split,arm,phase,tag,runs,unfinished_or_failed,pruned,diverged,stopped,truncated,truncated_share,gpu_hours
+m2-gsasrec,ml-1m,loo,gsasrec,tune,sigma,3,0,0,0,3,0,0.0,0.071
 m2-pilot,ml-1m,loo,bert4rec,tune,sigma,3,0,0,0,3,1,0.333,0.158
 m2-pilot,ml-1m,loo,bert4rec,tune,time-large,1,0,0,0,1,1,1.0,0.001
 m2-pilot,ml-1m,loo,bert4rec,tune,time-small,1,0,0,0,1,1,1.0,0.0
