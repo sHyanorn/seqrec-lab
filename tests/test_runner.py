@@ -98,6 +98,29 @@ def test_best_checkpoint_is_the_one_scored(workspace):
     assert summary["validation"]["ndcg@10"] == pytest.approx(best)
 
 
+def test_export_lists_the_epochs_that_set_a_new_best_for_final_runs(workspace):
+    """Time to target (METHODS 8) is computed from the export: a target is first reached at an
+    epoch that sets a new best, so those epochs with their cumulative training time are all
+    it needs. The best epoch is epoch 1 here; epoch 0 scores at random and sets the first."""
+    runs, data = workspace
+    PopularityModel.peak = 1
+    final, trial = _cfg(), _cfg("tune", tag="t00")
+    for cfg in (final, trial):
+        run_mod.execute(cfg, runs, data, CPU, **QUIET)
+    export(runs, runs.parent / "out")
+    rows = {r["run_id"]: r for r in _read_csv(runs.parent / "out" / "b.csv")}
+    assert rows[trial.run_id]["validation_records"] == ""  # final runs only
+    lines = (runs / "b" / final.run_id / "metrics.jsonl").read_text().splitlines()
+    epochs = [json.loads(x) for x in lines]
+    assert len(epochs) > 2 and epochs[1]["val_ndcg@10"] > epochs[0]["val_ndcg@10"]
+    records = json.loads(rows[final.run_id]["validation_records"])
+    assert records == [[e["train_s"], e["val_ndcg@10"]] for e in epochs[:2]]
+    assert records[-1][1] == float(rows[final.run_id]["validation_ndcg@10"])
+    for target in (0.0, epochs[0]["val_ndcg@10"], epochs[1]["val_ndcg@10"], 1.0):
+        first = next((e["train_s"] for e in epochs if e["val_ndcg@10"] >= target), None)
+        assert next((t for t, v in records if v >= target), None) == first
+
+
 def test_tuning_run_cannot_reach_test_data(workspace, monkeypatch):
     runs, data = workspace
     original = run_mod.evaluate

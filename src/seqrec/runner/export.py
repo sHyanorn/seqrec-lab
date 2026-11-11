@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 import re
 import statistics
 from collections import Counter, defaultdict
@@ -54,6 +55,20 @@ def _status(summary: dict, test: dict, failed: bool, incomplete_read: bool) -> s
     return "failed" if failed else "unfinished"
 
 
+def _validation_records(metrics_path: Path) -> str:
+    """JSON list of [cumulative training seconds, validation NDCG@10] for every epoch that set
+    a new best. Any quality target is first reached at one of these epochs, so they give the
+    time to target of METHODS 8 for whatever target the analysis derives."""
+    records, best = [], -math.inf
+    lines = metrics_path.read_text(encoding="utf-8").splitlines() if metrics_path.exists() else []
+    for line in lines:
+        epoch = json.loads(line)
+        if epoch["val_ndcg@10"] > best:
+            best = epoch["val_ndcg@10"]
+            records.append([epoch["train_s"], best])
+    return json.dumps(records)
+
+
 def _row(run_dir: Path) -> dict:
     cfg = _load(run_dir / "config.json")
     summary, test = _load(run_dir / "summary.json"), _load(run_dir / "test.json")
@@ -88,6 +103,9 @@ def _row(run_dir: Path) -> dict:
         "truncated": summary.get("truncated"),
         "start_epoch": summary.get("start_epoch"),
         "train_s": summary.get("train_s"),
+        "validation_records": _validation_records(run_dir / "metrics.jsonl")
+        if cfg["phase"] == "final" and summary
+        else None,
         "epoch_train_s_median": summary.get("epoch_train_s_median"),
         "epoch_eval_s_median": summary.get("epoch_eval_s_median"),
         "checkpoint_s": summary.get("checkpoint_s"),
@@ -167,7 +185,7 @@ def read_batch_files(directory: Path) -> list[dict]:
 
 # Directories under results/ that are not exports of another machine: results/runs holds this
 # machine's, the others hold no runs.
-NOT_EXPORTS = ("runs", "data", "env")
+NOT_EXPORTS = ("runs", "data", "env", "analysis")
 
 
 def earlier_exports(results: Path = Path("results")) -> list[Path]:
