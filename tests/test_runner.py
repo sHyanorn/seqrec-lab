@@ -236,6 +236,37 @@ def test_the_reader_itself_refuses_a_fourth_anchor_read(workspace):
     assert test_access.count_reads(log)["anchor"] == 1
 
 
+def test_the_read_record_is_on_disk_before_any_data_are_returned(tmp_path, monkeypatch):
+    """A crash after the scores are written must not leave a read without its record."""
+    synced = []
+    monkeypatch.setattr(test_access.os, "fsync", lambda fd: synced.append(fd))
+
+    class Handle:
+        def unseal(self, purpose):
+            assert synced, "data returned before the record was synced"
+            return "data"
+
+    log = tmp_path / "b" / "r" / "test_access.jsonl"
+    data = test_access.read_test(
+        Handle(), phase="final", log_path=log, run_id="r", git_commit="c", checkpoint_hash="h",
+        earlier_anchor_reads=0,
+    )  # fmt: skip
+    assert data == "data" and test_access.count_reads(log)["final"] == 1
+
+
+def test_export_reports_test_scores_without_a_record_of_their_read(workspace):
+    """Such a run would count as no read toward the limits of METHODS 11.5 and 11.6."""
+    runs, data = workspace
+    cfg = _cfg("anchor", tag="a")
+    run_mod.execute(cfg, runs, data, CPU, **QUIET)
+    run_mod.test_run(cfg, runs, data, CPU, **QUIET)
+    assert export(runs, runs.parent / "out") == []
+    (runs / "b" / cfg.run_id / "test_access.jsonl").unlink()
+    assert export(runs, runs.parent / "out2") == [
+        f"{cfg.run_id}: test scores without a record of the read"
+    ]
+
+
 def test_test_reader_rejects_other_phases(tmp_path):
     with pytest.raises(PermissionError):
         test_access.read_test(

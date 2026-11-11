@@ -248,6 +248,8 @@ def access_problems(rows: list[dict], earlier: Iterable[dict] = ()) -> list[str]
             problems.append(f"{r['run_id']}: anchor run used a final read")
         if reads != r["reads_completed"]:
             problems.append(f"{r['run_id']}: a test read did not complete")
+        if r["status"] == "tested" and not reads:
+            problems.append(f"{r['run_id']}: test scores without a record of the read")
     anchors = Counter()
     for r in [*rows, *earlier]:
         anchors[(r["dataset"], r["arm"])] += r["reads_anchor"]

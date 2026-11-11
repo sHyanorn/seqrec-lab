@@ -6,6 +6,7 @@ from __future__ import annotations
 import datetime as dt
 import inspect
 import json
+import os
 from pathlib import Path
 
 from seqrec.data.splits import EvalSplit, TestHandle
@@ -61,6 +62,8 @@ def read_test(
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with log_path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(record) + "\n")
+        f.flush()
+        os.fsync(f.fileno())  # on disk before any data: the scores are synced when written
     return handle.unseal("read")
 
 
