@@ -11,10 +11,11 @@ from conftest import frame, random_frame
 
 from seqrec.data import prepare as prepare_mod
 from seqrec.data import readers
+from seqrec.data import splits as splits_mod
 from seqrec.data.invariants import InvariantError, item_popularity, require_from_train
 from seqrec.data.preprocess import Log, build_log, kcore_mask, leave_one_out_interactions
 from seqrec.data.registry import DATASETS
-from seqrec.data.splits import shuffle_eval_inputs, shuffle_order
+from seqrec.data.splits import Sequences, shuffle_eval_inputs, shuffle_order
 from seqrec.data.stats import write_csv
 from seqrec.data.store import build_splits
 
@@ -72,6 +73,56 @@ def test_shuffled_splits_keep_contents_and_pass_invariants(toy_frame):
     test = splits.test.unseal("check")
     only_test = shuffle_eval_inputs(test, 3, len(splits.full.items))
     assert np.array_equal(np.sort(only_test.inputs.pos), np.sort(test.inputs.pos))
+
+
+def test_shuffle_orders_each_sequence_by_the_keys_of_its_log_positions():
+    """METHODS 3.3 on a hand-made case: two sequences, keys chosen by hand."""
+    seqs = Sequences(
+        indptr=np.array([0, 3, 5]),
+        items=np.array([10, 11, 12, 20, 21]),
+        ts=np.array([1, 2, 3, 7, 8]),
+        pos=np.array([0, 1, 2, 5, 6]),
+    )
+    keys = np.array([0.9, 0.1, 0.5, 0.0, 0.0, 0.7, 0.2, 0.0])  # one per full-log position
+    out = splits_mod._shuffle_rows(seqs, keys)
+    assert out.indptr.tolist() == [0, 3, 5]
+    assert out.items.tolist() == [11, 12, 10, 21, 20]
+    assert out.pos.tolist() == [1, 2, 0, 6, 5]
+    assert out.ts.tolist() == [2, 3, 1, 8, 7]
+
+
+def test_shuffled_order_follows_one_key_per_log_position(toy_frame):
+    """METHODS 3.3: keys come from a generator seeded by the run seed; training sequences and
+    both evaluation inputs are ordered by them, so an input extends the training order by
+    where its extra item falls. Targets do not move. The test-only shuffle draws other keys."""
+    splits, _ = build_splits(build_log(toy_frame), "loo")
+    mixed = shuffle_order(splits, seed=3)
+    keys = np.random.default_rng([3, 0]).random(len(splits.full.items))
+
+    def by_key(seqs, k):  # per sequence, in plain Python
+        rows = [seqs.pos[a:b].tolist() for a, b in itertools.pairwise(seqs.indptr)]
+        return [p for row in rows for p in sorted(row, key=lambda q: k[q])]
+
+    test, mixed_test = splits.test.unseal("check"), mixed.test.unseal("check")
+    for before, after in (
+        (splits.train.seqs, mixed.train.seqs),
+        (splits.validation.inputs, mixed.validation.inputs),
+        (test.inputs, mixed_test.inputs),
+    ):
+        assert after.pos.tolist() == by_key(before, keys)
+        assert np.array_equal(after.items, splits.full.items[after.pos])
+    assert np.array_equal(mixed.validation.targets, splits.validation.targets)
+    assert np.array_equal(mixed_test.targets, test.targets)
+    first = slice(*mixed_test.inputs.indptr[:2])  # the first user's test input ...
+    in_train = np.isin(mixed_test.inputs.pos[first], mixed.train.seqs.pos)
+    assert (  # ... without its validation item, is that user's training sequence
+        mixed_test.inputs.pos[first][in_train].tolist()
+        == mixed.train.seqs.pos[slice(*mixed.train.seqs.indptr[:2])].tolist()
+    )
+    only_test = shuffle_eval_inputs(test, 3, len(splits.full.items))
+    other_keys = np.random.default_rng([3, 1]).random(len(splits.full.items))
+    assert only_test.inputs.pos.tolist() == by_key(test.inputs, other_keys)
+    assert only_test.inputs.pos.tolist() != by_key(test.inputs, keys)
 
 
 def test_popularity_only_from_training_split(toy_frame):
