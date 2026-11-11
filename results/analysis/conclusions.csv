@@ -1,0 +1,37 @@
+question,dataset,result
+H1a,ml-1m,supported
+H1b,ml-1m,pending
+H2a,ml-1m,supported
+H2b sampled softmax,ml-1m,not supported
+H2b gBCE,ml-1m,not supported
+H2b BCE,ml-1m,supported
+shuffle control sasrec-ce,ml-1m,supported
+shuffle control bert4rec,ml-1m,supported
+H1b,steam,pending
+H2a,steam,pending
+H2b sampled softmax,steam,pending
+H2b gBCE,steam,pending
+H2b BCE,steam,pending
+shuffle control sasrec-ce,steam,pending
+H1a,ml-20m,pending
+H1b,ml-20m,pending
+H2a,ml-20m,pending
+H2b sampled softmax,ml-20m,pending
+H2b gBCE,ml-20m,pending
+H2b BCE,ml-20m,pending
+shuffle control sasrec-ce,ml-20m,pending
+shuffle control bert4rec,ml-20m,pending
+H1b,video-games,pending
+H2a,video-games,pending
+H2b sampled softmax,video-games,pending
+H2b gBCE,video-games,pending
+H2b BCE,video-games,pending
+shuffle control sasrec-ce,video-games,pending
+G1,ml-1m,pending: confirmed or inconclusive
+G1,steam,pending: reversed below SESOI or reversed or confirmed below SESOI or confirmed or equivalent or inconclusive
+G1,ml-20m,pending: reversed below SESOI or reversed or confirmed below SESOI or confirmed or equivalent or inconclusive
+G2,ml-1m,pending: confirmed or inconclusive
+G2,steam,pending: reversed below SESOI or reversed or confirmed below SESOI or confirmed or equivalent or inconclusive
+G3,ml-1m,confirmed
+G3,steam,pending: reversed below SESOI or reversed or confirmed below SESOI or confirmed or equivalent or inconclusive
+G3,ml-20m,pending: reversed below SESOI or reversed or confirmed below SESOI or confirmed or equivalent or inconclusive

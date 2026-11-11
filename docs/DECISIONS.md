@@ -790,3 +790,13 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
   - METHODS 7.5 gives n = 10, the upper end of the rule: at n = 10 the directional power is 0.005 and the equivalence power 0.000, so every comparison with a registered power function on MovieLens-1M is labelled underpowered.
 - BERT4Rec: its five validation NDCG@10 values are 0.1692, 0.1174, 0.1724, 0.1729 and 0.1740. The run with seed 2 set its best value at epoch 22 and stopped by patience 200 epochs later. It is a finished run under METHODS 5.2 and stays in the estimate and in every analysis.
 - Plan: `configs/plans/m3-final-ml-1m.toml` is written again with ten seeds. Its first 64 runs are unchanged; it adds seeds 6 to 10 on leave-one-out for the five neural arms (25 runs) and for the two shuffled-order controls (10 runs), 99 runs in all. The added seeds do not enter the time-to-target group (METHODS 9.4).
+
+## D054 MovieLens-1M: test reads and confirmatory analysis
+
+- Date: 2026-11-11. Status: results of batch `m3-final-ml-1m`; every rule applied to them was registered before (METHODS 7 and 8, D051).
+- Test reads: one job at `3df138e` on Pod `mee79yy65ukfve` read test data once for each of the 99 final runs. The export shows one final read, one completion record and no anchor read for every run. The per-user ranks stay on the volume (D051).
+- Analysis: `seqrec analyze results/runs/m3-tune-ml-1m.csv results/runs/m3-final-ml-1m.csv --out-dir results/analysis` writes `tests.csv`, `conclusions.csv`, `arms.csv` and `times.csv`. The text is `docs/RESULTS.md`, which also carries the notes each statement needs (anchor reads, power, time to target, flagged runs).
+- Decided on MovieLens-1M whatever the other datasets give: H1a supported; H2a supported; the BCE clause of H2b supported, its sampled-softmax and gBCE clauses not supported (equivalence not shown; both tests underpowered); both shuffled-order controls supported; gap G3 confirmed.
+- Pending until the other datasets have run: H1b; gaps G1 and G2, each confirmed or inconclusive; the directional comparisons of BERT4Rec with SASRec-BCE and of gSASRec with BERT4Rec; the minimum-effect test of BERT4Rec against SASRec-BCE, on which H1b waits.
+- Kendall's τ of METHODS 7.4 is taken over the five neural arms, as `seqrec analyze` computed it before these runs; the floor baselines are left out.
+- Not reported yet: the bootstrap of METHODS 7.6; peak memory and step time of plain against chunked cross-entropy (METHODS 8).

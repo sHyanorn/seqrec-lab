@@ -6,8 +6,9 @@ A study of Transformer sequential recommenders (SASRec, BERT4Rec, gSASRec) on on
 - [Methods (pre-registered, frozen)](docs/METHODS.md)
 - [Decisions](docs/DECISIONS.md)
 - [Tasks](docs/TASKS.md)
+- [Results](docs/RESULTS.md)
 
-Status: milestone M2 (models, objectives and pilot).
+Status: milestone M3 (RQ1 and RQ2 runs). MovieLens-1M has its final runs and confirmatory analysis, see [Results](docs/RESULTS.md); the other three datasets have not run.
 
 ## Environment check
 
