@@ -135,6 +135,15 @@ def _save_atomic(obj, path: Path) -> None:
     _replace(tmp, path)
 
 
+def _save_ranks(path: Path, **ranks: np.ndarray) -> None:
+    tmp = path.with_name(path.name + ".tmp")
+    with tmp.open("wb") as f:
+        np.savez(f, **{name: values.astype(np.int32) for name, values in ranks.items()})
+        f.flush()
+        os.fsync(f.fileno())
+    _replace(tmp, path)
+
+
 def _differences(config_path: Path, cfg: RunConfig) -> list[str]:
     """Fields in which a stored config.json differs from cfg, as "field stored, now new"."""
     stored = json.loads(config_path.read_text(encoding="utf-8"))
@@ -581,6 +590,13 @@ def test_run(
     shuffled = evaluate(
         model.score, shuffle_eval_inputs(test, cfg.seed, len(splits.full.items)), max_len, device
     )
+    if cfg.phase == "final":
+        # Every user's rank, for the bootstrap over users of METHODS 7.6: a final run reads
+        # test data once, so the ranks are kept now, in the run directory and in no export.
+        # Written before the scores: a read that fails here stays incomplete and is reported.
+        _save_ranks(
+            run_dir / "test_ranks.npz", test=result.ranks, test_inputs_shuffled=shuffled.ranks
+        )
     out = {
         "run_id": cfg.run_id,
         "test": result.metrics | {"tie_rate": result.tie_rate, "users": result.users},

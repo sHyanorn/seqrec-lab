@@ -11,6 +11,7 @@ from seqrec.data.invariants import item_popularity
 from seqrec.data.preprocess import build_log
 from seqrec.data.store import load_splits, log_path
 from seqrec.eval import test_access
+from seqrec.eval.ranking import metrics_from_ranks
 from seqrec.runner import run as run_mod
 from seqrec.runner.config import RunConfig
 from seqrec.runner.export import export
@@ -257,6 +258,51 @@ def test_the_reader_itself_refuses_a_fourth_anchor_read(workspace):
     with pytest.raises(test_access.TestRefused, match="anchor reads"):
         read(0)
     assert test_access.count_reads(log)["anchor"] == 1
+
+
+def test_a_final_read_keeps_every_users_rank_in_the_run_directory(workspace):
+    """METHODS 7.6 resamples users, and a final run reads test data once (11.6): the ranks of
+    that read stay on the volume. They reproduce the reported metrics and enter no export."""
+    runs, data = workspace
+    final, anchor = _cfg(), _cfg("anchor", tag="a")
+    for cfg in (final, anchor):
+        run_mod.execute(cfg, runs, data, CPU, **QUIET)
+    out = run_mod.test_run(final, runs, data, CPU, **QUIET)
+    run_mod.test_run(anchor, runs, data, CPU, **QUIET)
+    with np.load(runs / "b" / final.run_id / "test_ranks.npz") as ranks:
+        assert sorted(ranks) == ["test", "test_inputs_shuffled"]
+        assert len(ranks["test"]) == len(ranks["test_inputs_shuffled"]) == out["test"]["users"]
+        for part in ("test", "test_inputs_shuffled"):
+            recomputed = metrics_from_ranks(ranks[part])
+            assert all(recomputed[k] == pytest.approx(out[part][k]) for k in recomputed)
+    assert not (runs / "b" / anchor.run_id / "test_ranks.npz").exists()  # final runs only
+    exported = runs.parent / "out"
+    assert export(runs, exported) == []
+    assert sorted(p.name for p in exported.iterdir()) == ["b.csv", "overview.csv"]
+    assert not any("rank" in column for column in _read_csv(exported / "b.csv")[0])
+
+
+def test_a_read_whose_ranks_cannot_be_written_is_an_incomplete_read(workspace, monkeypatch):
+    """The read is used up and says so: no scores, no completion record, a failed job."""
+    runs, data = workspace
+    cfg = _cfg()
+    run_mod.execute(cfg, runs, data, CPU, **QUIET)
+
+    def full_disk(*args, **kwargs):
+        raise OSError("no space left on device")
+
+    monkeypatch.setattr(run_mod.np, "savez", full_disk)
+    with pytest.raises(OSError, match="no space"):
+        run_mod.test_run(cfg, runs, data, CPU, **QUIET)
+    monkeypatch.undo()
+    run_dir = runs / "b" / cfg.run_id
+    assert not (run_dir / "test.json").exists() and not (run_dir / "test_ranks.npz").exists()
+    assert test_access.count_reads(run_dir / "test_access.jsonl") == {
+        "final": 1, "anchor": 0, "completed": 0,
+    }  # fmt: skip
+    assert export(runs, runs.parent / "out") == [f"{cfg.run_id}: a test read did not complete"]
+    with pytest.raises(PermissionError, match="did not complete"):
+        run_mod.test_run(cfg, runs, data, CPU, **QUIET)
 
 
 def test_the_read_record_is_on_disk_before_any_data_are_returned(tmp_path, monkeypatch):

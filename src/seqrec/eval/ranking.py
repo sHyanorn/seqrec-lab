@@ -30,7 +30,9 @@ class EvalResult:
     metrics: dict[str, float]
     tie_rate: float
     users: int
-    ranks: np.ndarray  # kept in memory only; never written to results/
+    ranks: (
+        np.ndarray
+    )  # never written to results/; a final test read keeps them in its run directory
 
 
 @dataclass(frozen=True)
