@@ -57,21 +57,21 @@ Freeze
 - [x] Seed count from METHODS 7.5 (rule implemented: `seqrec seeds`); updated GPU projection from the rerun; descoping decisions if needed
 - [x] Diagnostic measurement of step-time spread against the length of the timed window, on one Pod (D046)
 - [x] Timing protocol written into METHODS (9.4) from its result (repeats per comparison, smallest difference reported as a finding, which runs of a comparison share a Pod), before any timing run of RQ2 or RQ3 (D046)
-- [ ] Silent-error review and whole-diff review; fixes
+- [x] Silent-error review and whole-diff review; fixes (D049)
 
 Before M3 tuning starts
 - [x] CPU continuous integration: tests and lint on every push (`ci.yml`). No test needs prepared data; the cross-check against ranx is skipped there, and the workflow says so. Commits pushed by a batch job start no run
-- [ ] Invariant checks run once per process and are cached with the splits (`load_splits`), so a dataset rebuilt while a batch runs is not checked again; key the cache on the stored file, or rerun the checks per run
+- [x] Invariant checks run once per process and are cached with the splits (`load_splits`), so a dataset rebuilt while a batch runs is not checked again; key the cache on the stored file, or rerun the checks per run (left as it is, D049: no job rebuilds data while a batch runs)
 - [x] No check that `seqs.items` equals `full.items[seqs.pos]` in every split; add it to the invariants (METHODS 11.1, D049)
 - [x] bf16 training is checked only by the output dtype; also check an intermediate activation (`test_training_under_autocast_runs_the_encoder_in_bf16`)
-- [ ] The known-answer test for the shuffled-order transform (METHODS 3.3) is weak; test exact orders on a hand-made case
+- [x] The known-answer test for the shuffled-order transform (METHODS 3.3) is weak; test exact orders on a hand-made case
 - [x] The anchor-read limit is enforced in `test_run`, not in `read_test`; move it into the reader so every caller is bound by it (D049)
 - [x] Median pruning counts its steps from a trial's start epoch, so gSASRec trials are not compared inside the plateau before the start rule fires (D044; deviation from METHODS 5.4)
 - [x] Execution mode decided before any M3 run: the arm's own step stays in every arm (D048). On small configurations the step is bound by kernel launches, so wall-clock time to target (H2a) mostly measures launch overhead there, and the report says so. The pilot timings and the D034 projection stand
 
 ## M3 RQ1 and RQ2 runs (6 h / projection pending the pilot rerun, D045 / no owner time per batch)
 
-- [ ] Check whether the negative-sampling comparison announced in the amazon-science/RecArena repository has been published; record its overlap with RQ2 in DECISIONS
+- [x] Check whether the negative-sampling comparison announced in the amazon-science/RecArena repository has been published; record its overlap with RQ2 in DECISIONS (D050: announced, not published)
 - [x] Tuning plans take a `start_limit` field, doubled together with the caps when a plan is doubled (D035, D049)
 - [ ] Tuning batches per dataset (leave-one-out)
 - [ ] After the first gSASRec study: read the share of trials that start, and decide whether `no_start` trials need another treatment in TPE (D044)
