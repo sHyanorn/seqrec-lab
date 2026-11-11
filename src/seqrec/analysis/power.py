@@ -101,11 +101,18 @@ def pooled_sd(groups: list[np.ndarray]) -> float:
 
 
 def sigma_from_export(
-    paths: Exports, tag: str, dataset: str, split: str = "loo"
+    paths: Exports,
+    tag: str,
+    dataset: str,
+    split: str = "loo",
+    seeds: Sequence[int] | None = None,
 ) -> tuple[float, dict[str, list[float]]]:
     """Pooled SD of log validation NDCG@10 within arms, over the trained, unshuffled runs of
-    one tag, dataset and split in one or more exports (`read_exports`)."""
+    one tag, dataset and split in one or more exports (`read_exports`). With `seeds`, only
+    runs with these seeds enter, and each neural arm must have all of them: the estimate
+    after the first 5 final seeds (METHODS 7.5)."""
     groups: dict[str, list[float]] = defaultdict(list)
+    found: dict[str, list[int]] = defaultdict(list)
     for row in read_exports(paths):
         value = row.get("validation_ndcg@10")
         if (
@@ -116,14 +123,21 @@ def sigma_from_export(
             and row["arm"] in NEURAL_ARMS
             and row["status"] in FINISHED
             and value
+            and (seeds is None or int(row["seed"]) in seeds)
         ):
             groups[row["arm"]].append(math.log(float(value)))
+            found[row["arm"]].append(int(row.get("seed") or 0))
+    if seeds is not None:
+        for arm in NEURAL_ARMS:
+            if sorted(found[arm]) != sorted(seeds):
+                have = ", ".join(map(str, sorted(found[arm])))
+                raise ValueError(f"{arm} on {dataset}: finished runs with seeds {have or 'none'}")
     sigma = pooled_sd([np.asarray(v) for v in groups.values()])
     return sigma, dict(groups)
 
 
-def report(paths: Exports, tag: str, dataset: str) -> str:
-    sigma, groups = sigma_from_export(paths, tag, dataset)
+def report(paths: Exports, tag: str, dataset: str, seeds: Sequence[int] | None = None) -> str:
+    sigma, groups = sigma_from_export(paths, tag, dataset, seeds=seeds)
     n = seed_count(sigma)
     lines = [
         f"{arm}: {len(v)} runs, sd {np.std(v, ddof=1):.5f}" for arm, v in sorted(groups.items())

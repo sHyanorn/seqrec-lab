@@ -62,3 +62,39 @@ def test_sigma_from_an_export_file(tmp_path):
     logs = [np.log([0.18, 0.182]), np.log([0.15, 0.151])]
     assert sigma == pytest.approx(power.pooled_sd(logs))
     assert "pooled sigma" in power.report(path, "sigma", "ml-1m")
+
+
+def _final_export(path, drop=None, status=None):
+    """Final runs of five arms with seeds 1 to 7; seeds 6 and 7 are far from the first five."""
+    lines = ["arm,seed,tag,dataset,split,shuffle,status,validation_ndcg@10"]
+    for a, arm in enumerate(power.NEURAL_ARMS):
+        for seed in range(1, 8):
+            value = 0.15 + 0.01 * a + (0.001 * seed if seed <= 5 else 0.05)
+            state = (status or {}).get((arm, seed), "trained")
+            if (arm, seed) != drop:
+                lines.append(f"{arm},{seed},,ml-1m,loo,none,{state},{value}")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
+def test_sigma_is_estimated_again_from_the_first_five_final_seeds(tmp_path):
+    """METHODS 7.5: after the first 5 final seeds per arm; later seeds do not enter."""
+    path = _final_export(tmp_path / "final.csv")
+    sigma, groups = power.sigma_from_export(path, "", "ml-1m", seeds=range(1, 6))
+    assert sorted(groups) == sorted(power.NEURAL_ARMS)
+    assert all(len(v) == 5 for v in groups.values())
+    expected = [np.log(0.15 + 0.01 * a + 0.001 * np.arange(1, 6)) for a in range(5)]
+    assert sigma == pytest.approx(power.pooled_sd(expected))
+    assert sigma < power.sigma_from_export(path, "", "ml-1m")[0]  # all seven seeds
+    report = power.report(path, "", "ml-1m", seeds=range(1, 6))
+    assert f"pooled sigma {sigma:.5f}" in report and "5 runs" in report
+
+
+def test_a_seed_missing_from_an_arm_stops_the_estimate(tmp_path):
+    """An arm with four of the five seeds would shrink its group without notice."""
+    path = _final_export(tmp_path / "missing.csv", drop=("gsasrec", 3))
+    with pytest.raises(ValueError, match="gsasrec.*seeds 1, 2, 4, 5"):
+        power.sigma_from_export(path, "", "ml-1m", seeds=range(1, 6))
+    path = _final_export(tmp_path / "failed.csv", status={("bert4rec", 5): "failed"})
+    with pytest.raises(ValueError, match="bert4rec.*seeds 1, 2, 3, 4"):
+        power.sigma_from_export(path, "", "ml-1m", seeds=range(1, 6))

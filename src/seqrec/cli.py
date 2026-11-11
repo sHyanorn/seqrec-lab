@@ -1,5 +1,6 @@
 """Command line: `seqrec data prepare`, `seqrec run|test|tune PLAN`, `seqrec seeds CSV`,
-`seqrec anchors CSV`, `seqrec budget CSV` and `seqrec export`."""
+`seqrec anchors CSV`, `seqrec budget CSV`, `seqrec final-plan CSV`, `seqrec analyze CSV` and
+`seqrec export`."""
 
 from __future__ import annotations
 
@@ -53,6 +54,13 @@ def main(argv=None) -> int:
     )
     seeds.add_argument("--tag", default="sigma")
     seeds.add_argument("--dataset", default="ml-1m")
+    seeds.add_argument(
+        "--seeds",
+        type=int,
+        nargs="+",
+        help="use the runs with these seeds only and require them of every arm: 1 2 3 4 5 for "
+        "the estimate after the first 5 final seeds (METHODS 7.5; final runs have --tag '')",
+    )
 
     anchors = sub.add_parser("anchors", help="anchor runs against published bands (D032)")
     anchors.add_argument(
@@ -75,6 +83,19 @@ def main(argv=None) -> int:
     )
     budget.add_argument("--overview", type=Path, help="default: overview.csv next to the first")
     budget.add_argument("--seeds", type=int, help="default: the METHODS 7.5 rule on the pilot")
+
+    analyze = sub.add_parser("analyze", help="the registered tests on final runs (METHODS 7, 8)")
+    analyze.add_argument(
+        "csv", type=Path, nargs="+", help="exported batches of final runs, after their test reads"
+    )
+    analyze.add_argument("--out-dir", type=Path, default=Path("results/analysis"))
+
+    final = sub.add_parser("final-plan", help="write a dataset's final-run plan (METHODS 5.5)")
+    final.add_argument("csv", type=Path, help="tuning_best.csv, e.g. results/runs/tuning_best.csv")
+    final.add_argument("--tuning-batch", required=True, help="the batch of the dataset's studies")
+    final.add_argument("--dataset", required=True, choices=list(DATASETS))
+    final.add_argument("--seeds", type=int, required=True, help="leave-one-out seeds, 5 to 10")
+    final.add_argument("--out", type=Path, required=True, help="the plan file, named <batch>.toml")
 
     exp = sub.add_parser("export", help="aggregate finished runs into results/runs")
     exp.add_argument("--runs-dir", type=Path, default=Path("runs"))
@@ -127,6 +148,21 @@ def main(argv=None) -> int:
         except IncompleteRerun as e:
             print(f"[{args.command}] {e}", file=sys.stderr)
             return 1
+        return 0
+    if args.command == "analyze":
+        from seqrec.analysis.confirm import report as confirm_report
+
+        print(confirm_report(args.csv, args.out_dir))
+        return 0
+    if args.command == "final-plan":
+        import csv
+
+        from seqrec.runner.final_plan import final_plan
+
+        with args.csv.open(encoding="utf-8", newline="") as f:
+            rows = list(csv.DictReader(f))
+        text = final_plan(rows, args.dataset, args.tuning_batch, args.seeds, args.out.stem)
+        args.out.write_text(text, encoding="utf-8")
         return 0
     from seqrec.runner.export import export, summarize, unbacked_reads
 
@@ -181,7 +217,7 @@ def _analysis(args) -> str:
     if args.command == "seeds":
         from seqrec.analysis.power import report
 
-        return report(args.csv, args.tag, args.dataset)
+        return report(args.csv, args.tag, args.dataset, args.seeds)
     if args.command == "anchors":
         from seqrec.analysis.anchors import report as anchor_report
 
