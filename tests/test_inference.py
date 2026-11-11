@@ -1,7 +1,6 @@
 """Known answers for the tests of METHODS 7.3, 7.4 and 8. Expected values are computed by hand
 or by an independent scipy path, never by the function under test."""
 
-import itertools
 import math
 
 import numpy as np
@@ -196,20 +195,33 @@ def test_censored_runs_rank_last_and_share_a_mid_rank():
     )
 
 
-def test_with_ties_and_censoring_it_is_the_exact_permutation_test_of_the_rank_sum():
-    """Against a direct enumeration of all splits of the pooled mid-ranks."""
+def u_statistic(x, y):
+    """Pairs with x above y, ties counting one half: U without any ranking."""
+    return sum((a > b) + 0.5 * (a == b) for a in x for b in y)
+
+
+def test_with_ties_and_censoring_it_is_the_exact_permutation_test_of_u():
+    """Against scipy's exact permutation test of a U statistic counted pair by pair, which
+    shares neither the ranking nor the enumeration with the function."""
     inf = math.inf
     cases = [
         ([1.0, 2, 2, inf, inf], [2.0, 3, inf, inf, inf]),
         ([5.0, 5, 5, 7, inf], [5.0, 6, 7, 7, 8]),
         ([3.0, inf, inf, inf, inf], [1.0, 2, inf, inf, inf]),
+        ([1.0, 4, 4, inf], [2.0, 4, 5, 9, inf, inf]),
     ]
     for x, y in cases:
-        ranks = stats.rankdata(np.concatenate([x, y]))
-        observed = ranks[: len(x)].sum()
-        sums = [sum(c) for c in itertools.combinations(ranks, len(x))]
-        expected = sum(s <= observed + 1e-9 for s in sums) / len(sums)
+        expected = stats.permutation_test(
+            (x, y), u_statistic, permutation_type="independent", alternative="less",
+            n_resamples=np.inf,
+        ).pvalue  # fmt: skip
         assert inference.mann_whitney_less(x, y) == pytest.approx(expected, rel=1e-12)
+
+
+def test_three_tied_values_by_hand():
+    """x = 1, 2 and y = 2, 3: ranks 1, 2.5, 2.5, 4, rank sum of x 3.5. The six splits have
+    rank sums 3.5, 3.5, 5, 5, 6.5, 6.5, so p = 2/6."""
+    assert inference.mann_whitney_less([1.0, 2.0], [2.0, 3.0]) == pytest.approx(2 / 6)
 
 
 def test_mann_whitney_refuses_values_it_cannot_rank():

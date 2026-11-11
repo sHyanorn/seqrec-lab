@@ -107,13 +107,25 @@ def sigma_from_export(
     split: str = "loo",
     seeds: Sequence[int] | None = None,
 ) -> tuple[float, dict[str, list[float]]]:
+    """`sigma_of` the rows of one or more exports, a later file's runs replacing the runs they
+    repeat (`read_exports`)."""
+    return sigma_of(read_exports(paths), tag, dataset, split, seeds)
+
+
+def sigma_of(
+    rows: list[dict],
+    tag: str,
+    dataset: str,
+    split: str = "loo",
+    seeds: Sequence[int] | None = None,
+) -> tuple[float, dict[str, list[float]]]:
     """Pooled SD of log validation NDCG@10 within arms, over the trained, unshuffled runs of
-    one tag, dataset and split in one or more exports (`read_exports`). With `seeds`, only
-    runs with these seeds enter, and each neural arm must have all of them: the estimate
-    after the first 5 final seeds (METHODS 7.5)."""
+    one tag, dataset and split. With `seeds`, only runs with these seeds enter, and each
+    neural arm must have each of them once: the estimate after the first 5 final seeds
+    (METHODS 7.5)."""
     groups: dict[str, list[float]] = defaultdict(list)
     found: dict[str, list[int]] = defaultdict(list)
-    for row in read_exports(paths):
+    for row in rows:
         value = row.get("validation_ndcg@10")
         if (
             row["tag"] == tag

@@ -32,7 +32,7 @@ from seqrec.analysis.power import (
     TARGET,
     directional_power,
     equivalence_power,
-    sigma_from_export,
+    sigma_of,
 )
 from seqrec.analysis.table import format_table
 from seqrec.data.stats import write_csv
@@ -95,6 +95,8 @@ class Outcome:
     low: float | None = None  # 95% Welch interval of the difference, descriptive
     high: float | None = None
     power: float | None = None
+    median_a: float | None = None  # time to target only, in seconds
+    median_b: float | None = None
 
     @property
     def underpowered(self) -> bool | None:
@@ -143,12 +145,15 @@ def time_group(
     target is 0.95 times the highest arm mean of their best validation NDCG@10. A run's
     `validation_records` hold its cumulative training time and validation NDCG@10 at every
     epoch that set a new best, which is where any target is first reached."""
-    members = {
-        (r["arm"], int(r["seed"])): r
-        for r in rows
-        if r["dataset"] == dataset and r["split"] == "loo" and r["shuffle"] == "none"
-        and not r["tag"] and r["arm"] in H2A_ARMS and int(r["seed"]) in H2A_SEEDS
-    }  # fmt: skip
+    members = {}
+    for r in rows:
+        if (
+            r["dataset"] == dataset and r["split"] == "loo" and r["shuffle"] == "none"
+            and not r["tag"] and r["arm"] in H2A_ARMS and int(r["seed"]) in H2A_SEEDS
+        ):  # fmt: skip
+            if (r["arm"], int(r["seed"])) in members:
+                raise ValueError(f"{r['run_id']}: a second run with its arm and seed in the group")
+            members[r["arm"], int(r["seed"])] = r
     missing = [(a, s) for a in H2A_ARMS for s in H2A_SEEDS if (a, s) not in members]
     if missing:
         raise ValueError(f"{dataset}: the time-to-target group lacks {missing[0]}")
@@ -173,7 +178,8 @@ def _time_outcome(variant: str, c: families.Comparison, times: Mapping[str, list
     a, b = times[c.a], times[c.b]
     return Outcome(
         variant, c, inference.mann_whitney_less(a, b), n_a=len(a), n_b=len(b),
-        estimate=timing.median_ratio(b, a),
+        estimate=timing.median_ratio(b, a), median_a=statistics.median(a),
+        median_b=statistics.median(b),
     )  # fmt: skip
 
 
@@ -182,7 +188,12 @@ def analyze(
 ) -> list[Outcome]:
     """Every registered comparison in every variant, with its Holm status. `rows` are final
     runs; `sigma` holds, per dataset among them, the estimate of METHODS 7.5 from its first
-    five seeds; `clock` is the median SM clock that flags a run (`flagged`)."""
+    five seeds; `clock` is the median SM clock that flags a run (`flagged`). A run that is
+    trained and not tested yet stops the analysis: it comes after the test reads. Failed and
+    diverged runs stay out of their groups."""
+    waiting = [r for r in rows if not r["tag"] and r["status"] in ("trained", "unfinished")]
+    if waiting:
+        raise ValueError(f"{waiting[0]['run_id']} is {waiting[0]['status']}, not tested")
     present = {r["dataset"] for r in rows}
     times = {PRIMARY: {}, UNFLAGGED: {}}
     for d in sorted(present):
@@ -224,27 +235,27 @@ def all_rejected(statuses: Iterable[str]) -> str:
     return SUPPORTED if all(s == REJECTED for s in statuses) else PENDING
 
 
+def _first_class(with_sign: bool, directional: bool, tost: bool) -> str:
+    """The first class of METHODS 7.3 that applies, given which tests are significant."""
+    if directional:
+        return GAP_CLASSES[2 * with_sign + (not tost)]
+    return GAP_CLASSES[4 + (not tost)]
+
+
 def gap_class(sign: int, directional: Outcome, tost: Outcome) -> list[str]:
-    """The classes of METHODS 7.3 a published gap can still fall into, first to last; one
-    class when it is decided. `sign` is the published sign of A - B."""
-    significant = {REJECTED: True, NOT_REJECTED: False, PENDING: None}
-    d, t = significant[directional.status], significant[tost.status]
-    along = against = None  # None: not known yet
-    if directional.estimate is not None:
-        with_sign = (directional.estimate > 0) == (sign > 0)
-        along, against = (d, False) if with_sign else (False, d)
-
-    def both(x, y):  # Kleene conjunction
-        return False if x is False or y is False else (None if x is None or y is None else True)
-
-    conditions = (both(against, t), against, both(along, t), along, t, True)
-    possible = []
-    for name, holds in zip(GAP_CLASSES, conditions, strict=True):
-        if holds is not False:
-            possible.append(name)
-        if holds:
-            break
-    return possible
+    """The classes of METHODS 7.3 a published gap can still fall into, in their order; one
+    class when it is decided. `sign` is the published sign of A - B. A pending test may end
+    either way, and a dataset without runs has no sign of its difference yet."""
+    either = {REJECTED: (True,), NOT_REJECTED: (False,), PENDING: (True, False)}
+    estimate = directional.estimate
+    with_sign = (True, False) if estimate is None else ((estimate > 0) == (sign > 0),)
+    reachable = {
+        _first_class(w, d, t)
+        for w in with_sign
+        for d in either[directional.status]
+        for t in either[tost.status]
+    }
+    return [name for name in GAP_CLASSES if name in reachable]
 
 
 def conclusions(outcomes: list[Outcome]) -> list[dict]:
@@ -312,6 +323,7 @@ def tests_table(outcomes: list[Outcome]) -> list[dict]:
                 "low": o.low, "high": o.high, "p": o.p, "status": o.status, "power": o.power,
                 "underpowered": o.underpowered,
                 "reading": timing.reading(o.estimate) if known and timed else None,
+                "median_a": o.median_a, "median_b": o.median_b,
             }
         )  # fmt: skip
     return table
@@ -319,7 +331,8 @@ def tests_table(outcomes: list[Outcome]) -> list[dict]:
 
 def arms_table(rows: list[dict]) -> list[dict]:
     """Per dataset, split, shuffle and arm: runs, mean and SD of every metric over the tested
-    runs, mean tie rate, share of truncated runs and GPU hours (METHODS 7.7)."""
+    runs, mean tie rate, share of truncated runs among those that finished training, and GPU
+    hours (METHODS 7.7)."""
     groups = defaultdict(list)
     for r in rows:
         if not r["tag"]:
@@ -337,7 +350,8 @@ def arms_table(rows: list[dict]) -> list[dict]:
             row[f"{metric}_sd"] = statistics.stdev(values) if len(values) > 1 else None
         ties = [float(r["test_tie_rate"]) for r in tested]
         row["test_tie_rate_mean"] = statistics.fmean(ties) if ties else None
-        row["truncated_share"] = statistics.fmean(r["truncated"] == "True" for r in runs)
+        stopped = [r["truncated"] == "True" for r in runs if r["truncated"]]
+        row["truncated_share"] = statistics.fmean(stopped) if stopped else None
         row["gpu_hours"] = round(sum(float(r["gpu_hours"] or 0) for r in runs), 4)
         table.append(row)
     return table
@@ -369,7 +383,7 @@ def report(paths: Sequence[Path], out_dir: Path) -> str:
     clock = statistics.median(clocks) if clocks else None
     rows = [r for r in every if r["phase"] == "final"]
     datasets = sorted({r["dataset"] for r in rows})
-    sigma = {d: sigma_from_export(list(paths), "", d, seeds=H2A_SEEDS)[0] for d in datasets}
+    sigma = {d: sigma_of(rows, "", d, seeds=H2A_SEEDS)[0] for d in datasets}
     outcomes = analyze(rows, sigma, clock)
     concluded = conclusions(outcomes)
     for name, table in (
@@ -385,5 +399,11 @@ def report(paths: Sequence[Path], out_dir: Path) -> str:
         f"{rank_agreement(rows, d):.2f}"
         for d in datasets
     ]
+    for hypothesis in ("H1a", "H1b"):  # METHODS 7.4: the count of datasets supporting each
+        results = [c["result"] for c in concluded if c["question"] == hypothesis]
+        lines.append(
+            f"{hypothesis} supported on {results.count(SUPPORTED)} dataset, not supported on "
+            f"{results.count(NOT_SUPPORTED)}, pending on {results.count(PENDING)}"
+        )
     lines.append(format_table(concluded, ["question", "dataset", "result"]))
     return "\n".join(lines)

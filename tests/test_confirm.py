@@ -193,6 +193,26 @@ def test_the_timing_repeat_leaves_out_flagged_runs():
     assert len(by_name(outcomes, confirm.UNFLAGGED)) == 12
 
 
+def test_a_second_run_in_the_group_is_refused_not_taken_silently():
+    """A group trained again (METHODS 9.4) must not replace the first by the order of files."""
+    rows = final_rows()
+    again = dict(rows[5], run_id="again", pod="pod2")
+    with pytest.raises(ValueError, match="second run"):
+        confirm.time_group([*rows, again], "ml-1m")
+
+
+def test_a_final_run_that_was_not_tested_yet_stops_the_analysis():
+    """A dataset is analysed after its test reads. A run that failed or diverged stays out
+    and shows in the counts; a run that only waits for its read would shrink its arm."""
+    rows = final_rows()
+    rows[22]["status"] = "trained"  # BERT4Rec, leave-one-out, seed 3
+    with pytest.raises(ValueError, match="bert4rec-ml-1m-loo-s3.*trained"):
+        confirm.analyze(rows, {"ml-1m": SIGMA})
+    rows[22]["status"] = "failed"
+    o = by_name(confirm.analyze(rows, {"ml-1m": SIGMA}))[f"F1 ml-1m {A2} vs {A5}"]
+    assert (o.n_a, o.n_b) == (5, 4)
+
+
 def test_a_group_spread_over_two_pods_is_not_compared():
     rows = final_rows()
     rows[7]["pod"] = "pod2"  # one SASRec-CE run
@@ -276,7 +296,15 @@ def gap(sign, estimate, directional, tost):
         (+1, -0.03, NOT_REJECTED, NOT_REJECTED, ["inconclusive"]),
         (+1, +0.10, PENDING, NOT_REJECTED, ["confirmed", "inconclusive"]),
         (+1, +0.01, REJECTED, PENDING, ["confirmed below SESOI", "confirmed"]),
-        (+1, -0.01, PENDING, REJECTED, ["reversed below SESOI", "reversed", "equivalent"]),
+        (+1, -0.01, PENDING, REJECTED, ["reversed below SESOI", "equivalent"]),
+        (-1, -0.01, PENDING, REJECTED, ["confirmed below SESOI", "equivalent"]),
+        (
+            +1,
+            None,
+            PENDING,
+            REJECTED,
+            ["reversed below SESOI", "confirmed below SESOI", "equivalent"],
+        ),
         (+1, -0.01, NOT_REJECTED, PENDING, ["equivalent", "inconclusive"]),
         (+1, None, PENDING, PENDING, list(confirm.GAP_CLASSES)),
     ],
@@ -308,11 +336,18 @@ def test_the_report_writes_its_tables_from_exported_batch_files(tmp_path):
     trial = dict(rows[1], phase="tune", tag="t03", run_id="a-trial")  # not a final run
     path = tmp_path / "m3-final-ml-1m.csv"
     write_csv(path, [*rows, trial])
+    failed = dict(rows[0], batch="more", run_id="sixth", seed="6", status="failed", truncated="",
+                  gpu_hours="")  # fmt: skip
+    more = tmp_path / "more.csv"  # a later file with a failed run is read like any other
+    write_csv(more, [failed])
     out = tmp_path / "analysis"
-    text = confirm.report([path], out)
+    assert confirm.report([more, path], out) == confirm.report([path, more], out)
+    text = confirm.report([path, more], out)
+    assert "H1a supported on 1 dataset, not supported on 0, pending on 1" in text
+    assert "H1b supported on 1 dataset, not supported on 0, pending on 3" in text
     assert ["H1a", "ml-1m", SUPPORTED] in [line.split() for line in text.splitlines()]
     assert "sigma of ml-1m" in text
-    assert cli_main(["analyze", str(path), "--out-dir", str(out)]) == 0
+    assert cli_main(["analyze", str(path), str(more), "--out-dir", str(out)]) == 0
 
     def table(name):
         with (out / f"{name}.csv").open(encoding="utf-8", newline="") as f:
@@ -327,12 +362,15 @@ def test_the_report_writes_its_tables_from_exported_batch_files(tmp_path):
     timed = next(t for t in tests if t["family"] == "F6" and t["dataset"] == "ml-1m"
                  and t["b"] == A1)  # fmt: skip
     assert float(timed["estimate"]) == pytest.approx(309 / 39) and timed["reading"] == "difference"
+    assert (float(timed["median_a"]), float(timed["median_b"])) == (39.0, 309.0)
+    assert ni["median_a"] == ""
     control = [t for t in tests if t["family"] == "F4" and t["dataset"] == "ml-1m"]
     assert {t["b"] for t in control} == {f"C1-{A2}", f"C1-{A5}"}
     arms = {(a["split"], a["shuffle"], a["arm"]): a for a in table("arms")}
     assert len(arms) == 12
     bce = arms["loo", "none", A1]
-    assert (bce["runs"], bce["tested"], bce["truncated_share"]) == ("5", "5", "0.2")
+    # six runs, five tested; the failed one never met a limit and is not in the share
+    assert (bce["runs"], bce["tested"], bce["truncated_share"]) == ("6", "5", "0.2")
     assert float(bce["test_ndcg@10_mean"]) == pytest.approx(0.1, rel=1e-6)
     assert float(bce["gpu_hours"]) == pytest.approx(0.1)
     times = table("times")
