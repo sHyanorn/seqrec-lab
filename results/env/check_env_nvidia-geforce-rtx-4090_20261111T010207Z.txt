@@ -1,0 +1,65 @@
+seqrec-lab environment check (full, 2026-11-11T01:02:07Z)
+python 3.12.3 | torch 2.15.0+cu132 | cuda 13.2 | cudnn 92600 | driver 595.91.07
+gpu NVIDIA GeForce RTX 4090 | capability 8.9 | in wheel arch list: False | 23.52 GiB | bf16 True
+
+matmul TFLOPS: fp32 53.98, bf16 132.8, tf32 85.71, fp16 170.12
+
+SDPA backends (ok / tried over dtypes, masks and shapes):
+  math      144/144  outside tolerance: 0
+  efficient 144/144  outside tolerance: 0
+  flash     48/144  outside tolerance: 0
+  cudnn     72/144  outside tolerance: 0
+Default choice by mask and dtype (length 50, head dim 32):
+  none            fp32: efficient_attention
+  none            bf16: flash_attention
+  none            fp16: flash_attention
+  causal          fp32: efficient_attention
+  causal          bf16: flash_attention
+  causal          fp16: flash_attention
+  padding         fp32: efficient_attention
+  padding         bf16: efficient_attention
+  padding         fp16: efficient_attention
+  causal_padding  fp32: efficient_attention
+  causal_padding  bf16: efficient_attention
+  causal_padding  fp16: efficient_attention
+
+Synthetic SASRec train step (ms median | tokens/s | peak GiB):
+  items    3500 full_ce         fp32      7.33 |   3491687 | 1.219
+  items    3500 full_ce         tf32      6.51 |   3934587 | 1.219
+  items    3500 full_ce         bf16      6.08 |   4210180 | 1.133
+  items    3500 sampled_softmax fp32      3.78 |   6776969 | 0.299
+  items    3500 sampled_softmax tf32      3.19 |   8029357 | 0.299
+  items    3500 sampled_softmax bf16      2.26 |  11349027 | 0.213
+  items    3500 bce             fp32      3.61 |   7088271 | 0.251
+  items    3500 bce             tf32      3.06 |   8352638 | 0.251
+  items    3500 bce             bf16      2.18 |  11750126 | 0.168
+  items   26000 full_ce         fp32     31.31 |    817748 | 7.675
+  items   26000 full_ce         tf32     29.89 |    856608 | 7.674
+  items   26000 full_ce         bf16     33.45 |    765292 | 7.592
+  items   26000 sampled_softmax fp32      3.93 |   6513001 | 0.315
+  items   26000 sampled_softmax tf32      3.26 |   7864099 | 0.315
+  items   26000 sampled_softmax bf16      2.28 |  11205953 | 0.23
+  items   26000 bce             fp32      3.67 |   6971488 | 0.272
+  items   26000 bce             tf32      3.12 |   8195934 | 0.275
+  items   26000 bce             bf16      2.17 |  11781490 | 0.191
+  items  100000 full_ce         fp32 estimated 28.6 GiB for logits exceeds 22.9 GiB free
+  items  100000 full_ce         tf32 estimated 28.6 GiB for logits exceeds 22.9 GiB free
+  items  100000 full_ce         bf16 estimated 28.6 GiB for logits exceeds 22.9 GiB free
+  items  100000 sampled_softmax fp32      4.20 |   6098287 | 0.367
+  items  100000 sampled_softmax tf32      3.57 |   7172476 | 0.37
+  items  100000 sampled_softmax bf16      2.56 |  10016433 | 0.283
+  items  100000 bce             fp32      4.01 |   6388979 | 0.349
+  items  100000 bce             tf32      3.42 |   7492829 | 0.348
+  items  100000 bce             bf16      2.50 |  10224867 | 0.262
+Full-ranking scoring, ms per 1k users: 3500 items 0.111, 26000 items 0.814, 100000 items 2.861
+
+torch.compile: ok, compile 38.0 s, speedup 1.17x
+
+Thermal: 120.0 s bf16 load, TFLOPS per window [160.899679, 159.879788, 159.615548, 159.444473, 159.21042, 158.942589, 158.598972, 158.377726, 158.090888, 158.097201, 157.881247, 157.706314, 157.502273, 157.261308, 157.24132, 157.01136, 157.069975, 157.120282, 157.026623, 156.993044, 156.936128, 157.000819, 156.895619, 156.794925]
+  last/max 0.974 | last/early 0.982
+  SM MHz {'min': 2430, 'p5': 2430.0, 'median': 2445, 'p95': 2490.0, 'max': 2580}
+  temp C {'min': 33, 'p5': 56.0, 'median': 68, 'p95': 70.0, 'max': 70, 'start': 33, 'end': 70}
+  power W {'min': 28.02, 'p5': 448.6, 'median': 449.56, 'p95': 450.2, 'max': 467.26}
+  share of samples per clock event reason {'sw_power_cap': 0.994, 'hw_slowdown': 0.0, 'sw_thermal': 0.0, 'hw_thermal': 0.0, 'hw_power_brake': 0.0}
+
+Probe durations (s): {"environment": 1.0, "thermal": 121.1, "matmul": 0.4, "sdpa": 53.1, "model": 15.0, "compile": 103.5}
