@@ -51,3 +51,8 @@ m2-pilot,video-games,loo,sasrec-ce,tune,time-large,1,0,0,0,1,1,1.0,0.005
 m2-pilot,video-games,loo,sasrec-ce,tune,time-small,1,0,0,0,1,1,1.0,0.003
 m2-pilot,video-games,loo,sasrec-ss,tune,time-large,1,0,0,0,1,1,1.0,0.004
 m2-pilot,video-games,loo,sasrec-ss,tune,time-small,1,0,0,0,1,1,1.0,0.003
+m3-tune-ml-1m,ml-1m,loo,bert4rec,tune,trials,20,0,5,0,15,7,0.467,0.689
+m3-tune-ml-1m,ml-1m,loo,gsasrec,tune,trials,20,0,7,0,13,11,0.846,0.416
+m3-tune-ml-1m,ml-1m,loo,sasrec-bce,tune,trials,20,0,11,0,9,3,0.333,0.141
+m3-tune-ml-1m,ml-1m,loo,sasrec-ce,tune,trials,20,0,8,0,12,1,0.083,0.34
+m3-tune-ml-1m,ml-1m,loo,sasrec-ss,tune,trials,20,0,9,0,11,1,0.091,0.221
