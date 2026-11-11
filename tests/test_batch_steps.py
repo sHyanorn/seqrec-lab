@@ -356,7 +356,8 @@ def summary(run_dir: Path, stop: str, epochs: int, wall_s: float, mtime: int) ->
         ),
         encoding="utf-8",
     )  # fmt: skip
-    os.utime(path, (mtime, mtime))
+    for written in (path, run_dir):  # the directory too: a file system may stamp both alike
+        os.utime(written, (mtime, mtime))
 
 
 def test_progress_describes_the_run_that_finished_last(tmp_path):
@@ -366,6 +367,7 @@ def test_progress_describes_the_run_that_finished_last(tmp_path):
     summary(runs / "older", "max_epochs", 200, 100.4, 1_000)
     summary(runs / "later", "patience", 384, 3868.2, 2_000)
     (runs / "running").mkdir()
+    os.utime(runs / "running", (3_000, 3_000))
     result = steps("plan", env=plan_env(tmp_path), path_prefix=tmp_path / "bin")
     assert result.returncode == 0, result.stderr
     sent = json.loads((tmp_path / "posts").read_text(encoding="utf-8").splitlines()[0])
