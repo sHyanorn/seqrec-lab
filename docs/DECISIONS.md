@@ -763,3 +763,20 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
 - Input: a dataset is analysed after its test reads. A final run that is trained and not tested stops the analysis; runs that failed, or diverged without a checkpoint (D031), stay out of their groups and show in the run counts of every comparison and arm.
 - Not implemented yet: the bootstrap of 7.6, which runs on the volume from the ranks; family F3 (METHODS 9.3), which belongs to the efficiency measurements; the second training of an interrupted time-to-target group and its "not tested" outcome (9.4). Until then the analysis stops when the group spans Pods or holds a run twice, and the timing repeat stops if every run of an arm is flagged.
 
+## D052 MovieLens-1M tuning
+
+- Date: 2026-11-11. Status: results of batch `m3-tune-ml-1m` (METHODS 5.3, 5.4); what follows from them is fixed by rules registered before.
+- Runs: five studies of 20 trials, all on Pod `21y6v635w15fjq` (Ryzen 9 7950X, 14 CPUs) at `0ea0ec5`, no failed attempt, no diverged trial, no hardware slowdown, 1.81 GPU hours.
+
+| Arm | Best trial | Validation NDCG@10 | Its configuration | Pruned | Never started | At the epoch cap | Truncated (share) | GPU hours |
+|---|---|---|---|---|---|---|---|---|
+| SASRec-BCE | t17 | 0.1501 | lr 9.42e-04, d 128, 2 blocks, 2 heads, dropout 0.330, weight decay 0, shared output | 11 | 3 | 0 | 3 of 9 (0.333) | 0.14 |
+| SASRec-CE | t15 | 0.2060 | lr 2.71e-04, d 256, 3 blocks, 1 head, dropout 0.327, weight decay 0.0001, shared output | 8 | 1 | 0 | 1 of 12 (0.083) | 0.34 |
+| SASRec-SS | t06 | 0.1943 | lr 1.69e-04, d 256, 2 blocks, 2 heads, dropout 0.255, weight decay 0, shared output, K 1024 | 9 | 1 | 0 | 1 of 11 (0.091) | 0.22 |
+| gSASRec | t11 | 0.1945 | lr 1.64e-03, d 128, 2 blocks, 1 head, dropout 0.217, weight decay 0, shared output, K 128, t 0.909 | 7 | 8 | 3 | 11 of 13 (0.846) | 0.42 |
+| BERT4Rec | t05 | 0.1734 | lr 9.16e-04, d 256, 2 blocks, 2 heads, dropout 0.144, weight decay 0, ρ 0.316 | 5 | 7 | 0 | 7 of 15 (0.467) | 0.69 |
+
+- Limits of the final runs (METHODS 5.2, D030, D035): the share of truncated trials is above 20% for SASRec-BCE, gSASRec and BERT4Rec, so their final runs on MovieLens-1M double the epoch cap, the patience, the guard and the start limit: 600 epochs, patience 60, 16 hours and a start limit of 600 for SASRec-BCE and gSASRec; 2,000 epochs, patience 200, 16 hours and 600 for BERT4Rec. SASRec-CE and SASRec-SS keep the limits of METHODS 5.2. Every truncated trial of SASRec-BCE, SASRec-CE, SASRec-SS and BERT4Rec is one that never started (D035); gSASRec has eight of those and three trials stopped at the epoch cap.
+- Start-up trials (METHODS 5.4): every study has sampler seed 0, so trials 0 to 4 draw the same shared hyperparameters in all five: learning rates 1.25e-3, 6.8e-4, 7.4e-4, 1.26e-3 and 8.6e-3; dimension 64, 64, 128, 64, 128; dropout 0.23 to 0.37; weight decay 0, 1e-4, 0, 1e-2, 1e-2. No start-up trial has dimension 256; three of the five best trials have it, found by TPE. This stays as it is for the other datasets: the registered text is met, every arm starts from the same points, and changing it now would be a choice made after results.
+- gSASRec trials that start (D044): 12 of 20 passed the start threshold, at epochs 34 to 239; 8 ended with `no_start` after 300 epochs. Whether such trials need another treatment in TPE is decided before the next dataset is tuned.
+- Final runs: `configs/plans/m3-final-ml-1m.toml`, written by `seqrec final-plan` from these studies with five leave-one-out seeds; METHODS 7.5 decides after them whether seeds are added.

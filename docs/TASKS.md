@@ -73,9 +73,9 @@ Before M3 tuning starts
 
 - [x] Check whether the negative-sampling comparison announced in the amazon-science/RecArena repository has been published; record its overlap with RQ2 in DECISIONS (D050: announced, not published)
 - [x] Tuning plans take a `start_limit` field, doubled together with the caps when a plan is doubled (D035, D049)
-- [ ] Tuning batches per dataset (leave-one-out)
-- [ ] After the first gSASRec study: read the share of trials that start, and decide whether `no_start` trials need another treatment in TPE (D044)
-- [ ] Truncation check per arm; doubled caps where required (METHODS 5.2)
+- [ ] Tuning batches per dataset (leave-one-out): MovieLens-1M done (D052)
+- [ ] After the first gSASRec study: read the share of trials that start, and decide whether `no_start` trials need another treatment in TPE (D044): 12 of 20 started on MovieLens-1M (D052); the decision is due before the next dataset is tuned
+- [ ] Truncation check per arm; doubled caps where required (METHODS 5.2): MovieLens-1M done, three arms doubled (D052)
 - [ ] Final runs on leave-one-out and the temporal split, seeds per METHODS 7.5
 - [ ] Re-estimate σ after 5 seeds per dataset and add seeds if the rule requires
 - [ ] Shuffled-order control runs (D017)
