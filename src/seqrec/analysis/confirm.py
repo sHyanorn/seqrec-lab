@@ -189,8 +189,8 @@ def analyze(
     """Every registered comparison in every variant, with its Holm status. `rows` are final
     runs; `sigma` holds, per dataset among them, the estimate of METHODS 7.5 from its first
     five seeds; `clock` is the median SM clock that flags a run (`flagged`). A run that is
-    trained and not tested yet stops the analysis: it comes after the test reads. Failed and
-    diverged runs stay out of their groups."""
+    trained and not tested yet stops the analysis: it comes after the test reads. Runs that
+    failed, or diverged without a checkpoint (D031), stay out of their groups."""
     waiting = [r for r in rows if not r["tag"] and r["status"] in ("trained", "unfinished")]
     if waiting:
         raise ValueError(f"{waiting[0]['run_id']} is {waiting[0]['status']}, not tested")
