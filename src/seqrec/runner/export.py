@@ -69,7 +69,8 @@ def _validation_records(metrics_path: Path) -> str:
     return json.dumps(records)
 
 
-def _row(run_dir: Path) -> dict:
+def run_row(run_dir: Path) -> dict:
+    """The row of one run directory in its batch file."""
     cfg = _load(run_dir / "config.json")
     summary, test = _load(run_dir / "summary.json"), _load(run_dir / "test.json")
     reads = count_reads(run_dir / "test_access.jsonl")
@@ -152,7 +153,7 @@ def flag_slow_epochs(rows: list[dict]) -> None:
 
 def read_batch_files(directory: Path) -> list[dict]:
     """The rows of every batch file in a directory, with the columns named in TEXT and PARSED
-    typed as `_row` wrote them. Any other CSV file there, apart from the summaries, is an
+    typed as `run_row` wrote them. Any other CSV file there, apart from the summaries, is an
     error: skipping it would drop runs from the summaries and reads from the limits."""
     if not directory.is_dir():
         raise FileNotFoundError(f"{directory} is not a directory of exported batch files")
@@ -374,7 +375,7 @@ def export(
     elsewhere (`require_backed_reads`). `written` is a file to list the batch files in, one
     name per line."""
     require_backed_reads(out_dir, runs_dir)
-    rows = [_row(p.parent) for p in sorted(runs_dir.glob("*/*/config.json"))]
+    rows = [run_row(p.parent) for p in sorted(runs_dir.glob("*/*/config.json"))]
     flag_slow_epochs(rows)
     batches = sorted({r["batch"] for r in rows})
     for batch in batches:

@@ -12,7 +12,6 @@ decide. With five to ten seeds the draw over seeds understates the variation bet
 
 from __future__ import annotations
 
-import json
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -22,6 +21,7 @@ import numpy as np
 from seqrec.analysis import families
 from seqrec.analysis.table import format_table
 from seqrec.data.stats import write_csv
+from seqrec.runner.export import run_row
 
 RESAMPLES = 10_000
 CUTOFF = 10  # NDCG@10, the primary metric (METHODS 6)
@@ -64,14 +64,20 @@ def intervals(
 def read_runs(batch_dir: Path) -> dict[tuple[str, str], np.ndarray]:
     """Per dataset and arm, each user's NDCG@10 in the tested final runs of a batch on
     leave-one-out with the order kept, one row per run in seed order. Every run of a dataset
-    lists its test users in the order of the split (D051)."""
+    lists its test users in the order of the split (D051). As in the analysis, a run that is
+    trained and not tested yet stops the bootstrap, and runs that failed stay out."""
     found = defaultdict(dict)
-    for path in batch_dir.glob("*/config.json"):
-        cfg = json.loads(path.read_text(encoding="utf-8"))
-        kind = (cfg["phase"], cfg["split"], cfg["shuffle"], cfg["tag"])
-        if kind == ("final", "loo", "none", "") and (path.parent / "test.json").exists():
+    for path in sorted(batch_dir.glob("*/config.json")):
+        row = run_row(path.parent)
+        if (row["phase"], row["split"], row["shuffle"], row["tag"]) != ("final", "loo", "none", ""):
+            continue
+        if row["status"] in ("trained", "unfinished"):
+            raise ValueError(f"{row['run_id']} is {row['status']}, not tested")
+        if row["status"] == "tested":
             with np.load(path.parent / "test_ranks.npz") as ranks:
-                found[cfg["dataset"], cfg["arm"]][cfg["seed"]] = ndcg(ranks["test"])
+                found[row["dataset"], row["arm"]][row["seed"]] = ndcg(ranks["test"])
+    if not found:
+        raise ValueError(f"{batch_dir}: no tested final run on leave-one-out")
     return {key: np.stack([by_seed[s] for s in sorted(by_seed)]) for key, by_seed in found.items()}
 
 
