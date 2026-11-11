@@ -32,6 +32,7 @@ from seqrec.analysis.power import (
     TARGET,
     directional_power,
     equivalence_power,
+    pooled_sd,
     sigma_of,
 )
 from seqrec.analysis.table import format_table
@@ -97,21 +98,27 @@ class Outcome:
     power: float | None = None
     median_a: float | None = None  # time to target only, in seconds
     median_b: float | None = None
+    # The same function at the sigma of the two arms compared; outside every decision (D055).
+    supplementary_power: float | None = None
 
     @property
     def underpowered(self) -> bool | None:
         return None if self.power is None else self.power < TARGET
 
 
-def _power(kind: str, sigma: float, n: int) -> float | None:
-    """The power functions of METHODS 7.5 at the dataset's sigma and seed count. The one-sided
-    tests have no registered function."""
+def _power(kind: str, sigma: float | None, n: int) -> float | None:
+    """The power functions of METHODS 7.5 at a sigma and seed count. The one-sided tests have
+    no registered function."""
+    if sigma is None:
+        return None
     if kind == DIRECTIONAL:
         return directional_power(sigma, n)
     return equivalence_power(sigma, n) if kind == TOST else None
 
 
-def _quality_outcome(variant: str, c: families.Comparison, a, b, sigma: float) -> Outcome:
+def _quality_outcome(
+    variant: str, c: families.Comparison, a, b, sigma: float, pair_sigma: float | None
+) -> Outcome:
     w = inference.welch(a, b)
     half = stats.t.ppf(1 - ALPHA / 2, w.df) * w.se
     p = {
@@ -120,9 +127,11 @@ def _quality_outcome(variant: str, c: families.Comparison, a, b, sigma: float) -
         MINIMUM_EFFECT: lambda: inference.p_above(a, b, DELTA),
         TOST: lambda: inference.p_tost(a, b),
     }[c.kind]()
+    n = min(len(a), len(b))
     return Outcome(
         variant, c, p, n_a=len(a), n_b=len(b), estimate=w.diff, low=w.diff - half,
-        high=w.diff + half, power=_power(c.kind, sigma, min(len(a), len(b))),
+        high=w.diff + half, power=_power(c.kind, sigma, n),
+        supplementary_power=_power(c.kind, pair_sigma, n),
     )  # fmt: skip
 
 
@@ -184,13 +193,18 @@ def _time_outcome(variant: str, c: families.Comparison, times: Mapping[str, list
 
 
 def analyze(
-    rows: list[dict], sigma: Mapping[str, float], clock: float | None = None
+    rows: list[dict],
+    sigma: Mapping[str, float],
+    clock: float | None = None,
+    validation: Mapping[str, Mapping[str, Sequence[float]]] | None = None,
 ) -> list[Outcome]:
     """Every registered comparison in every variant, with its Holm status. `rows` are final
     runs; `sigma` holds, per dataset among them, the estimate of METHODS 7.5 from its first
-    five seeds; `clock` is the median SM clock that flags a run (`flagged`). A run that is
-    trained and not tested yet stops the analysis: it comes after the test reads. Runs that
-    failed, or diverged without a checkpoint (D031), stay out of their groups."""
+    five seeds; `clock` is the median SM clock that flags a run (`flagged`); `validation`
+    holds, per dataset and arm, the values that estimate pooled, and gives each comparison
+    with a power function its supplementary power (D055). A run that is trained and not
+    tested yet stops the analysis: it comes after the test reads. Runs that failed, or
+    diverged without a checkpoint (D031), stay out of their groups."""
     waiting = [r for r in rows if not r["tag"] and r["status"] in ("trained", "unfinished")]
     if waiting:
         raise ValueError(f"{waiting[0]['run_id']} is {waiting[0]['status']}, not tested")
@@ -221,7 +235,10 @@ def analyze(
                         raise ValueError(
                             f"{variant}, {c.name}: no tested run of {missing}"
                         ) from None
-                    members.append(_quality_outcome(variant, c, a, b, sigma[c.dataset]))
+                    pair = None
+                    if validation is not None and c.kind in (DIRECTIONAL, TOST):
+                        pair = pooled_sd([validation[c.dataset][x] for x in (c.a, c.b)])
+                    members.append(_quality_outcome(variant, c, a, b, sigma[c.dataset], pair))
             status = inference.holm({o.comparison.name: o.p for o in members})
             out += [replace(o, status=status[o.comparison.name]) for o in members]
     return out
@@ -324,6 +341,7 @@ def tests_table(outcomes: list[Outcome]) -> list[dict]:
                 "underpowered": o.underpowered,
                 "reading": timing.reading(o.estimate) if known and timed else None,
                 "median_a": o.median_a, "median_b": o.median_b,
+                "supplementary_power": o.supplementary_power,
             }
         )  # fmt: skip
     return table
@@ -383,8 +401,9 @@ def report(paths: Sequence[Path], out_dir: Path) -> str:
     clock = statistics.median(clocks) if clocks else None
     rows = [r for r in every if r["phase"] == "final"]
     datasets = sorted({r["dataset"] for r in rows})
-    sigma = {d: sigma_of(rows, "", d, seeds=H2A_SEEDS)[0] for d in datasets}
-    outcomes = analyze(rows, sigma, clock)
+    estimates = {d: sigma_of(rows, "", d, seeds=H2A_SEEDS) for d in datasets}
+    sigma = {d: s for d, (s, _) in estimates.items()}
+    outcomes = analyze(rows, sigma, clock, {d: v for d, (_, v) in estimates.items()})
     concluded = conclusions(outcomes)
     for name, table in (
         ("tests", tests_table(outcomes)),

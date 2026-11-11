@@ -2,8 +2,12 @@
 comparison, the size of the family each is corrected in, and what is concluded from them."""
 
 import csv
+import hashlib
+import io
 import json
 import math
+from dataclasses import replace
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -12,10 +16,11 @@ from seqrec.analysis import confirm, inference
 from seqrec.analysis.confirm import NOT_SUPPORTED, SUPPORTED, Outcome
 from seqrec.analysis.families import A1, A2, A3, A4, A5, Comparison
 from seqrec.analysis.inference import NOT_REJECTED, PENDING, REJECTED
-from seqrec.analysis.power import DELTA, directional_power, equivalence_power
+from seqrec.analysis.power import DELTA, directional_power, equivalence_power, pooled_sd
 from seqrec.cli import main as cli_main
 from seqrec.data.stats import write_csv
 
+REPO = Path(__file__).resolve().parents[1]
 OFFSETS = np.array([-2.0, -1.0, 0.0, 1.0, 2.0])
 # Test NDCG@10 per arm on leave-one-out: A1 far below the rest, A3 and A4 within 2% of A2,
 # A5 below A2 by more than 2%.
@@ -242,6 +247,63 @@ def test_power_comes_from_the_registered_functions_at_the_datasets_sigma(outcome
     assert primary[f"F1 steam {A2} vs {A5}"].power is None
 
 
+def test_supplementary_power_takes_sigma_from_the_two_arms_compared():
+    """D055: beside the registered power at the sigma pooled over the five arms, every
+    directional and equivalence comparison reports a power at the sigma pooled over its own
+    two arms, in every variant. Nothing registered changes."""
+    spreads = dict(zip(LOO, (1e-3, 2e-3, 3e-3, 4e-3, 5e-2), strict=True))  # A5 spreads most
+    values = {arm: np.log(LOO[arm]) + spread * OFFSETS for arm, spread in spreads.items()}
+    outcomes = confirm.analyze(final_rows(), {"ml-1m": SIGMA}, validation={"ml-1m": values})
+    registered = confirm.analyze(final_rows(), {"ml-1m": SIGMA})
+    assert [replace(o, supplementary_power=None) for o in outcomes] == registered
+    for variant in ("primary", "temporal split", "HR@10"):
+        o = by_name(outcomes, variant)
+        assert o[f"F1 ml-1m {A2} vs {A5}"].supplementary_power == pytest.approx(
+            directional_power(pooled_sd([values[A2], values[A5]]), 5)
+        )
+        assert o[f"F2 ml-1m {A3} vs {A2}"].supplementary_power == pytest.approx(
+            equivalence_power(pooled_sd([values[A3], values[A2]]), 5)
+        )
+    primary = by_name(outcomes)
+    without_a5 = primary[f"F1 ml-1m {A2} vs {A1}"].supplementary_power
+    assert without_a5 > primary[f"F1 ml-1m {A2} vs {A5}"].supplementary_power
+    none_reported = (
+        f"F1-NI ml-1m {A2} vs {A5}", f"F1-ME ml-1m {A5} vs {A1}", f"F4 ml-1m {A2} vs C1-{A2}",
+        f"F6 ml-1m {A2} vs {A1}", f"F1 steam {A2} vs {A5}",
+    )  # fmt: skip
+    for name in none_reported:
+        assert primary[name].supplementary_power is None, name
+
+
+# SHA-256 of the MovieLens-1M tables as committed with their analysis (D054), before any
+# supplementary column existed.
+ML_1M_TABLES = {
+    "tests": "9697c171edb95c9df4c9251ee9ff3b77e6dcf37827850abfadc3f345cb4cced1",
+    "conclusions": "58977aad15a18fb7a809949d16a03eb664bbbb1dce73b60ec9a690b94c38aa47",
+    "arms": "cf441c7c60542561fb22f8eec7aac776b829d51ae7bed43366b9f056504d9202",
+    "times": "b5e0614e4b90cadf7a8c4050e355ad1882e2996c5dca1d7705639b8a7070cdc0",
+}
+
+
+def registered_columns(path: Path) -> bytes:
+    """A table as `write_csv` writes it, without its supplementary columns."""
+    with path.open(encoding="utf-8", newline="") as f:
+        rows = list(csv.reader(f))
+    keep = [i for i, name in enumerate(rows[0]) if not name.startswith("supplementary")]
+    out = io.StringIO()
+    csv.writer(out, lineterminator="\n").writerows([[r[i] for i in keep] for r in rows])
+    return out.getvalue().encode()
+
+
+def test_the_movielens_1m_tables_keep_every_registered_column_byte_for_byte(tmp_path):
+    runs = REPO / "results" / "runs"
+    confirm.report([runs / "m3-tune-ml-1m.csv", runs / "m3-final-ml-1m.csv"], tmp_path)
+    for name, digest in ML_1M_TABLES.items():
+        assert hashlib.sha256(registered_columns(tmp_path / f"{name}.csv")).hexdigest() == digest
+    with (tmp_path / "tests.csv").open(encoding="utf-8", newline="") as f:
+        assert next(csv.reader(f))[-1] == "supplementary_power"
+
+
 def test_a_dataset_with_final_runs_must_have_every_group():
     rows = [r for r in final_rows() if r["shuffle"] == "none"]
     with pytest.raises(ValueError, match="F4"):
@@ -359,6 +421,11 @@ def test_the_report_writes_its_tables_from_exported_batch_files(tmp_path):
               and t["dataset"] == "ml-1m")  # fmt: skip
     assert (ni["a"], ni["b"], ni["n_a"], ni["status"]) == (A2, A5, "5", REJECTED)
     assert float(ni["relative"]) == pytest.approx(0.150 / 0.130 - 1)
+    assert ni["supplementary_power"] == ""  # one-sided: no power function
+    # every arm has the same validation values, so its two arms pool to the registered sigma
+    for t in tests:
+        if t["test"] in ("directional", "equivalence") and t["dataset"] == "ml-1m":
+            assert float(t["supplementary_power"]) == pytest.approx(float(t["power"]))
     timed = next(t for t in tests if t["family"] == "F6" and t["dataset"] == "ml-1m"
                  and t["b"] == A1)  # fmt: skip
     assert float(timed["estimate"]) == pytest.approx(309 / 39) and timed["reading"] == "difference"
