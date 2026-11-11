@@ -60,13 +60,14 @@ def test_the_gsasrec_rerun_repeats_the_pilot_runs():
     ]
 
 
-def test_the_movielens_1m_tuning_plan_follows_the_registered_procedure():
+@pytest.mark.parametrize("dataset", ["ml-1m", "video-games"])
+def test_a_tuning_plan_follows_the_registered_procedure(dataset):
     """METHODS 5.2 to 5.4: one study per neural arm, 20 trials, the arm's own limits, and a
     warm-up before the first trial."""
-    batch, warmup_s, studies = load_tuning_plan(PLANS / "m3-tune-ml-1m.toml")
-    assert batch == "m3-tune-ml-1m" and warmup_s == 180
+    batch, warmup_s, studies = load_tuning_plan(PLANS / f"m3-tune-{dataset}.toml")
+    assert batch == f"m3-tune-{dataset}" and warmup_s == 180
     assert sorted(s.arm for s in studies) == sorted(SPACES)
-    assert {(s.dataset, s.trials, s.sampler_seed) for s in studies} == {("ml-1m", 20, 0)}
+    assert {(s.dataset, s.trials, s.sampler_seed) for s in studies} == {(dataset, 20, 0)}
     for s in studies:
         cfg = s.config(0, {})
         assert (cfg.max_epochs, cfg.patience) == default_limits(s.arm)
