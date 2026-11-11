@@ -118,8 +118,9 @@ machine() {
     echo "pod $RUNPOD_POD_ID"
     tail -n 20 "$SEQREC_HOME/runner.log" # when the watchdog started the runner and when it listened
     # Every batch runs on one kind of host (METHODS 9.4). On another the job stops here, before
-    # any work, and the machine is deleted whatever the job's `stop` input says.
-    if [ -n "${CPU:-}" ] && [[ "$cpu" != *"$CPU"* ]]; then
+    # any work, and the machine is deleted whatever the job's `stop` input says. CPU must be
+    # whole words of the model name: a 7950X3D is not a 7950X.
+    if [ -n "${CPU:-}" ] && [[ " $cpu " != *" $CPU "* ]]; then
         touch "${STOP_REQUEST:?}"
         die "cpu: this machine has $cpu, not $CPU; asked for its deletion"
     fi

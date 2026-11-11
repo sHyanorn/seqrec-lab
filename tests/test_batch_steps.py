@@ -848,6 +848,13 @@ def test_the_machine_step_accepts_the_required_cpu_or_any_when_none_is_required(
     assert not (tmp_path / "stop-request").exists()
 
 
+def test_the_required_cpu_matches_whole_words_of_the_model_name(tmp_path):
+    """`Fake CP` is not the model `Fake CPU`, as a 7950X is not a 7950X3D."""
+    result = machine_step(tmp_path, "580.95.05", cpu="Fake CP")
+    assert result.returncode == 1
+    assert "cpu: this machine has Fake CPU, not Fake CP" in result.stderr
+
+
 @pytest.mark.parametrize("cpu", ["x;y", "$(id)", "a*", "é", "x" * 41])
 def test_other_cpu_names_are_rejected(cpu):
     result = steps("check-inputs", env={"PLAN": "m2-anchor.toml", "CPU": cpu})
