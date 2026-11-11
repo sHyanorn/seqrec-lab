@@ -780,3 +780,13 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
 - Start-up trials (METHODS 5.4): every study has sampler seed 0, so trials 0 to 4 draw the same shared hyperparameters in all five: learning rates 1.25e-3, 6.8e-4, 7.4e-4, 1.26e-3 and 8.6e-3; dimension 64, 64, 128, 64, 128; dropout 0.23 to 0.37; weight decay 0, 1e-4, 0, 1e-2, 1e-2. No start-up trial has dimension 256; three of the five best trials have it, found by TPE. This stays as it is for the other datasets: the registered text is met, every arm starts from the same points, and changing it now would be a choice made after results.
 - gSASRec trials that start (D044): 12 of 20 passed the start threshold, at epochs 34 to 239; 8 ended with `no_start` after 300 epochs. Whether such trials need another treatment in TPE is decided before the next dataset is tuned.
 - Final runs: `configs/plans/m3-final-ml-1m.toml`, written by `seqrec final-plan` from these studies with five leave-one-out seeds; METHODS 7.5 decides after them whether seeds are added.
+
+## D053 MovieLens-1M: seeds after the first five final runs
+
+- Date: 2026-11-11. Status: the estimate of METHODS 7.5 from batch `m3-final-ml-1m`, made before any test read of a final run; the seed count follows from the registered rule.
+- Runs: the 64 runs of the plan with five leave-one-out seeds, all on Pod `mee79yy65ukfve` (Ryzen 9 7950X) at `c50bf96`: every run trained, no failed attempt, no truncated run; every neural run stopped by patience.
+- Estimate: `seqrec seeds results/runs/m3-final-ml-1m.csv --tag "" --dataset ml-1m --seeds 1 2 3 4 5`.
+  - Standard deviation of log validation NDCG@10 over seeds 1 to 5: BERT4Rec 0.17128, SASRec-SS 0.01298, gSASRec 0.00931, SASRec-CE 0.00814, SASRec-BCE 0.00359. Pooled σ = 0.07703.
+  - METHODS 7.5 gives n = 10, the upper end of the rule: at n = 10 the directional power is 0.005 and the equivalence power 0.000, so every comparison with a registered power function on MovieLens-1M is labelled underpowered.
+- BERT4Rec: its five validation NDCG@10 values are 0.1692, 0.1174, 0.1724, 0.1729 and 0.1740. The run with seed 2 set its best value at epoch 22 and stopped by patience 200 epochs later. It is a finished run under METHODS 5.2 and stays in the estimate and in every analysis.
+- Plan: `configs/plans/m3-final-ml-1m.toml` is written again with ten seeds. Its first 64 runs are unchanged; it adds seeds 6 to 10 on leave-one-out for the five neural arms (25 runs) and for the two shuffled-order controls (10 runs), 99 runs in all. The added seeds do not enter the time-to-target group (METHODS 9.4).
