@@ -315,6 +315,17 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
   - GPU time 1.13 h, of which gSASRec 1.07 h (1.9 s per training epoch against 0.35 to 0.45 s for the other arms).
   - These reads touched the MovieLens-1M test targets once per arm; RQ1 conclusions on MovieLens-1M carry the note of METHODS 11.5.
 - Amendment 2026-11-10: these are the laptop's results; its exports moved to `results/laptop/`. The rented machine repeats the anchor runs (D045), which is the second anchor read of each arm.
+- Amendment 2026-11-11: results on the rented machine (D045, D048). The four runs trained at `20b8ed2` on Pod `we8ppstv5rdldt` (seed 0) were read once each, at `0ea0ec5` on Pod `21y6v635w15fjq`: each arm's second anchor read of three, the first being the laptop's above. `seqrec anchors results/runs/m2-anchor.csv` reports no stop condition.
+
+| Arm | Test NDCG@10 | Band | Validation NDCG@10 | Test − validation (threshold) | Epochs | Best epoch | Stop | Test HR@10 | Shuffled test NDCG@10 | Test tie rate |
+|---|---|---|---|---|---|---|---|---|---|---|
+| SASRec-CE | 0.1777 | 0.172–0.192 | 0.1868 | −0.0091 (0.0211) | 56 | 46 | patience | 0.3086 | 0.0418 | 0.0000 |
+| SASRec-BCE | 0.1332 | 0.124–0.144 | 0.1437 | −0.0105 (0.0189) | 85 | 75 | patience | 0.2482 | 0.0388 | 0.0000 |
+| BERT4Rec | 0.1601 | 0.144–0.164 | 0.1651 | −0.0050 (0.0201) | 200 | 200 | epoch cap | 0.2907 | 0.0410 | 0.0000 |
+| gSASRec | 0.1730 | 0.163–0.183 | 0.1836 | −0.0106 (0.0209) | 600 | 400 | patience | 0.2959 | 0.0345 | 0.0000 |
+
+  - Every arm is inside its band again, so no arm is flagged. Test NDCG@10 is below validation for every arm and within the threshold; every read completed. Each arm has one anchor read left.
+  - The MovieLens-1M test targets have now been read twice per arm for anchors; RQ1 conclusions on MovieLens-1M carry the note of METHODS 11.5.
 
 ## D033 Seed variance and seed count
 
