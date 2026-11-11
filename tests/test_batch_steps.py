@@ -52,7 +52,7 @@ def fake(bin_dir: Path, name: str, body: str) -> None:
 # --- check-inputs -------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("task", ["run", "tune", "test", "export"])
+@pytest.mark.parametrize("task", ["run", "tune", "test", "export", "bootstrap"])
 def test_a_plan_in_the_repository_is_accepted(task):
     assert steps("check-inputs", env={"TASK": task, "PLAN": "m2-anchor.toml"}).returncode == 0
 
@@ -261,6 +261,14 @@ def test_the_export_task_needs_a_plan_and_no_hour_limit():
     env = {"TASK": "export", "PLAN": "m2-anchor.toml", "HOURS": ""}
     assert steps("check-inputs", env=env).returncode == 0
     result = steps("check-inputs", env={"TASK": "export", "PLAN": ""})
+    assert result.returncode == 1
+    assert "plan" in result.stderr
+
+
+def test_the_bootstrap_task_needs_a_plan_and_no_hour_limit():
+    env = {"TASK": "bootstrap", "PLAN": "m2-anchor.toml", "HOURS": ""}
+    assert steps("check-inputs", env=env).returncode == 0
+    result = steps("check-inputs", env={"TASK": "bootstrap", "PLAN": "../m2-anchor.toml"})
     assert result.returncode == 1
     assert "plan" in result.stderr
 
@@ -717,6 +725,35 @@ def test_results_needs_the_batch_file_of_the_plan(clone, tmp_path):
     assert "does not exist" in result.stderr
     assert steps("results", cwd=work, env=env | {"PLAN": "../b1.toml"}).returncode == 1
     assert log(origin).endswith("feat: first")
+
+
+BOOTSTRAP = (
+    'echo "$@" > {0}/uv-args; env > {0}/uv-env; out="${{@: -1}}"; '
+    'mkdir -p "$(dirname "$out")"; printf "dataset,low\\nml-1m,0.1\\n" > "$out"'
+)
+
+
+def test_bootstrap_computes_its_table_without_the_token_and_commits_it_alone(clone, tmp_path):
+    """The intervals of METHODS 7.6 come from the plan's batch on the volume and are pushed
+    as results/analysis/bootstrap-<batch>.csv (D056)."""
+    work, _, origin = clone
+    fake(tmp_path / "bin", "uv", BOOTSTRAP.format(tmp_path))
+    env = results_env(work) | {"TASK": "bootstrap", "GH_TOKEN": "s3cret"}
+    result = steps("bootstrap", cwd=work, env=env, path_prefix=tmp_path / "bin")
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "uv-args").read_text(encoding="utf-8").split() == [
+        "run", "--no-sync", "seqrec", "bootstrap", f"{tmp_path}/home/runs/b1",
+        "--out", "results/analysis/bootstrap-b1.csv",
+    ]  # fmt: skip
+    seen = (tmp_path / "uv-env").read_text(encoding="utf-8")
+    assert "s3cret" not in seen and "AUTHORIZATION" not in seen
+    assert log(origin, "%s") == "chore(results): add the bootstrap of b1"
+    names = subprocess.run(
+        ["git", "show", "--name-only", "--format=", "main"],
+        cwd=origin, capture_output=True, text=True,
+    )  # fmt: skip
+    assert names.stdout.split() == ["results/analysis/bootstrap-b1.csv"]
+    assert steps("bootstrap", cwd=work, env=env | {"PLAN": "../b1.toml"}).returncode == 1
 
 
 # --- watchdog-running and export ----------------------------------------------------------

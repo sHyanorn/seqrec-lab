@@ -61,7 +61,8 @@ def test_actions_are_pinned_to_a_commit():
 def test_the_token_is_given_to_reporting_and_commit_steps_only():
     with_token = {s["name"] for s in JOB["steps"] if "GH_TOKEN" in s.get("env", {})}
     assert with_token == {
-        "Report start", "Commit the environment report", "Plan", "Commit results", "Report end",
+        "Report start", "Commit the environment report", "Plan", "Commit results", "Bootstrap",
+        "Report end",
     }  # fmt: skip
     checkout = next(s for s in JOB["steps"] if "uses" in s)
     assert checkout["with"]["persist-credentials"] is False
@@ -72,6 +73,16 @@ def test_the_export_task_exports_and_commits_without_running_the_plan():
     assert "export" not in STEPS["Plan"]["if"]
     for name in ("Export", "Commit results"):
         assert STEPS[name]["if"] == "steps.plan.outcome == 'success' || inputs.task == 'export'"
+
+
+def test_the_bootstrap_task_runs_its_own_step_and_no_plan():
+    """METHODS 7.6 from the ranks a tested batch keeps on the volume (D056)."""
+    assert "bootstrap" in BATCH[True]["workflow_dispatch"]["inputs"]["task"]["options"]
+    assert STEPS["Bootstrap"]["if"] == "inputs.task == 'bootstrap'"
+    assert STEPS["Bootstrap"]["run"].strip() == "bash scripts/cloud/batch_steps.sh bootstrap"
+    for name in ("Plan", "Export", "Commit results"):
+        assert "bootstrap" not in STEPS[name]["if"]
+    assert "bootstrap" in STEPS["Report start"]["if"]
 
 
 def test_the_machine_is_asked_to_stop_whatever_happened():

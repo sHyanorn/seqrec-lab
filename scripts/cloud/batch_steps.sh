@@ -2,7 +2,7 @@
 # Steps of the batch workflow (.github/workflows/batch.yml). Inputs arrive as environment
 # variables and are checked here before anything uses them.
 #   watchdog-running | check-inputs | machine | status STATE TEXT | plan | profile |
-#   data-unchanged | export | results |
+#   data-unchanged | export | results | bootstrap |
 #   commit MESSAGE PATH...
 set -euo pipefail
 
@@ -77,7 +77,7 @@ check_inputs() {
     [[ "${CPU:-}" =~ ^[A-Za-z0-9\ ]{0,40}$ ]] || die "cpu: letters, digits and spaces, 40 at most"
     case "${TASK:-}" in
         setup) ;;
-        test | export) plan_batch > /dev/null ;;
+        test | export | bootstrap) plan_batch > /dev/null ;;
         run | tune)
             plan_batch > /dev/null
             [[ "${HOURS:-}" =~ ^([1-9]|1[0-9]|2[0-2])$ ]] || die "hours: a whole number from 1 to 22"
@@ -310,6 +310,16 @@ results() {
     commit "chore(results): add $TASK $batch results" "$summaries/$batch.csv"
 }
 
+# The intervals of METHODS 7.6 from the ranks the plan's tested batch keeps on the volume,
+# pushed as results/analysis/bootstrap-<batch>.csv (D056).
+bootstrap() {
+    local batch out
+    batch=$(plan_batch)
+    out="results/analysis/bootstrap-$batch.csv"
+    without_token uv run --no-sync seqrec bootstrap "$SEQREC_HOME/runs/$batch" --out "$out"
+    commit "chore(results): add the bootstrap of $batch" "$out"
+}
+
 case "${1:-}" in
     check-inputs) check_inputs ;;
     machine) machine ;;
@@ -320,6 +330,7 @@ case "${1:-}" in
     watchdog-running) watchdog_running ;;
     export) export_batch ;;
     results) results ;;
+    bootstrap) bootstrap ;;
     commit) shift && commit "$@" ;;
-    *) die "usage: batch_steps.sh watchdog-running|check-inputs|machine|status|plan|profile|data-unchanged|export|results|commit" ;;
+    *) die "usage: batch_steps.sh watchdog-running|check-inputs|machine|status|plan|profile|data-unchanged|export|results|bootstrap|commit" ;;
 esac

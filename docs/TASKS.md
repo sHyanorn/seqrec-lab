@@ -80,6 +80,8 @@ Before M3 tuning starts
 - [ ] Re-estimate σ after 5 seeds per dataset and add seeds if the rule requires: MovieLens-1M done, n = 10 (D053)
 - [ ] Shuffled-order control runs (D017): MovieLens-1M done (D054)
 - [ ] Export and push aggregated results: MovieLens-1M done, with its confirmatory analysis (D054, docs/RESULTS.md)
+- [x] Supplementary power per comparison, outside every decision (D055)
+- [ ] Two-level bootstrap of METHODS 7.6 per dataset, computed on the volume: code done (D056)
 - [ ] Silent-error review and whole-diff review
 - [ ] RQ4 go or no-go (D015)
 

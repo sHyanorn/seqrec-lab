@@ -7,10 +7,10 @@ on:
       task:
         description: what to do
         type: choice
-        options: [setup, profile, run, tune, test, export]
+        options: [setup, profile, run, tune, test, export, bootstrap]
         default: run
       plan:
-        description: plan file name in configs/plans (run, tune, test, export), or a schedule in configs/profiles (profile)
+        description: plan file name in configs/plans (run, tune, test, export, bootstrap), or a schedule in configs/profiles (profile)
         type: string
       hours:
         description: stop the plan after this many hours, 1 to 22 (run, tune)
@@ -84,7 +84,7 @@ jobs:
       - name: Machine
         run: bash scripts/cloud/batch_steps.sh machine
       - name: Report start
-        if: contains(fromJSON('["setup", "profile", "export"]'), inputs.task)
+        if: contains(fromJSON('["setup", "profile", "export", "bootstrap"]'), inputs.task)
         env:
           GH_TOKEN: ${{ github.token }}
         run: bash scripts/cloud/batch_steps.sh status pending "$TASK started on $MACHINE"
@@ -105,6 +105,14 @@ jobs:
         run: >
           bash scripts/cloud/batch_steps.sh commit
           "chore(env): add the check_env report of machine $MACHINE" results/env
+      # The two-level bootstrap of METHODS 7.6 from the per-user ranks a tested batch keeps on
+      # the volume (D056). It reads no test data and commits one table.
+      - name: Bootstrap
+        if: inputs.task == 'bootstrap'
+        timeout-minutes: 60
+        env:
+          GH_TOKEN: ${{ github.token }} # for the push; removed from the computation's environment
+        run: bash scripts/cloud/batch_steps.sh bootstrap
       - name: Profile
         if: inputs.task == 'profile'
         timeout-minutes: 180

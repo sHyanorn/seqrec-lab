@@ -1,6 +1,6 @@
 """Command line: `seqrec data prepare`, `seqrec run|test|tune PLAN`, `seqrec seeds CSV`,
-`seqrec anchors CSV`, `seqrec budget CSV`, `seqrec final-plan CSV`, `seqrec analyze CSV` and
-`seqrec export`."""
+`seqrec anchors CSV`, `seqrec budget CSV`, `seqrec final-plan CSV`, `seqrec analyze CSV`,
+`seqrec bootstrap DIR` and `seqrec export`."""
 
 from __future__ import annotations
 
@@ -90,6 +90,12 @@ def main(argv=None) -> int:
     )
     analyze.add_argument("--out-dir", type=Path, default=Path("results/analysis"))
 
+    boot = sub.add_parser(
+        "bootstrap", help="two-level bootstrap of F1 and F2 from kept test ranks (METHODS 7.6)"
+    )
+    boot.add_argument("batch_dir", type=Path, help="a tested batch's runs, e.g. runs/<batch>")
+    boot.add_argument("--out", type=Path, required=True, help="the table of intervals")
+
     final = sub.add_parser("final-plan", help="write a dataset's final-run plan (METHODS 5.5)")
     final.add_argument("csv", type=Path, help="tuning_best.csv, e.g. results/runs/tuning_best.csv")
     final.add_argument("--tuning-batch", required=True, help="the batch of the dataset's studies")
@@ -153,6 +159,11 @@ def main(argv=None) -> int:
         from seqrec.analysis.confirm import report as confirm_report
 
         print(confirm_report(args.csv, args.out_dir))
+        return 0
+    if args.command == "bootstrap":
+        from seqrec.analysis.bootstrap import report as bootstrap_report
+
+        print(bootstrap_report(args.batch_dir, args.out))
         return 0
     if args.command == "final-plan":
         import csv
