@@ -58,12 +58,12 @@ m3-final-ml-1m,ml-1m,gts,sasrec-bce,final,,5,0,0,0,5,0,0.0,0.031
 m3-final-ml-1m,ml-1m,gts,sasrec-ce,final,,5,0,0,0,5,0,0.0,0.116
 m3-final-ml-1m,ml-1m,gts,sasrec-ss,final,,5,0,0,0,5,0,0.0,0.063
 m3-final-ml-1m,ml-1m,gts,transition,final,,1,0,0,0,0,0,,0
-m3-final-ml-1m,ml-1m,loo,bert4rec,final,,10,0,0,0,10,0,0.0,0.534
-m3-final-ml-1m,ml-1m,loo,gsasrec,final,,5,0,0,0,5,0,0.0,0.13
+m3-final-ml-1m,ml-1m,loo,bert4rec,final,,20,0,0,0,20,0,0.0,1.059
+m3-final-ml-1m,ml-1m,loo,gsasrec,final,,10,0,0,0,10,0,0.0,0.26
 m3-final-ml-1m,ml-1m,loo,mostpop,final,,1,0,0,0,0,0,,0
-m3-final-ml-1m,ml-1m,loo,sasrec-bce,final,,5,0,0,0,5,0,0.0,0.056
-m3-final-ml-1m,ml-1m,loo,sasrec-ce,final,,10,0,0,0,10,0,0.0,0.343
-m3-final-ml-1m,ml-1m,loo,sasrec-ss,final,,5,0,0,0,5,0,0.0,0.137
+m3-final-ml-1m,ml-1m,loo,sasrec-bce,final,,10,0,0,0,10,0,0.0,0.117
+m3-final-ml-1m,ml-1m,loo,sasrec-ce,final,,20,0,0,0,20,0,0.0,0.682
+m3-final-ml-1m,ml-1m,loo,sasrec-ss,final,,10,0,0,0,10,0,0.0,0.311
 m3-final-ml-1m,ml-1m,loo,transition,final,,1,0,0,0,0,0,,0
 m3-tune-ml-1m,ml-1m,loo,bert4rec,tune,trials,20,0,5,0,15,7,0.467,0.689
 m3-tune-ml-1m,ml-1m,loo,gsasrec,tune,trials,20,0,7,0,13,11,0.846,0.416
