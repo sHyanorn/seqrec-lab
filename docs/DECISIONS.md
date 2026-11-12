@@ -822,3 +822,29 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
 - Limit: with five to ten seeds per arm, drawing seeds with replacement understates the variation between runs (METHODS 7.6), and every report of the intervals says so. On synthetic ranks with five seeds per arm whose hit rates scatter with sd 0.1 on the log scale, the 95% intervals covered the population difference 182 times in 200 (`tests/test_bootstrap.py`).
 - Task: `bootstrap` in the batch workflow, with the batch's final plan in `plan`, runs on the machine that holds the volume and pushes `results/analysis/bootstrap-<batch>.csv`. It reads the run directories only, so it can be queued behind the batch's `test` job.
 - Tests: `test_arms_are_paired_by_user`, `test_with_one_seed_per_arm_only_users_are_drawn`, `test_with_identical_users_only_seeds_are_drawn`, `test_a_trained_run_waiting_for_its_read_stops_the_bootstrap`, the coverage and report tests in `tests/test_bootstrap.py`, and the tests of the task in `tests/test_workflow.py` and `tests/test_batch_steps.py` failed before the change (METHODS 11.5).
+
+## D057 Video_Games tuning
+
+- Date: 2026-11-12. Status: results of batch `m3-tune-video-games` (METHODS 5.3, 5.4); what follows from them is fixed by rules registered before.
+- Runs: five studies of 20 trials, all on Pod `egop2ngfe0fk1i` (Ryzen 9 7950X, 14 CPUs) at `d866695`, no failed attempt, no hardware slowdown, 10.60 GPU hours. Five trials diverged: two of SASRec-BCE and one each of SASRec-CE, SASRec-SS and gSASRec.
+
+| Arm | Best trial | Validation NDCG@10 | Its configuration | Pruned | Never started | At the epoch cap | Truncated (share) | GPU hours |
+|---|---|---|---|---|---|---|---|---|
+| SASRec-BCE | t11 | 0.0490 | lr 1.49e-04, d 256, 2 blocks, 1 head, dropout 0.535, weight decay 0, shared output | 6 | 2 | 0 | 2 of 12 (0.167) | 1.55 |
+| SASRec-CE | t11 | 0.0704 | lr 1.49e-04, d 256, 2 blocks, 1 head, dropout 0.533, weight decay 0, shared output | 4 | 2 | 0 | 2 of 15 (0.133) | 1.33 |
+| SASRec-SS | t17 | 0.0672 | lr 2.66e-04, d 256, 3 blocks, 2 heads, dropout 0.488, weight decay 0, shared output, K 4096 | 7 | 4 | 0 | 4 of 12 (0.333) | 1.97 |
+| gSASRec | t13 | 0.0654 | lr 3.29e-04, d 64, 3 blocks, 2 heads, dropout 0.360, weight decay 0, shared output, K 128, t 0.947 | 5 | 5 | 0 | 5 of 14 (0.357) | 2.06 |
+| BERT4Rec | t01 | 0.0582 | lr 6.82e-04, d 64, 3 blocks, 2 heads, dropout 0.369, weight decay 0.0001, ρ 0.363 | 10 | 6 | 0 | 6 of 10 (0.600) | 3.69 |
+
+- Limits of the final runs (METHODS 5.2, D030, D035): the share of truncated trials is above 20% for SASRec-SS, gSASRec and BERT4Rec, so their final runs on Video_Games double the epoch cap, the patience, the guard and the start limit: 600 epochs, patience 60, 16 hours and a start limit of 600 for SASRec-SS and gSASRec; 2,000 epochs, patience 200, 16 hours and 600 for BERT4Rec. SASRec-BCE and SASRec-CE keep the limits of METHODS 5.2. Every truncated trial is one that never started in 300 epochs (D035); none stopped at the epoch cap.
+- gSASRec trials that start (D044): 14 of 20 passed the start threshold, at epochs 3 to 39; 5 ended with `no_start` after 300 epochs, and one diverged at epoch 51 before it started. As the owner decided in D044, `no_start` trials stay complete trials in TPE.
+- Final runs: `configs/plans/m3-final-video-games.toml`, written by `seqrec final-plan` from these studies with five leave-one-out seeds; METHODS 7.5 decides after them whether seeds are added.
+
+## D058 The Video_Games final batch on the tuning Pod
+
+- Date: 2026-11-12. Status: accepted by the owner on 2026-11-11, before the Video_Games tuning ended. Deviation from D046, under which every batch runs on a new Pod that is deleted when its jobs have ended.
+- Trigger: on 2026-11-11 a Pod with an RTX 4090 on a Ryzen 9 7950X host in EU-RO-1 (METHODS 9.4) took about ten hours of requests to obtain.
+- Decision: Pod `egop2ngfe0fk1i`, created 2026-11-11 22:29:38Z, which ran batch `m3-tune-video-games`, stays and runs batch `m3-final-video-games` next: training, test reads and the bootstrap. Its setup job runs again at `17ef7a6`, the commit that adds the final plan, before any job of the final batch. The Pod is deleted at the latest 60 hours after it was created, by 2026-11-14 10:29Z.
+- What stays: one Pod at a time and one job at a time; the host condition of METHODS 9.4, checked when the Pod was created; the time-to-target group on one Pod; every rule for test reads. No rule compares times of the tuning batch with those of the final batch.
+- If the Pod is gone before the final batch starts, the final batch runs on a new Pod as D046 says.
+- Note on D046, not a change to it: its timing bullet compares RQ2 run times between runs with the same host signature, while the code compares them within one Pod (`pod`), as the owner's decision and the amendment in D046 on how the data identify a Pod set out. The code governs.
