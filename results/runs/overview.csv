@@ -70,3 +70,8 @@ m3-tune-ml-1m,ml-1m,loo,gsasrec,tune,trials,20,0,7,0,13,11,0.846,0.416
 m3-tune-ml-1m,ml-1m,loo,sasrec-bce,tune,trials,20,0,11,0,9,3,0.333,0.141
 m3-tune-ml-1m,ml-1m,loo,sasrec-ce,tune,trials,20,0,8,0,12,1,0.083,0.34
 m3-tune-ml-1m,ml-1m,loo,sasrec-ss,tune,trials,20,0,9,0,11,1,0.091,0.221
+m3-tune-video-games,video-games,loo,bert4rec,tune,trials,20,0,10,0,10,6,0.6,3.689
+m3-tune-video-games,video-games,loo,gsasrec,tune,trials,20,0,5,1,14,5,0.357,2.064
+m3-tune-video-games,video-games,loo,sasrec-bce,tune,trials,20,0,6,2,12,2,0.167,1.548
+m3-tune-video-games,video-games,loo,sasrec-ce,tune,trials,20,0,4,1,15,2,0.133,1.332
+m3-tune-video-games,video-games,loo,sasrec-ss,tune,trials,20,0,7,1,12,4,0.333,1.966
