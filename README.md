@@ -3,7 +3,7 @@
 A study of Transformer sequential recommenders (SASRec, BERT4Rec, gSASRec) on one consumer GPU. It covers how robust published quality gaps are under equal tuning and several seeds, what training objectives cost in time and memory, and where training time goes.
 
 - [Specification](docs/SPEC.md)
-- [Methods (pre-registered, frozen)](docs/METHODS.md)
+- [Methods (pre-registered)](docs/METHODS.md): registered at commit 569676f, before any model code; section 9.4 was added in 50f0df7, and deviations are recorded in [Decisions](docs/DECISIONS.md).
 - [Decisions](docs/DECISIONS.md)
 - [Tasks](docs/TASKS.md)
 - [Results](docs/RESULTS.md)
@@ -31,7 +31,8 @@ The report is written to `results/env/`. `--quick` runs tiny shapes and also wor
 ## Tests
 
 ```
-uv run pytest
+uv sync --locked --extra cpu      # Linux; as CI runs it
+uv run --no-sync pytest -q
 ```
 
 ## GPU batches

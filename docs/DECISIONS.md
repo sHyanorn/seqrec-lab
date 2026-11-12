@@ -202,6 +202,7 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
 - Date: 2026-11-08. Status: accepted.
 - Decision: `docs/METHODS.md` is frozen as committed in 569676ffb96a23a7dca0e59207cc4c314651cbb8, SHA-256 b3c26c4f6303b4cd6948ebe7e1bbc25e2e16fbc236b7591c476c47b2a8d0f2b8. It differs from the first freeze commit (b90d6a7) only in its title line. No model had been trained on real data at that point; the only real-data outputs were the dataset statistics in `results/data/`.
 - Rationale: D014. Any later edit of the file is a deviation recorded here; `sha256sum docs/METHODS.md` against the value above shows whether the file still matches.
+- Amendment 2026-11-12: section 9.4 of `docs/METHODS.md` (timing on the rented machine, D046) was added in 50f0df7, the only change to the file after 569676f. Since then its SHA-256 is 5bc3d8ffa4af3adcb4fe570eae275688ca3299712e5a31f229c7baae41106e33; the value above is that of 569676f.
 
 ## D025 Reference implementations and model details
 
