@@ -74,15 +74,16 @@ def test_a_tuning_plan_follows_the_registered_procedure(dataset):
         assert (cfg.start_limit, cfg.guard_hours, cfg.max_len) == (300, 8.0, None)
 
 
-def test_the_movielens_1m_final_plan_is_what_its_tuning_studies_generate(train):
+@pytest.mark.parametrize("dataset", ["ml-1m", "video-games"])
+def test_a_final_plan_is_what_its_tuning_studies_generate(dataset, train):
     """METHODS 5.5: the plan is the output of `seqrec final-plan` on the committed studies,
     for its number of leave-one-out seeds, and every arm accepts its parameters."""
-    path = PLANS / "m3-final-ml-1m.toml"
+    path = PLANS / f"m3-final-{dataset}.toml"
     plan = load_plan(path)
     seeds = max(r.seed for r in plan.runs)
     with (RESULTS / "runs" / "tuning_best.csv").open(encoding="utf-8", newline="") as f:
         best = list(csv.DictReader(f))
-    expected = final_plan(best, "ml-1m", "m3-tune-ml-1m", seeds, "m3-final-ml-1m")
+    expected = final_plan(best, dataset, f"m3-tune-{dataset}", seeds, f"m3-final-{dataset}")
     assert path.read_text(encoding="utf-8") == expected
     assert {r.phase for r in plan.runs} == {"final"}
     for cfg in {(r.arm, str(sorted(r.params.items()))): r for r in plan.runs}.values():
