@@ -65,7 +65,7 @@ Shuffled-order controls (train-and-evaluate shuffle, leave-one-out):
 | SASRec-CE | 10 | 0.0362 (0.0012) | 0.0751 (0.0024) | 0.0387 (0.0011) | 0.31 |
 | BERT4Rec | 10 | 0.0327 (0.0014) | 0.0683 (0.0029) | 0.0382 (0.0014) | 0.58 |
 
-`arms.csv` adds NDCG@20, HR@20, truncation shares (0 for every arm) and tie rates (at most 0.0001 for the neural arms; 0.30 to 0.67 for MostPop and Transition).
+`arms.csv` adds NDCG@20, HR@20, truncation shares (0 for every neural arm; none for MostPop and Transition, whose stop reason `converged` is outside the share, D061) and tie rates (at most 0.0001 for the neural arms; 0.30 to 0.67 for MostPop and Transition).
 
 ### RQ1: differences between arms
 
