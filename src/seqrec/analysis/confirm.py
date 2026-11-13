@@ -37,6 +37,7 @@ from seqrec.analysis.power import (
 )
 from seqrec.analysis.table import format_table
 from seqrec.data.stats import write_csv
+from seqrec.runner.export import STOPPED
 from seqrec.runner.final_plan import H2A_ARMS, H2A_SEEDS
 
 PRIMARY_METRIC = "ndcg@10"
@@ -349,8 +350,9 @@ def tests_table(outcomes: list[Outcome]) -> list[dict]:
 
 def arms_table(rows: list[dict]) -> list[dict]:
     """Per dataset, split, shuffle and arm: runs, mean and SD of every metric over the tested
-    runs, mean tie rate, share of truncated runs among those that finished training, and GPU
-    hours (METHODS 7.7)."""
+    runs, mean tie rate, share of truncated runs among those that stopped by patience, the
+    epoch cap, the guard or the start limit (D030, D035, as in overview.csv), and GPU hours
+    (METHODS 7.7)."""
     groups = defaultdict(list)
     for r in rows:
         if not r["tag"]:
@@ -368,7 +370,7 @@ def arms_table(rows: list[dict]) -> list[dict]:
             row[f"{metric}_sd"] = statistics.stdev(values) if len(values) > 1 else None
         ties = [float(r["test_tie_rate"]) for r in tested]
         row["test_tie_rate_mean"] = statistics.fmean(ties) if ties else None
-        stopped = [r["truncated"] == "True" for r in runs if r["truncated"]]
+        stopped = [r["truncated"] == "True" for r in runs if r["stop_reason"] in STOPPED]
         row["truncated_share"] = statistics.fmean(stopped) if stopped else None
         row["gpu_hours"] = round(sum(float(r["gpu_hours"] or 0) for r in runs), 4)
         table.append(row)

@@ -276,11 +276,12 @@ def test_supplementary_power_takes_sigma_from_the_two_arms_compared():
 
 
 # SHA-256 of the MovieLens-1M tables as committed with their analysis (D054), before any
-# supplementary column existed.
+# supplementary column existed. arms.csv takes its truncation share from D030 since D061: the
+# floor baselines have none where D054's table gave 0.0 (cf441c7c...).
 ML_1M_TABLES = {
     "tests": "9697c171edb95c9df4c9251ee9ff3b77e6dcf37827850abfadc3f345cb4cced1",
     "conclusions": "58977aad15a18fb7a809949d16a03eb664bbbb1dce73b60ec9a690b94c38aa47",
-    "arms": "cf441c7c60542561fb22f8eec7aac776b829d51ae7bed43366b9f056504d9202",
+    "arms": "5e634759d74d263c6e320da06f325768b16c3766ca31bae49e3f0acd27f7c397",
     "times": "b5e0614e4b90cadf7a8c4050e355ad1882e2996c5dca1d7705639b8a7070cdc0",
 }
 
@@ -302,6 +303,25 @@ def test_the_movielens_1m_tables_keep_every_registered_column_byte_for_byte(tmp_
         assert hashlib.sha256(registered_columns(tmp_path / f"{name}.csv")).hexdigest() == digest
     with (tmp_path / "tests.csv").open(encoding="utf-8", newline="") as f:
         assert next(csv.reader(f))[-1] == "supplementary_power"
+
+
+def test_the_truncation_share_of_an_arm_is_that_of_d030():
+    """D030, D031, D035: truncated runs among those that stopped by patience, the epoch cap,
+    the guard or the start limit, as in overview.csv. A run that diverged after its best
+    checkpoint is left out; a floor baseline, which stops as converged, has no share."""
+
+    def run(arm, stop, truncated):
+        return {
+            "dataset": "ml-1m", "split": "loo", "shuffle": "none", "arm": arm, "tag": "",
+            "status": "trained", "stop_reason": stop, "truncated": str(truncated),
+            "gpu_hours": "0.1",
+        }  # fmt: skip
+
+    rows = [run(A1, "patience", False) for _ in range(7)]
+    rows += [run(A1, "no_start", True) for _ in range(2)] + [run(A1, "diverged", False)]
+    rows.append(run("mostpop", "converged", False))
+    shares = {r["arm"]: r["truncated_share"] for r in confirm.arms_table(rows)}
+    assert shares == {A1: pytest.approx(2 / 9), "mostpop": None}
 
 
 def test_a_dataset_with_final_runs_must_have_every_group():
@@ -393,13 +413,14 @@ def test_the_report_writes_its_tables_from_exported_batch_files(tmp_path):
             "batch": "m3-final-ml-1m", "validation_ndcg@10": repr(0.2 + 0.001 * (i % 5)),
             "test_ndcg@20": r["test_ndcg@10"], "test_hr@20": r["test_hr@10"],
             "test_tie_rate": "0.01", "truncated": "False", "gpu_hours": "0.02",
+            "stop_reason": "patience",
         }  # fmt: skip
-    rows[0]["truncated"] = "True"  # one of five SASRec-BCE runs on leave-one-out
+    rows[0] |= {"truncated": "True", "stop_reason": "max_epochs"}  # one of five SASRec-BCE runs
     trial = dict(rows[1], phase="tune", tag="t03", run_id="a-trial")  # not a final run
     path = tmp_path / "m3-final-ml-1m.csv"
     write_csv(path, [*rows, trial])
     failed = dict(rows[0], batch="more", run_id="sixth", seed="6", status="failed", truncated="",
-                  gpu_hours="")  # fmt: skip
+                  gpu_hours="", stop_reason="")  # fmt: skip
     more = tmp_path / "more.csv"  # a later file with a failed run is read like any other
     write_csv(more, [failed])
     out = tmp_path / "analysis"
