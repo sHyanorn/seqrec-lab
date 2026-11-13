@@ -35,8 +35,8 @@ SLOW_FACTOR = 1.5  # D038
 SUMMARIES = ("overview.csv", "tuning_best.csv")
 # Columns of a batch file that the summaries and the access checks read, and how each comes
 # back from text. An empty field is None.
-TEXT = ("run_id", "batch", "dataset", "split", "arm", "phase", "tag", "status", "stop_reason",
-        "params")  # fmt: skip
+TEXT = ("run_id", "batch", "dataset", "split", "shuffle", "arm", "phase", "tag", "status",
+        "stop_reason", "params")  # fmt: skip
 PARSED = {
     "truncated": {"True": True, "False": False}.__getitem__,
     "gpu_hours": float,
@@ -322,13 +322,14 @@ def _overview(rows: list[dict]) -> list[dict]:
     groups = defaultdict(list)
     for r in rows:  # tuning trials form one group; other tags (e.g. sigma, time-small) their own
         tag = "trials" if TRIAL_TAG.fullmatch(r["tag"]) else r["tag"]
-        groups[(r["batch"], r["dataset"], r["split"], r["arm"], r["phase"], tag)].append(r)
+        key = (r["batch"], r["dataset"], r["split"], r["shuffle"], r["arm"], r["phase"], tag)
+        groups[key].append(r)
     out = []
-    for (batch, dataset, split, arm, phase, tag), rs in sorted(groups.items()):
+    for (batch, dataset, split, shuffle, arm, phase, tag), rs in sorted(groups.items()):
         out.append(
             {
-                "batch": batch, "dataset": dataset, "split": split, "arm": arm, "phase": phase,
-                "tag": tag, "runs": len(rs),
+                "batch": batch, "dataset": dataset, "split": split, "shuffle": shuffle,
+                "arm": arm, "phase": phase, "tag": tag, "runs": len(rs),
                 "unfinished_or_failed": sum(
                     r["status"] in ("unfinished", "failed", "test_failed") for r in rs
                 ),

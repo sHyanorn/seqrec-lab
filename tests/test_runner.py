@@ -423,8 +423,8 @@ def test_crash_after_a_checkpoint_keeps_every_epoch_logged(workspace, monkeypatc
 
 def _trial_row(tag, ndcg, stop="patience", status="trained", truncated=False):
     return {
-        "batch": "t", "dataset": "ml-1m", "split": "loo", "arm": "sasrec-ce", "phase": "tune",
-        "tag": tag, "run_id": f"r-{tag}", "status": status, "stop_reason": stop,
+        "batch": "t", "dataset": "ml-1m", "split": "loo", "shuffle": "none", "arm": "sasrec-ce",
+        "phase": "tune", "tag": tag, "run_id": f"r-{tag}", "status": status, "stop_reason": stop,
         "truncated": truncated, "validation_ndcg@10": ndcg, "params": "{}", "gpu_hours": 0.1,
     }  # fmt: skip
 
@@ -460,6 +460,27 @@ def test_truncated_share_counts_only_runs_that_stopped_by_patience_or_a_limit():
     assert best["stopped"] == 16 and best["truncated"] == 4 and best["truncated_share"] == 0.25
     overview = _overview(rows)[0]
     assert overview["stopped"] == 16 and overview["truncated_share"] == 0.25
+
+
+def test_the_overview_keeps_a_shuffled_control_apart_from_its_arm(tmp_path):
+    """METHODS 3.3: a shuffled-order control has its own row, as in arms.csv, also when the
+    overview is computed again from the batch file."""
+    from seqrec.runner.export import _overview, summarize
+
+    def final(i, shuffle, hours):
+        row = _trial_row("", 0.2) | {"phase": "final", "shuffle": shuffle, "gpu_hours": hours}
+        return row | {"run_id": f"r-{shuffle}-{i}"}
+
+    rows = [final(i, "none", 0.5) for i in range(2)] + [
+        final(i, "train_eval", 0.25) for i in range(3)
+    ]
+    expected = [("none", 2, 1.0), ("train_eval", 3, 0.75)]
+    assert [(o["shuffle"], o["runs"], o["gpu_hours"]) for o in _overview(rows)] == expected
+    _batch_file(tmp_path, "t", rows)
+    assert summarize(tmp_path) == []
+    written = _read_csv(tmp_path / "overview.csv")
+    assert [(o["shuffle"], int(o["runs"]), float(o["gpu_hours"])) for o in written] == expected
+    assert list(written[0])[:4] == ["batch", "dataset", "split", "shuffle"]
 
 
 def _plan(root, seeds=(1,), phase="tune"):
