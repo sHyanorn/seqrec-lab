@@ -60,7 +60,7 @@ def test_the_gsasrec_rerun_repeats_the_pilot_runs():
     ]
 
 
-@pytest.mark.parametrize("dataset", ["ml-1m", "video-games"])
+@pytest.mark.parametrize("dataset", ["ml-1m", "video-games", "steam"])
 def test_a_tuning_plan_follows_the_registered_procedure(dataset):
     """METHODS 5.2 to 5.4: one study per neural arm, 20 trials, the arm's own limits, and a
     warm-up before the first trial."""
@@ -105,4 +105,4 @@ def test_every_tuning_plan_has_the_registered_trial_budget():
             continue
         assert {(s.dataset, s.trials) for s in studies} <= set(TRIALS.items()), path.name
         checked.append(path.name)
-    assert {"m3-tune-ml-1m.toml", "m3-tune-video-games.toml"} <= set(checked)
+    assert {"m3-tune-ml-1m.toml", "m3-tune-video-games.toml", "m3-tune-steam.toml"} <= set(checked)
