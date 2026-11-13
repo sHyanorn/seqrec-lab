@@ -9,6 +9,7 @@ Each row is a silent bug injected by a test in `tests/test_mutations.py` (METHOD
 | Targets off by one position | `test_targets_off_by_one` | train: no evaluation targets |
 | Target included in its own input | `test_target_inside_its_input` | train: no evaluation targets |
 | Evaluation input drops an earlier item | `test_evaluation_input_drops_an_item` | input holds every earlier in-vocabulary item; loo: validation input equals training |
+| Training rows out of step with the validation input (reversed, swapped between two users of equal length, shuffled with other keys) | `test_training_rows_out_of_step_with_the_validation_input` | loo: validation input equals training sequence |
 | Items of a sequence reordered apart from their log positions | `test_items_detached_from_their_log_positions` | train, validation, test: items match log |
 | Popularity computed on all data | `test_statistic_from_all_data` | statistic was not computed from this training split |
 | Temporal cutoff off by one at tied timestamps | `test_temporal_cutoff_off_by_one_at_ties` | gts: validation targets inside validation period |

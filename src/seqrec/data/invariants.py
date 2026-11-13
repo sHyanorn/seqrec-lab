@@ -161,14 +161,19 @@ def check_split(splits: SplitSet, log: Log | None = None, k: int = 5) -> list[st
         )
         _require((val.target_pos == full.indptr[1:] - 2).all(), "loo: validation target", passed)
         _require((test.target_pos == full.indptr[1:] - 1).all(), "loo: test target", passed)
+        # Row by row and in order: a shuffled split permutes the training sequence and the
+        # inputs built from it by the same keys (METHODS 3.3), so the order must agree too.
         _require(
-            np.array_equal(np.sort(train.pos), np.sort(val.inputs.pos)),
+            np.array_equal(train.indptr, val.inputs.indptr)
+            and np.array_equal(train.pos, val.inputs.pos),
             "loo: validation input equals training sequence",
             passed,
         )
-        test_rows = np.sort(np.concatenate([train.pos, val.target_pos]))
+        test_owner = owner_of(test.inputs)
+        is_val_item = test.inputs.pos == val.target_pos[test_owner]
         _require(
-            np.array_equal(np.sort(test.inputs.pos), test_rows),
+            (np.bincount(test_owner[is_val_item], minlength=len(test)) == 1).all()
+            and np.array_equal(test.inputs.pos[~is_val_item], train.pos),
             "loo: test input equals training sequence plus validation item",
             passed,
         )

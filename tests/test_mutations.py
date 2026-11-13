@@ -163,6 +163,50 @@ def test_temporal_vocabulary_from_a_single_pass_filter(monkeypatch):
     _caught(log, "vocabulary is the 5-core of the training period", "gts")
 
 
+def _train_rows(splits, pos):
+    """The split with training rows at the log positions `pos`, items and times from the log."""
+    full, seqs = splits.full, splits.train.seqs
+    train = Sequences(seqs.indptr, full.items[pos], full.ts[pos], pos)
+    return replace(splits, train=TrainSplit(splits.n_items, train))
+
+
+def _reversed_training_rows(splits):
+    seqs = splits.train.seqs
+    owner = np.repeat(np.arange(len(seqs)), seqs.lengths())
+    return _train_rows(splits, seqs.pos[np.lexsort((-np.arange(len(seqs.pos)), owner))])
+
+
+def _training_rows_of_two_users_swapped(splits):
+    seqs = splits.train.seqs
+    lengths = seqs.lengths()
+    a = int(np.flatnonzero(lengths == lengths[0])[1])  # the next user as long as user 0
+    rows = [seqs.pos[seqs.indptr[u] : seqs.indptr[u + 1]] for u in range(len(seqs))]
+    rows[0], rows[a] = rows[a], rows[0]
+    return _train_rows(splits, np.concatenate(rows))
+
+
+def _training_rows_shuffled_with_other_keys(splits):
+    shuffled = splits_mod.shuffle_order(splits, seed=1)
+    return replace(shuffled, train=splits_mod.shuffle_order(splits, seed=2).train)
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        _reversed_training_rows,
+        _training_rows_of_two_users_swapped,
+        _training_rows_shuffled_with_other_keys,
+    ],
+    ids=["reversed", "two-users-swapped", "shuffled-with-other-keys"],
+)
+def test_training_rows_out_of_step_with_the_validation_input(log, mutate):
+    """Each user's training rows keep their set of log positions and length, so only an
+    order-sensitive comparison with the validation input sees the change (METHODS 3.3, 11.1)."""
+    mutated = mutate(build_splits(log, "loo")[0])
+    with pytest.raises(InvariantError, match="loo: validation input equals training sequence"):
+        check_split(mutated)
+
+
 def test_temporal_validation_target_first_not_last(monkeypatch):
     original = splits_mod._last_target
 
