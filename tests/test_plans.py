@@ -10,7 +10,7 @@ from conftest import random_frame
 from seqrec import models  # noqa: F401  registers the arms
 from seqrec.data.preprocess import build_log
 from seqrec.data.store import build_splits
-from seqrec.runner.config import default_limits, load_plan
+from seqrec.runner.config import default_limits, load_plan, read_plan
 from seqrec.runner.final_plan import final_plan
 from seqrec.runner.run import ARMS
 from seqrec.runner.tune import SPACES, load_tuning_plan
@@ -88,3 +88,21 @@ def test_a_final_plan_is_what_its_tuning_studies_generate(dataset, train):
     assert {r.phase for r in plan.runs} == {"final"}
     for cfg in {(r.arm, str(sorted(r.params.items()))): r for r in plan.runs}.values():
         ARMS[cfg.arm](cfg, train, torch.device("cpu"))
+
+
+def test_every_tuning_plan_has_the_registered_trial_budget():
+    """METHODS 5.4: 20 trials per study, 10 on MovieLens-20M, as budget.TRIALS holds them.
+    The M2 batches were checks of the harness and the pilot (budget.PILOT_BATCH_PREFIX)."""
+    from seqrec.analysis.budget import PILOT_BATCH_PREFIX, TRIALS
+
+    assert TRIALS == {"ml-1m": 20, "video-games": 20, "steam": 20, "ml-20m": 10}
+    checked = []
+    for path in sorted(PLANS.glob("*.toml")):
+        if "studies" not in read_plan(path):
+            continue
+        batch, _, studies = load_tuning_plan(path)
+        if batch.startswith(PILOT_BATCH_PREFIX):
+            continue
+        assert {(s.dataset, s.trials) for s in studies} <= set(TRIALS.items()), path.name
+        checked.append(path.name)
+    assert {"m3-tune-ml-1m.toml", "m3-tune-video-games.toml"} <= set(checked)
