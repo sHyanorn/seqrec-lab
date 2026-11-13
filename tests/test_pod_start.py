@@ -129,8 +129,10 @@ def test_a_running_job_is_never_interrupted_and_a_stop_request_waits_for_it(mach
 def test_a_stop_request_is_honoured_after_two_checks_without_a_job(machine):
     tmp, start = machine
     (tmp / "stop-request").touch()
-    start()
-    assert wait_for(tmp / "deleted", 0.6)  # well before the idle limit
+    start(IDLE_MINUTES="1000")  # 100 s at 0.1 s checks: only the request can delete it in time
+    assert wait_for(tmp / "deleted", 10)
+    log = (tmp / "log").read_text(encoding="utf-8")
+    assert "deleting the machine: a job asked for it" in log
 
 
 @pytest.mark.parametrize("curl_exit", ["0", "1"])
