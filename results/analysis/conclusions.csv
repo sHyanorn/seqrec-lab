@@ -21,12 +21,12 @@ H2b gBCE,ml-20m,pending
 H2b BCE,ml-20m,pending
 shuffle control sasrec-ce,ml-20m,pending
 shuffle control bert4rec,ml-20m,pending
-H1b,video-games,pending
-H2a,video-games,pending
-H2b sampled softmax,video-games,pending
-H2b gBCE,video-games,pending
-H2b BCE,video-games,pending
-shuffle control sasrec-ce,video-games,pending
+H1b,video-games,supported
+H2a,video-games,not supported
+H2b sampled softmax,video-games,not supported
+H2b gBCE,video-games,not supported
+H2b BCE,video-games,supported
+shuffle control sasrec-ce,video-games,supported
 G1,ml-1m,pending: confirmed or inconclusive
 G1,steam,pending: reversed below SESOI or reversed or confirmed below SESOI or confirmed or equivalent or inconclusive
 G1,ml-20m,pending: reversed below SESOI or reversed or confirmed below SESOI or confirmed or equivalent or inconclusive

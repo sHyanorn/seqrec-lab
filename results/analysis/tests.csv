@@ -17,12 +17,12 @@ primary,F1,ml-20m,directional,bert4rec,sasrec-bce,,,,,,,,pending,,,,,,
 primary,F1,ml-20m,directional,gsasrec,sasrec-ce,,,,,,,,pending,,,,,,
 primary,F1,ml-20m,directional,sasrec-ce,bert4rec,,,,,,,,pending,,,,,,
 primary,F1,ml-20m,directional,gsasrec,bert4rec,,,,,,,,pending,,,,,,
-primary,F1,video-games,directional,sasrec-ce,sasrec-bce,,,,,,,,pending,,,,,,
-primary,F1,video-games,directional,gsasrec,sasrec-bce,,,,,,,,pending,,,,,,
-primary,F1,video-games,directional,bert4rec,sasrec-bce,,,,,,,,pending,,,,,,
-primary,F1,video-games,directional,gsasrec,sasrec-ce,,,,,,,,pending,,,,,,
-primary,F1,video-games,directional,sasrec-ce,bert4rec,,,,,,,,pending,,,,,,
-primary,F1,video-games,directional,gsasrec,bert4rec,,,,,,,,pending,,,,,,
+primary,F1,video-games,directional,sasrec-ce,sasrec-bce,6,6,0.33444355144403826,0.39716271969928413,0.32321738483687334,0.34566971805120317,3.28479375610425e-10,rejected,0.8429432764509724,False,,,,0.9086698159093647
+primary,F1,video-games,directional,gsasrec,sasrec-bce,6,6,0.25142397192852206,0.28585513526138057,0.2401321898103899,0.2627157540466542,5.479242869718659e-10,rejected,0.8429432764509724,False,,,,0.938795395819097
+primary,F1,video-games,directional,bert4rec,sasrec-bce,6,6,0.12936552399790546,0.13810605321968858,0.11491945883761363,0.1438115891581973,2.4336792027972245e-09,rejected,0.8429432764509724,False,,,,0.4030239736199786
+primary,F1,video-games,directional,gsasrec,sasrec-ce,6,6,-0.0830195795155162,-0.07966687263303207,-0.08821258328336996,-0.07782657574766243,1.455603542190727e-11,rejected,0.8429432764509724,False,,,,0.9999999999113262
+primary,F1,video-games,directional,sasrec-ce,bert4rec,6,6,0.2050780274461328,0.22762084934591753,0.19280772675654287,0.21734832813572272,1.6476837810184275e-08,rejected,0.8429432764509724,False,,,,0.595415740269595
+primary,F1,video-games,directional,gsasrec,bert4rec,6,6,0.1220584479306166,0.12982013549942167,0.10974189079244148,0.13437500506879171,1.7412334383971432e-07,rejected,0.8429432764509724,False,,,,0.628374061309518
 primary,F1-NI,ml-1m,non-inferiority,sasrec-ce,bert4rec,10,10,0.17792768800810133,0.1947389241596613,0.09156306746949361,0.26429230854670904,0.00027739976707548717,rejected,,,,,,
 primary,F1-NI,ml-20m,non-inferiority,sasrec-ce,bert4rec,,,,,,,,pending,,,,,,
 primary,F1-ME,ml-1m,minimum effect,sasrec-ce,sasrec-bce,10,10,0.2948395947631455,0.34291093146287543,0.280579001941907,0.30910018758438396,4.182921986449694e-18,rejected,,,,,,
@@ -34,9 +34,9 @@ primary,F1-ME,steam,minimum effect,bert4rec,sasrec-bce,,,,,,,,pending,,,,,,
 primary,F1-ME,ml-20m,minimum effect,sasrec-ce,sasrec-bce,,,,,,,,pending,,,,,,
 primary,F1-ME,ml-20m,minimum effect,gsasrec,sasrec-bce,,,,,,,,pending,,,,,,
 primary,F1-ME,ml-20m,minimum effect,bert4rec,sasrec-bce,,,,,,,,pending,,,,,,
-primary,F1-ME,video-games,minimum effect,sasrec-ce,sasrec-bce,,,,,,,,pending,,,,,,
-primary,F1-ME,video-games,minimum effect,gsasrec,sasrec-bce,,,,,,,,pending,,,,,,
-primary,F1-ME,video-games,minimum effect,bert4rec,sasrec-bce,,,,,,,,pending,,,,,,
+primary,F1-ME,video-games,minimum effect,sasrec-ce,sasrec-bce,6,6,0.33444355144403826,0.39716271969928413,0.32321738483687334,0.34566971805120317,2.3844026785052927e-10,rejected,,,,,,
+primary,F1-ME,video-games,minimum effect,gsasrec,sasrec-bce,6,6,0.25142397192852206,0.28585513526138057,0.2401321898103899,0.2627157540466542,4.717879964936185e-10,rejected,,,,,,
+primary,F1-ME,video-games,minimum effect,bert4rec,sasrec-bce,6,6,0.12936552399790546,0.13810605321968858,0.11491945883761363,0.1438115891581973,6.056379488489365e-09,rejected,,,,,,
 primary,F5,ml-1m,equivalence,bert4rec,sasrec-bce,10,10,0.11691190675504415,0.12402040672394875,0.03036341236511353,0.20346040114497477,0.9841686055359046,not rejected,0.0,True,,,,0.0
 primary,F5,steam,equivalence,bert4rec,sasrec-bce,,,,,,,,pending,,,,,,
 primary,F5,ml-20m,equivalence,bert4rec,sasrec-bce,,,,,,,,pending,,,,,,
@@ -51,12 +51,12 @@ primary,F2,steam,equivalence,sasrec-ss,sasrec-ce,,,,,,,,pending,,,,,,
 primary,F2,steam,equivalence,gsasrec,sasrec-ce,,,,,,,,pending,,,,,,
 primary,F2,ml-20m,equivalence,sasrec-ss,sasrec-ce,,,,,,,,pending,,,,,,
 primary,F2,ml-20m,equivalence,gsasrec,sasrec-ce,,,,,,,,pending,,,,,,
-primary,F2,video-games,equivalence,sasrec-ss,sasrec-ce,,,,,,,,pending,,,,,,
-primary,F2,video-games,equivalence,gsasrec,sasrec-ce,,,,,,,,pending,,,,,,
+primary,F2,video-games,equivalence,sasrec-ss,sasrec-ce,6,6,-0.04955937286712775,-0.04835134565002414,-0.05826800310097866,-0.040850742633276836,0.999953006311113,not rejected,0.9948619363105511,False,,,,0.9999862786226672
+primary,F2,video-games,equivalence,gsasrec,sasrec-ce,6,6,-0.0830195795155162,-0.07966687263303207,-0.08821258328336996,-0.07782657574766243,0.9999999999021894,not rejected,0.9948619363105511,False,,,,0.9999995130241686
 primary,F4,ml-1m,minimum effect,sasrec-ce,C1-sasrec-ce,10,10,1.664285450385791,4.281897723040535,1.6397425798839507,1.6888283208876311,2.1460431762310485e-20,rejected,,,,,,
 primary,F4,steam,minimum effect,sasrec-ce,C1-sasrec-ce,,,,,,,,pending,,,,,,
 primary,F4,ml-20m,minimum effect,sasrec-ce,C1-sasrec-ce,,,,,,,,pending,,,,,,
-primary,F4,video-games,minimum effect,sasrec-ce,C1-sasrec-ce,,,,,,,,pending,,,,,,
+primary,F4,video-games,minimum effect,sasrec-ce,C1-sasrec-ce,6,6,0.5175468028215269,0.6779063614477723,0.5107798327089581,0.5243137729340956,8.123671656020989e-16,rejected,,,,,,
 primary,F4,ml-1m,minimum effect,bert4rec,C1-bert4rec,10,10,1.5900172902314675,3.903833716013649,1.5012942344027433,1.6787403460601917,1.3041609492638124e-13,rejected,,,,,,
 primary,F4,ml-20m,minimum effect,bert4rec,C1-bert4rec,,,,,,,,pending,,,,,,
 primary,F6,ml-1m,time to target,sasrec-ce,sasrec-bce,5,5,inf,,,,0.003968253968253968,rejected,,,difference,34.494,inf,
@@ -68,9 +68,9 @@ primary,F6,steam,time to target,sasrec-ce,gsasrec,,,,,,,,pending,,,,,,
 primary,F6,ml-20m,time to target,sasrec-ce,sasrec-bce,,,,,,,,pending,,,,,,
 primary,F6,ml-20m,time to target,sasrec-ce,sasrec-ss,,,,,,,,pending,,,,,,
 primary,F6,ml-20m,time to target,sasrec-ce,gsasrec,,,,,,,,pending,,,,,,
-primary,F6,video-games,time to target,sasrec-ce,sasrec-bce,,,,,,,,pending,,,,,,
-primary,F6,video-games,time to target,sasrec-ce,sasrec-ss,,,,,,,,pending,,,,,,
-primary,F6,video-games,time to target,sasrec-ce,gsasrec,,,,,,,,pending,,,,,,
+primary,F6,video-games,time to target,sasrec-ce,sasrec-bce,5,5,inf,,,,0.003968253968253968,rejected,,,difference,29.661,inf,
+primary,F6,video-games,time to target,sasrec-ce,sasrec-ss,5,5,1.1415663666093523,,,,0.21031746031746032,not rejected,,,difference,29.661,33.86,
+primary,F6,video-games,time to target,sasrec-ce,gsasrec,5,5,inf,,,,0.003968253968253968,rejected,,,difference,29.661,inf,
 temporal split,F1,ml-1m,directional,sasrec-ce,sasrec-bce,5,5,0.13984038427585865,0.15009021172394824,0.09539589182273886,0.18428487672897845,0.00033569799918248364,rejected,0.00315193441458189,True,,,,0.6729371923827606
 temporal split,F1,ml-1m,directional,gsasrec,sasrec-bce,5,5,0.1160770759880303,0.1230824314854343,0.0725299317780965,0.1596242201979641,0.0007548066122818882,rejected,0.00315193441458189,True,,,,0.5351438775250481
 temporal split,F1,ml-1m,directional,bert4rec,sasrec-bce,5,5,0.04357711336229286,0.04454053923947313,-0.04170513556417475,0.1288593622887605,0.23720112214012914,not rejected,0.00315193441458189,True,,,,0.0025038317714305854
@@ -89,12 +89,12 @@ temporal split,F1,ml-20m,directional,bert4rec,sasrec-bce,,,,,,,,pending,,,,,,
 temporal split,F1,ml-20m,directional,gsasrec,sasrec-ce,,,,,,,,pending,,,,,,
 temporal split,F1,ml-20m,directional,sasrec-ce,bert4rec,,,,,,,,pending,,,,,,
 temporal split,F1,ml-20m,directional,gsasrec,bert4rec,,,,,,,,pending,,,,,,
-temporal split,F1,video-games,directional,sasrec-ce,sasrec-bce,,,,,,,,pending,,,,,,
-temporal split,F1,video-games,directional,gsasrec,sasrec-bce,,,,,,,,pending,,,,,,
-temporal split,F1,video-games,directional,bert4rec,sasrec-bce,,,,,,,,pending,,,,,,
-temporal split,F1,video-games,directional,gsasrec,sasrec-ce,,,,,,,,pending,,,,,,
-temporal split,F1,video-games,directional,sasrec-ce,bert4rec,,,,,,,,pending,,,,,,
-temporal split,F1,video-games,directional,gsasrec,bert4rec,,,,,,,,pending,,,,,,
+temporal split,F1,video-games,directional,sasrec-ce,sasrec-bce,5,5,0.401585827091675,0.49419235051066124,0.32964459280747926,0.47352706137587075,3.8539441871345576e-05,rejected,0.6564290785129471,True,,,,0.750251847126104
+temporal split,F1,video-games,directional,gsasrec,sasrec-bce,5,5,0.3591570875106571,0.4321217523437513,0.28724508911420754,0.4310690859071067,6.091807180716563e-05,rejected,0.6564290785129471,True,,,,0.8029788330231075
+temporal split,F1,video-games,directional,bert4rec,sasrec-bce,5,5,0.26126046142729287,0.2985658477041865,0.18895964061926285,0.3335612822353229,0.0003915136681334963,rejected,0.6564290785129471,True,,,,0.2576618239619914
+temporal split,F1,video-games,directional,gsasrec,sasrec-ce,5,5,-0.042428739581017894,-0.04154123673949773,-0.06985964087208055,-0.014997838289955243,0.007334703203924495,pending,0.6564290785129471,True,,,,0.999999340402976
+temporal split,F1,video-games,directional,sasrec-ce,bert4rec,5,5,0.14032536566438214,0.15064811934822922,0.11643525796354622,0.16421547336521808,1.7683402017922332e-06,rejected,0.6564290785129471,True,,,,0.4053184622719988
+temporal split,F1,video-games,directional,gsasrec,bert4rec,5,5,0.09789662608336425,0.10284877341852659,0.07332909693755199,0.1224641552291765,2.862895997899362e-05,rejected,0.6564290785129471,True,,,,0.4336190633083604
 temporal split,F1-NI,ml-1m,non-inferiority,sasrec-ce,bert4rec,5,5,0.09626327091356579,0.101048899989392,0.010578168119445883,0.18194837370768568,0.008034595624021378,rejected,,,,,,
 temporal split,F1-NI,ml-20m,non-inferiority,sasrec-ce,bert4rec,,,,,,,,pending,,,,,,
 temporal split,F1-ME,ml-1m,minimum effect,sasrec-ce,sasrec-bce,5,5,0.13984038427585865,0.15009021172394824,0.09539589182273886,0.18428487672897845,0.00036388143663945293,rejected,,,,,,
@@ -106,9 +106,9 @@ temporal split,F1-ME,steam,minimum effect,bert4rec,sasrec-bce,,,,,,,,pending,,,,
 temporal split,F1-ME,ml-20m,minimum effect,sasrec-ce,sasrec-bce,,,,,,,,pending,,,,,,
 temporal split,F1-ME,ml-20m,minimum effect,gsasrec,sasrec-bce,,,,,,,,pending,,,,,,
 temporal split,F1-ME,ml-20m,minimum effect,bert4rec,sasrec-bce,,,,,,,,pending,,,,,,
-temporal split,F1-ME,video-games,minimum effect,sasrec-ce,sasrec-bce,,,,,,,,pending,,,,,,
-temporal split,F1-ME,video-games,minimum effect,gsasrec,sasrec-bce,,,,,,,,pending,,,,,,
-temporal split,F1-ME,video-games,minimum effect,bert4rec,sasrec-bce,,,,,,,,pending,,,,,,
+temporal split,F1-ME,video-games,minimum effect,sasrec-ce,sasrec-bce,5,5,0.401585827091675,0.49419235051066124,0.32964459280747926,0.47352706137587075,2.4419993909141192e-05,rejected,,,,,,
+temporal split,F1-ME,video-games,minimum effect,gsasrec,sasrec-bce,5,5,0.3591570875106571,0.4321217523437513,0.28724508911420754,0.4310690859071067,3.9794837255175745e-05,rejected,,,,,,
+temporal split,F1-ME,video-games,minimum effect,bert4rec,sasrec-bce,5,5,0.26126046142729287,0.2985658477041865,0.18895964061926285,0.3335612822353229,0.000273176888456352,rejected,,,,,,
 temporal split,F5,ml-1m,equivalence,bert4rec,sasrec-bce,5,5,0.04357711336229286,0.04454053923947313,-0.04170513556417475,0.1288593622887605,0.7531256213958915,not rejected,0.0,True,,,,0.0
 temporal split,F5,steam,equivalence,bert4rec,sasrec-bce,,,,,,,,pending,,,,,,
 temporal split,F5,ml-20m,equivalence,bert4rec,sasrec-bce,,,,,,,,pending,,,,,,
@@ -123,13 +123,13 @@ temporal split,F2,steam,equivalence,sasrec-ss,sasrec-ce,,,,,,,,pending,,,,,,
 temporal split,F2,steam,equivalence,gsasrec,sasrec-ce,,,,,,,,pending,,,,,,
 temporal split,F2,ml-20m,equivalence,sasrec-ss,sasrec-ce,,,,,,,,pending,,,,,,
 temporal split,F2,ml-20m,equivalence,gsasrec,sasrec-ce,,,,,,,,pending,,,,,,
-temporal split,F2,video-games,equivalence,sasrec-ss,sasrec-ce,,,,,,,,pending,,,,,,
-temporal split,F2,video-games,equivalence,gsasrec,sasrec-ce,,,,,,,,pending,,,,,,
+temporal split,F2,video-games,equivalence,sasrec-ss,sasrec-ce,5,5,-0.04623966540359792,-0.04518690090022874,-0.07008775727386982,-0.022391573533326017,0.9828974678896146,not rejected,0.9841646899802647,False,,,,0.999884076948816
+temporal split,F2,video-games,equivalence,gsasrec,sasrec-ce,5,5,-0.042428739581017894,-0.04154123673949773,-0.06985964087208055,-0.014997838289955243,0.9531740208732729,not rejected,0.9841646899802647,False,,,,0.9999925069197451
 HR@10,F1,ml-1m,directional,sasrec-ce,sasrec-bce,10,10,0.22233096447793366,0.2489846790287506,0.21040325456247114,0.23425867439339618,2.4416573621094667e-18,rejected,0.005210843219833709,True,,,,0.9985399150657449
 HR@10,F1,ml-1m,directional,gsasrec,sasrec-bce,10,10,0.1940426904741337,0.2141481144085432,0.18327748164897117,0.20480789929929621,1.1824522900253048e-15,rejected,0.005210843219833709,True,,,,0.9901395748366123
 HR@10,F1,ml-1m,directional,bert4rec,sasrec-bce,10,10,0.0939880691414936,0.09854663923447152,0.02089733383041742,0.16707880445256978,0.017150274405375306,pending,0.005210843219833709,True,,,,0.0032567163773437003
 HR@10,F1,ml-1m,directional,gsasrec,sasrec-ce,10,10,-0.028288274003799962,-0.027891907086720548,-0.03744499304560688,-0.019131554961993043,6.927844293483848e-06,rejected,0.005210843219833709,True,,,,0.9040424556534992
-HR@10,F1,ml-1m,directional,sasrec-ce,bert4rec,10,10,0.12834289533644005,0.13694278824530626,0.055347943566512056,0.20133784710636804,0.003135414084653375,pending,0.005210843219833709,True,,,,0.0032544767180019306
+HR@10,F1,ml-1m,directional,sasrec-ce,bert4rec,10,10,0.12834289533644005,0.13694278824530626,0.055347943566512056,0.20133784710636804,0.003135414084653375,rejected,0.005210843219833709,True,,,,0.0032544767180019306
 HR@10,F1,ml-1m,directional,gsasrec,bert4rec,10,10,0.10005462133264009,0.10523128563265119,0.027156898931206208,0.17295234373407398,0.012561812179486416,pending,0.005210843219833709,True,,,,0.0032536196851420916
 HR@10,F1,steam,directional,sasrec-ce,sasrec-bce,,,,,,,,pending,,,,,,
 HR@10,F1,steam,directional,gsasrec,sasrec-bce,,,,,,,,pending,,,,,,
@@ -143,20 +143,20 @@ HR@10,F1,ml-20m,directional,bert4rec,sasrec-bce,,,,,,,,pending,,,,,,
 HR@10,F1,ml-20m,directional,gsasrec,sasrec-ce,,,,,,,,pending,,,,,,
 HR@10,F1,ml-20m,directional,sasrec-ce,bert4rec,,,,,,,,pending,,,,,,
 HR@10,F1,ml-20m,directional,gsasrec,bert4rec,,,,,,,,pending,,,,,,
-HR@10,F1,video-games,directional,sasrec-ce,sasrec-bce,,,,,,,,pending,,,,,,
-HR@10,F1,video-games,directional,gsasrec,sasrec-bce,,,,,,,,pending,,,,,,
-HR@10,F1,video-games,directional,bert4rec,sasrec-bce,,,,,,,,pending,,,,,,
-HR@10,F1,video-games,directional,gsasrec,sasrec-ce,,,,,,,,pending,,,,,,
-HR@10,F1,video-games,directional,sasrec-ce,bert4rec,,,,,,,,pending,,,,,,
-HR@10,F1,video-games,directional,gsasrec,bert4rec,,,,,,,,pending,,,,,,
+HR@10,F1,video-games,directional,sasrec-ce,sasrec-bce,6,6,0.3010447971000856,0.3512698731539354,0.2879825153085236,0.3141070788916476,2.0047146376387035e-09,rejected,0.8429432764509724,False,,,,0.9086698159093647
+HR@10,F1,video-games,directional,gsasrec,sasrec-bce,6,6,0.23396782965583096,0.2636038409834416,0.22064910839131135,0.24728655092035057,5.806122360182849e-10,rejected,0.8429432764509724,False,,,,0.938795395819097
+HR@10,F1,video-games,directional,bert4rec,sasrec-bce,6,6,0.1516139743370566,0.1637109274330529,0.1363245279360625,0.16690342073805067,9.329235667955998e-10,rejected,0.8429432764509724,False,,,,0.4030239736199786
+HR@10,F1,video-games,directional,gsasrec,sasrec-ce,6,6,-0.06707696744425462,-0.06487677547777826,-0.0739710305005347,-0.06018290438797454,7.777284213463058e-09,rejected,0.8429432764509724,False,,,,0.9999999999113262
+HR@10,F1,video-games,directional,sasrec-ce,bert4rec,6,6,0.149430822763029,0.16117314128398313,0.13762078317039947,0.16124086235565852,4.802931659467647e-08,rejected,0.8429432764509724,False,,,,0.595415740269595
+HR@10,F1,video-games,directional,gsasrec,bert4rec,6,6,0.08235385531877437,0.08583997210607568,0.07019820629575646,0.09450950434179228,3.5050512685725503e-07,rejected,0.8429432764509724,False,,,,0.628374061309518
 HR@10,F2,ml-1m,equivalence,sasrec-ss,sasrec-ce,10,10,-0.03772069348294793,-0.03701812955521904,-0.04784667571357924,-0.02759471125231662,0.9992058998561437,not rejected,0.0,True,,,,0.9697728784035504
 HR@10,F2,ml-1m,equivalence,gsasrec,sasrec-ce,10,10,-0.028288274003799962,-0.027891907086720548,-0.03744499304560688,-0.019131554961993043,0.9664692774955432,not rejected,0.0,True,,,,0.9962721662503469
 HR@10,F2,steam,equivalence,sasrec-ss,sasrec-ce,,,,,,,,pending,,,,,,
 HR@10,F2,steam,equivalence,gsasrec,sasrec-ce,,,,,,,,pending,,,,,,
 HR@10,F2,ml-20m,equivalence,sasrec-ss,sasrec-ce,,,,,,,,pending,,,,,,
 HR@10,F2,ml-20m,equivalence,gsasrec,sasrec-ce,,,,,,,,pending,,,,,,
-HR@10,F2,video-games,equivalence,sasrec-ss,sasrec-ce,,,,,,,,pending,,,,,,
-HR@10,F2,video-games,equivalence,gsasrec,sasrec-ce,,,,,,,,pending,,,,,,
+HR@10,F2,video-games,equivalence,sasrec-ss,sasrec-ce,6,6,-0.03900761303170075,-0.0382566126643996,-0.04878232400409608,-0.02923290205930542,0.9987716472953303,not rejected,0.9948619363105511,False,,,,0.9999862786226672
+HR@10,F2,video-games,equivalence,gsasrec,sasrec-ce,6,6,-0.06707696744425462,-0.06487677547777826,-0.0739710305005347,-0.06018290438797454,0.999999928362072,not rejected,0.9948619363105511,False,,,,0.9999995130241686
 timing without flagged runs,F6,ml-1m,time to target,sasrec-ce,sasrec-bce,5,5,inf,,,,0.003968253968253968,rejected,,,difference,34.494,inf,
 timing without flagged runs,F6,ml-1m,time to target,sasrec-ce,sasrec-ss,5,5,inf,,,,0.003968253968253968,rejected,,,difference,34.494,inf,
 timing without flagged runs,F6,ml-1m,time to target,sasrec-ce,gsasrec,5,5,inf,,,,0.003968253968253968,rejected,,,difference,34.494,inf,
@@ -166,6 +166,6 @@ timing without flagged runs,F6,steam,time to target,sasrec-ce,gsasrec,,,,,,,,pen
 timing without flagged runs,F6,ml-20m,time to target,sasrec-ce,sasrec-bce,,,,,,,,pending,,,,,,
 timing without flagged runs,F6,ml-20m,time to target,sasrec-ce,sasrec-ss,,,,,,,,pending,,,,,,
 timing without flagged runs,F6,ml-20m,time to target,sasrec-ce,gsasrec,,,,,,,,pending,,,,,,
-timing without flagged runs,F6,video-games,time to target,sasrec-ce,sasrec-bce,,,,,,,,pending,,,,,,
-timing without flagged runs,F6,video-games,time to target,sasrec-ce,sasrec-ss,,,,,,,,pending,,,,,,
-timing without flagged runs,F6,video-games,time to target,sasrec-ce,gsasrec,,,,,,,,pending,,,,,,
+timing without flagged runs,F6,video-games,time to target,sasrec-ce,sasrec-bce,5,5,inf,,,,0.003968253968253968,rejected,,,difference,29.661,inf,
+timing without flagged runs,F6,video-games,time to target,sasrec-ce,sasrec-ss,5,5,1.1415663666093523,,,,0.21031746031746032,not rejected,,,difference,29.661,33.86,
+timing without flagged runs,F6,video-games,time to target,sasrec-ce,gsasrec,5,5,inf,,,,0.003968253968253968,rejected,,,difference,29.661,inf,
