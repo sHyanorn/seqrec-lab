@@ -13,6 +13,7 @@ Each row is a silent bug injected by a test in `tests/test_mutations.py` (METHOD
 | Popularity computed on all data | `test_statistic_from_all_data` | statistic was not computed from this training split |
 | Temporal cutoff off by one at tied timestamps | `test_temporal_cutoff_off_by_one_at_ties` | gts: validation targets inside validation period |
 | Temporal vocabulary taken from the whole log | `test_temporal_vocabulary_from_whole_log` | gts: vocabulary is the 5-core of the training period |
+| Temporal vocabulary from a single-pass filter, in the split builder and the shared k-core code alike | `test_temporal_vocabulary_from_a_single_pass_filter` | gts: vocabulary is the 5-core of the training period, recomputed by the check's own code |
 | Temporal validation target is the first item of the period | `test_temporal_validation_target_first_not_last` | gts: validation target is the last item up to the cutoff |
 | History masking removed | `test_history_masking_removed` | candidate count must equal N minus distinct history items |
 | History masking limited to the truncated input | `test_history_masking_limited_to_truncated_input` | candidate count must equal N minus distinct history items |

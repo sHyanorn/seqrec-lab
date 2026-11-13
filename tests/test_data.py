@@ -38,6 +38,14 @@ def test_kcore_is_iterative():
     assert list(keep) == [True, True, True, True, False]
 
 
+def test_kcore_peels_a_chain_until_stable():
+    """With k = 2, user 0 has one item; removing it drops item 1 below k, then user 1, item 2,
+    user 2 and item 3 in turn. A single pass on the raw counts removes only user 0's row."""
+    user = np.array([0, 1, 1, 2, 2, 3, 3, 3, 4, 4])
+    item = np.array([1, 1, 2, 2, 3, 3, 4, 5, 4, 5])
+    assert list(kcore_mask(user, item, 2)) == [False] * 6 + [True] * 4
+
+
 def test_leave_one_out_passes_invariants(toy_frame):
     splits, checks = build_splits(build_log(toy_frame), "loo")
     assert "loo: test input equals training sequence plus validation item" in checks

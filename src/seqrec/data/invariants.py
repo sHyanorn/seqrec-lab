@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from seqrec.data.preprocess import Interactions, Log, kcore_mask
+from seqrec.data.preprocess import Interactions, Log
 from seqrec.data.splits import EvalSplit, Sequences, SplitSet, TrainSplit
 
 GTS_QUANTILE = 0.9
@@ -90,6 +90,26 @@ def _last_row_at_or_before(full: Interactions, cutoff: int) -> np.ndarray:
     return last
 
 
+def _core_items(user: np.ndarray, item: np.ndarray, k: int) -> np.ndarray:
+    """Item codes of the k-core of the user-item graph (METHODS 2.5), written apart from the
+    split builders' filter: users and items are removed in turn, each by its degree among the
+    survivors, until a round over both removes nothing. The k-core is the largest subgraph in
+    which every user and item has at least k interactions, so any order of removal ends there."""
+    user_alive = np.bincount(user) > 0
+    item_alive = np.bincount(item) > 0
+    while True:
+        edges = user_alive[user] & item_alive[item]
+        user_degree = np.bincount(user[edges], minlength=len(user_alive))
+        users_out = user_alive & (user_degree < k)
+        user_alive &= ~users_out
+        edges = user_alive[user] & item_alive[item]
+        item_degree = np.bincount(item[edges], minlength=len(item_alive))
+        items_out = item_alive & (item_degree < k)
+        item_alive &= ~items_out
+        if not users_out.any() and not items_out.any():
+            return np.flatnonzero(item_alive)
+
+
 def _check_gts_against_log(splits: SplitSet, log: Log, k: int, passed: list[str]) -> None:
     """Recompute cutoffs and vocabulary from the raw log."""
     full = splits.full
@@ -101,7 +121,7 @@ def _check_gts_against_log(splits: SplitSet, log: Log, k: int, passed: list[str]
         "gts: cutoffs recomputed from log",
         passed,
     )
-    vocab = np.unique(log.item[early][kcore_mask(log.user[early], log.item[early], k)])
+    vocab = _core_items(log.user[early], log.item[early], k)
     _require(
         np.array_equal(full.items > 0, np.isin(log.item, vocab)),
         f"gts: vocabulary is the {k}-core of the training period",

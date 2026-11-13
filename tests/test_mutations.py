@@ -13,6 +13,8 @@ from test_losses import (
 )
 from test_sasrec import assert_causal, net
 
+from seqrec.data import invariants as invariants_mod
+from seqrec.data import preprocess as preprocess_mod
 from seqrec.data import splits as splits_mod
 from seqrec.data.invariants import (
     InvariantError,
@@ -133,6 +135,32 @@ def test_temporal_vocabulary_from_whole_log(monkeypatch):
 
     monkeypatch.setattr(splits_mod, "_gts_vocabulary", whole_log_vocab)
     _caught(_tied_log(), "vocabulary is the 5-core of the training period", "gts")
+
+
+def _single_pass(user, item, k):
+    """One filter on the raw counts, as in the code of [1] (METHODS 2.5)."""
+    return (np.bincount(user)[user] >= k) & (np.bincount(item)[item] >= k)
+
+
+def _chain_log():
+    """A dense core, and item x with five users in the training period, one of whom (p) has
+    only four interactions: the 5-core drops p and then x, a single pass keeps x."""
+    rows = [(f"u{u}", f"c{(u + j) % 12}", 10 * j + u % 10) for u in range(30) for j in range(8)]
+    rows += [(f"u{u}", "x", 5 + u) for u in range(4)]
+    rows += [("p", f"c{j}", 1 + j) for j in range(3)] + [("p", "x", 4)]
+    rows += [(f"u{u}", f"c{(u + 9) % 12}", 1000 + u) for u in range(30)]  # T falls among these
+    return build_log(frame(rows))
+
+
+def test_temporal_vocabulary_from_a_single_pass_filter(monkeypatch):
+    """The split builder and every module that could lend the check its filter get the same
+    faulty one, as a defect in the shared k-core code would give them."""
+    log = _chain_log()
+    correct = splits_mod.global_temporal(log)
+    for module in (splits_mod, preprocess_mod, invariants_mod):
+        monkeypatch.setattr(module, "kcore_mask", _single_pass, raising=False)
+    assert splits_mod.global_temporal(log).n_items == correct.n_items + 1  # x stays in
+    _caught(log, "vocabulary is the 5-core of the training period", "gts")
 
 
 def test_temporal_validation_target_first_not_last(monkeypatch):
