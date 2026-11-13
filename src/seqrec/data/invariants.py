@@ -141,8 +141,12 @@ def _check_gts_against_log(
         passed,
     )
     in_vocab = np.isin(log.item, _core_items(log.user[early], log.item[early], k))
+    # Row by row, the split's rows are the log's: the same user and time, and in the
+    # vocabulary exactly where the recomputed 5-core puts them.
     _require(
-        np.array_equal(full.items > 0, in_vocab),
+        np.array_equal(owner_of(full), log.user)
+        and np.array_equal(full.ts, log.ts)
+        and np.array_equal(full.items > 0, in_vocab),
         f"gts: vocabulary is the {k}-core of the training period",
         passed,
     )

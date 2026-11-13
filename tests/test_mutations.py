@@ -269,6 +269,46 @@ def test_temporal_evaluation_users_differ_from_the_registered_ones(monkeypatch, 
     _caught(build_log(frame(dense)), "validation target is the last item up to the cutoff", "gts")
 
 
+def test_temporal_split_times_one_unit_early_in_the_training_period(monkeypatch):
+    """METHODS 11.1, "every training interaction has t ≤ T_val": the split's own times put an
+    interaction of the validation period into training, and every check that reads them
+    agrees with them."""
+    log = build_log(
+        frame([(f"u{u}", f"i{(u + j) % 25}", 40 * j + u) for u in range(40) for j in range(20)])
+    )
+    cutoff = splits_mod.time_quantile(log.ts, 0.9)
+    original = splits_mod.Interactions
+
+    def early(indptr, items, ts, n_items):
+        return original(indptr, items, ts - (ts <= cutoff), n_items)
+
+    monkeypatch.setattr(splits_mod, "Interactions", early)
+    mutated = splits_mod.global_temporal(log)
+    assert (log.ts[mutated.train.seqs.pos] > mutated.meta["validation_cutoff"]).any()
+    _caught(log, "vocabulary is the 5-core of the training period", "gts")
+
+
+def test_temporal_split_rows_moved_between_two_training_users(monkeypatch):
+    """No two neighbouring users share an item, and each user's activity ends before the next
+    one's begins, so the user boundary can move by one row without breaking any check made on
+    a user's own rows. Users 4 and 5 are in neither evaluation set."""
+    rows = [
+        (f"u{u:02d}", f"i{(u % 2) * 25 + (u // 2 + j) % 25:02d}", 20 * u + j)
+        for u in range(40)
+        for j in range(10)
+    ]
+    log = build_log(frame(rows))
+    original = splits_mod.Interactions
+
+    def moved(indptr, items, ts, n_items):
+        indptr = indptr.copy()
+        indptr[5] += 1  # user 4's last row becomes user 5's first
+        return original(indptr, items, ts, n_items)
+
+    monkeypatch.setattr(splits_mod, "Interactions", moved)
+    _caught(log, "vocabulary is the 5-core of the training period", "gts")
+
+
 def _validation(log):
     splits, _ = build_splits(log, "loo")
     return splits.validation
