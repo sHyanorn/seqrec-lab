@@ -90,6 +90,22 @@ def _last_row_at_or_before(full: Interactions, cutoff: int) -> np.ndarray:
     return last
 
 
+def _targets_from_log(
+    log: Log, in_vocab: np.ndarray, after: np.ndarray, up_to: np.ndarray
+) -> np.ndarray:
+    """Sorted log rows of the targets of one temporal evaluation set (METHODS 3.2): each user
+    with an interaction in `after` whose last interaction in `up_to`, the target, has a
+    vocabulary item at an earlier position. Positions follow the log's order (METHODS 2.3)."""
+    rows = np.arange(len(log))
+    n_users = log.user.max(initial=-1) + 1
+    last = np.full(n_users, -1, dtype=np.int64)
+    np.maximum.at(last, log.user[up_to], rows[up_to])
+    has_after = np.bincount(log.user[after], minlength=n_users) > 0
+    earlier_vocab = in_vocab & (rows < last[log.user])
+    has_input = np.bincount(log.user[earlier_vocab], minlength=n_users) > 0
+    return np.sort(last[has_after & has_input])
+
+
 def _core_items(user: np.ndarray, item: np.ndarray, k: int) -> np.ndarray:
     """Item codes of the k-core of the user-item graph (METHODS 2.5), written apart from the
     split builders' filter: users and items are removed in turn, each by its degree among the
@@ -110,8 +126,11 @@ def _core_items(user: np.ndarray, item: np.ndarray, k: int) -> np.ndarray:
             return np.flatnonzero(item_alive)
 
 
-def _check_gts_against_log(splits: SplitSet, log: Log, k: int, passed: list[str]) -> None:
-    """Recompute cutoffs and vocabulary from the raw log."""
+def _check_gts_against_log(
+    splits: SplitSet, test: EvalSplit, log: Log, k: int, passed: list[str]
+) -> None:
+    """Recompute cutoffs, vocabulary and the evaluation users with their targets from the
+    raw log."""
     full = splits.full
     cutoff = int(np.quantile(log.ts, GTS_QUANTILE, method="lower"))
     early = log.ts <= cutoff
@@ -121,16 +140,23 @@ def _check_gts_against_log(splits: SplitSet, log: Log, k: int, passed: list[str]
         "gts: cutoffs recomputed from log",
         passed,
     )
-    vocab = _core_items(log.user[early], log.item[early], k)
+    in_vocab = np.isin(log.item, _core_items(log.user[early], log.item[early], k))
     _require(
-        np.array_equal(full.items > 0, np.isin(log.item, vocab)),
+        np.array_equal(full.items > 0, in_vocab),
         f"gts: vocabulary is the {k}-core of the training period",
         passed,
     )
+    # Each validation target is its user's last row up to the cutoff in the split; and each
+    # evaluation set holds every user it should and no other, with that user's target, as
+    # recomputed from the source log. The name predates the second part.
     v = splits.validation
     last_val = _last_row_at_or_before(full, cutoff)
+    validation = _targets_from_log(log, in_vocab, early & (log.ts > val_cutoff), early)
+    testing = _targets_from_log(log, in_vocab, ~early, np.ones(len(log), dtype=bool))
     _require(
-        np.array_equal(v.target_pos, last_val[owner_of(full)[v.target_pos]]),
+        np.array_equal(v.target_pos, last_val[owner_of(full)[v.target_pos]])
+        and np.array_equal(np.sort(v.target_pos), validation)
+        and np.array_equal(np.sort(test.target_pos), testing),
         "gts: validation target is the last item up to the cutoff",
         passed,
     )
@@ -191,7 +217,7 @@ def check_split(splits: SplitSet, log: Log | None = None, k: int = 5) -> list[st
             np.isin(test.target_pos, full.indptr[1:] - 1).all(), "gts: test target is last", passed
         )
         if log is not None:
-            _check_gts_against_log(splits, log, k, passed)
+            _check_gts_against_log(splits, test, log, k, passed)
     return passed
 
 

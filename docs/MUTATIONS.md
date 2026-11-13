@@ -16,6 +16,7 @@ Each row is a silent bug injected by a test in `tests/test_mutations.py` (METHOD
 | Temporal vocabulary taken from the whole log | `test_temporal_vocabulary_from_whole_log` | gts: vocabulary is the 5-core of the training period |
 | Temporal vocabulary from a single-pass filter, in the split builder and the shared k-core code alike | `test_temporal_vocabulary_from_a_single_pass_filter` | gts: vocabulary is the 5-core of the training period, recomputed by the check's own code |
 | Temporal validation target is the first item of the period | `test_temporal_validation_target_first_not_last` | gts: validation target is the last item up to the cutoff |
+| Temporal evaluation sets missing half their users, or holding a user twice (validation and test) | `test_temporal_evaluation_users_differ_from_the_registered_ones` | gts: validation target is the last item up to the cutoff, with the users recomputed from the source log |
 | History masking removed | `test_history_masking_removed` | candidate count must equal N minus distinct history items |
 | History masking limited to the truncated input | `test_history_masking_limited_to_truncated_input` | candidate count must equal N minus distinct history items |
 | History masking applied to the target | `test_history_masking_applied_to_target` | target score must stay finite after masking |

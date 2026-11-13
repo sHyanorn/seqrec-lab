@@ -233,6 +233,42 @@ def test_temporal_validation_target_first_not_last(monkeypatch):
     _caught(build_log(frame(dense)), "last item up to the cutoff", "gts")
 
 
+TARGET_FIELDS = ("targets", "target_ts", "target_pos")
+
+
+def _half_the_users(original, phase):
+    def build(full, owner, candidate, p):  # every other user loses its candidate rows
+        return original(full, owner, candidate & (owner % 2 == 0) if p == phase else candidate, p)
+
+    return build
+
+
+def _a_user_twice(original, phase):
+    def build(full, owner, candidate, p):  # the first user's input and target appear again
+        split = original(full, owner, candidate, p)
+        if p != phase:
+            return split
+        q, n = split.inputs, split.inputs.indptr[1]
+        inputs = Sequences(
+            np.append(q.indptr, q.indptr[-1] + n),
+            *(np.concatenate([a, a[:n]]) for a in (q.items, q.ts, q.pos)),
+        )
+        again = {k: np.append(getattr(split, k), getattr(split, k)[0]) for k in TARGET_FIELDS}
+        return replace(split, inputs=inputs, **again)
+
+    return build
+
+
+@pytest.mark.parametrize("phase", ["validation", "test"])
+@pytest.mark.parametrize("mutation", [_half_the_users, _a_user_twice], ids=["half", "twice"])
+def test_temporal_evaluation_users_differ_from_the_registered_ones(monkeypatch, mutation, phase):
+    """METHODS 3.2 and 11.1: the users of each temporal evaluation set follow from the source
+    log. Each kept user's target and input stay correct, so only that comparison sees it."""
+    monkeypatch.setattr(splits_mod, "_last_target", mutation(splits_mod._last_target, phase))
+    dense = [(f"u{u}", f"i{(u + j) % 25}", 40 * j + u) for u in range(40) for j in range(20)]
+    _caught(build_log(frame(dense)), "validation target is the last item up to the cutoff", "gts")
+
+
 def _validation(log):
     splits, _ = build_splits(log, "loo")
     return splits.validation
