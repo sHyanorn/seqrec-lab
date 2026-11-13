@@ -116,6 +116,9 @@ machine() {
     # Every run records its Pod, and run times are compared only within one (D046).
     [ -n "${RUNPOD_POD_ID:-}" ] || die "RUNPOD_POD_ID is not set: this job's runs would record no Pod"
     echo "pod $RUNPOD_POD_ID"
+    # How full the volume is before this job adds to it. For the log only: never fails the step.
+    df -h "$SEQREC_HOME" || true
+    timeout 300 du -sh "$SEQREC_HOME/data" "$SEQREC_HOME/runs" || true
     tail -n 20 "$SEQREC_HOME/runner.log" # when the watchdog started the runner and when it listened
     # Every batch runs on one kind of host (METHODS 9.4). On another the job stops here, before
     # any work, and the machine is deleted whatever the job's `stop` input says. CPU must be

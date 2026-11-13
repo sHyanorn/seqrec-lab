@@ -870,6 +870,19 @@ def test_the_machine_step_describes_a_machine_with_a_new_enough_driver(tmp_path)
     assert result.stdout.endswith("starting the runner\n")  # the end of the watchdog's log
 
 
+def test_the_machine_step_shows_the_space_left_on_the_volume(tmp_path):
+    """The log of every job tells how full the volume is before a batch adds to it."""
+    (tmp_path / "data").mkdir()
+    (tmp_path / "runs" / "b1").mkdir(parents=True)
+    (tmp_path / "runs" / "b1" / "best.pt").write_bytes(b"x" * 100_000)
+    result = machine_step(tmp_path, "580.95.05")
+    assert result.returncode == 0, result.stderr
+    lines = result.stdout.splitlines()
+    assert any(line.startswith("Filesystem") for line in lines)  # df of the volume
+    for name in ("data", "runs"):
+        assert any(line.endswith(f"\t{tmp_path}/{name}") for line in lines), name
+
+
 def test_the_machine_step_refuses_another_cpu_and_asks_for_the_machine_to_be_deleted(tmp_path):
     """METHODS 9.4: every batch runs on one kind of host. The job that finds another one
     stops before any work, and the machine goes whatever the job's `stop` input says."""
