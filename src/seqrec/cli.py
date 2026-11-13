@@ -213,8 +213,8 @@ def _earlier_exports(cmd: argparse.ArgumentParser) -> None:
         nargs="*",
         help="directories of batch files exported from another machine, whose anchor reads "
         "count toward the limit of METHODS 11.5 and whose runs stay out of the summaries "
-        "(default: results/laptop and every other directory under results/ but runs, data "
-        "and env; give no directory for none)",
+        "(default: results/laptop and every other directory under results/ but runs, data, "
+        "env and analysis; give no directory for none)",
     )
 
 
