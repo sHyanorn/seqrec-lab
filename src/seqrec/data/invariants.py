@@ -126,6 +126,17 @@ def _core_items(user: np.ndarray, item: np.ndarray, k: int) -> np.ndarray:
             return np.flatnonzero(item_alive)
 
 
+def _training_from_log(
+    log: Log, in_vocab: np.ndarray, val_cutoff: int
+) -> tuple[np.ndarray, np.ndarray]:
+    """Log rows and lengths of the temporal training sequences, in the log's order: "each
+    user's vocabulary interactions with t ≤ T_val, for users with at least two of them"
+    (METHODS 3.2)."""
+    fit = in_vocab & (log.ts <= val_cutoff)
+    counts = np.bincount(log.user[fit], minlength=log.user.max(initial=-1) + 1)
+    return np.flatnonzero(fit & (counts[log.user] >= 2)), counts[counts >= 2]
+
+
 def _check_gts_against_log(
     splits: SplitSet, test: EvalSplit, log: Log, k: int, passed: list[str]
 ) -> None:
@@ -152,15 +163,20 @@ def _check_gts_against_log(
     )
     # Each validation target is its user's last row up to the cutoff in the split; and each
     # evaluation set holds every user it should and no other, with that user's target, as
-    # recomputed from the source log. The name predates the second part.
+    # recomputed from the source log. The training sequences are compared the same way with
+    # those of METHODS 3.2, which METHODS 11.1 does not list. The name predates both.
     v = splits.validation
+    train = splits.train.seqs
     last_val = _last_row_at_or_before(full, cutoff)
     validation = _targets_from_log(log, in_vocab, early & (log.ts > val_cutoff), early)
     testing = _targets_from_log(log, in_vocab, ~early, np.ones(len(log), dtype=bool))
+    train_rows, train_lengths = _training_from_log(log, in_vocab, val_cutoff)
     _require(
         np.array_equal(v.target_pos, last_val[owner_of(full)[v.target_pos]])
         and np.array_equal(np.sort(v.target_pos), validation)
-        and np.array_equal(np.sort(test.target_pos), testing),
+        and np.array_equal(np.sort(test.target_pos), testing)
+        and np.array_equal(train.pos, train_rows)
+        and np.array_equal(train.lengths(), train_lengths),
         "gts: validation target is the last item up to the cutoff",
         passed,
     )

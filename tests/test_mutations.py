@@ -309,6 +309,48 @@ def test_temporal_split_rows_moved_between_two_training_users(monkeypatch):
     _caught(log, "vocabulary is the 5-core of the training period", "gts")
 
 
+def _training_log():
+    """Dense users, and user "solo" with one vocabulary interaction and one outside the
+    vocabulary, both before T_val and nothing later: no evaluation set holds solo."""
+    rows = [(f"u{u}", f"i{(u + j) % 25}", 40 * j + u) for u in range(40) for j in range(20)]
+    return build_log(frame(rows + [("solo", "i1", 3), ("solo", "unknown", 4)]))
+
+
+def _half_the_training_users(splits, log):
+    seqs = splits.train.seqs
+    keep = np.repeat(np.arange(len(seqs)) % 2 == 0, seqs.lengths())
+    return _train_rows_from_log(splits, log, seqs.pos[keep])
+
+
+def _a_user_with_one_vocabulary_item(splits, log):
+    solo = np.flatnonzero((log.user_keys[log.user] == "solo") & (splits.full.items > 0))
+    assert len(solo) == 1
+    return _train_rows_from_log(splits, log, np.sort(np.append(splits.train.seqs.pos, solo)))
+
+
+def _train_rows_from_log(splits, log, pos):
+    """Training sequences at the log rows `pos`, one per user, in the log's order."""
+    _, lengths = np.unique(log.user[pos], return_counts=True)
+    full = splits.full
+    seqs = Sequences(np.r_[0, np.cumsum(lengths)], full.items[pos], full.ts[pos], pos)
+    return replace(splits, train=TrainSplit(splits.n_items, seqs))
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [_half_the_training_users, _a_user_with_one_vocabulary_item],
+    ids=["half-the-users", "one-vocabulary-item"],
+)
+def test_temporal_training_users_differ_from_the_registered_ones(mutate):
+    """METHODS 3.2: training sequences are each user's vocabulary interactions with
+    t ≤ T_val, for users with at least two of them. Every row kept or added is a training row
+    of its user before T_val, so only a comparison of the users with the log sees it."""
+    log = _training_log()
+    splits, _ = build_splits(log, "gts")
+    with pytest.raises(InvariantError, match="validation target is the last item up to the cutoff"):
+        check_split(mutate(splits, log), log, 5)
+
+
 def _validation(log):
     splits, _ = build_splits(log, "loo")
     return splits.validation
