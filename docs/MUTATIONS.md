@@ -22,7 +22,8 @@ Each row is a silent bug injected by a test in `tests/test_mutations.py` (METHOD
 | Evaluation scores in bf16 | `test_scores_in_bf16` | evaluation scores must be fp32 |
 | Tuning run evaluates on test data | `tests/test_runner.py::test_tuning_run_cannot_reach_test_data` | the sealed stand-in raises in tuning runs |
 | Test data opened outside the approved paths | `tests/test_isolation.py` | static scan of `unseal` calls |
-| Test read in a tuning run, or a final run read twice | `tests/test_runner.py::test_batches_through_cli`, `test_test_reader_rejects_other_phases` | reader refuses phase `tune`; export recounts reads |
+| Test read in a tuning run | `tests/test_runner.py::test_batches_through_cli`, `test_test_reader_rejects_other_phases` | reader refuses phase `tune`; export recounts reads |
+| A final run read twice, or an anchor run given a final read | `tests/test_runner.py::test_export_reports_a_final_run_that_read_test_data_twice`, `test_export_reports_an_anchor_run_that_used_a_final_read` | export recounts reads |
 | A fourth anchor read for an arm | `tests/test_runner.py::test_anchor_reads_are_capped`, `test_the_reader_itself_refuses_a_fourth_anchor_read` | the reader's own count over all runs and machines |
 | Last checkpoint scored instead of the best | `tests/test_runner.py::test_best_checkpoint_is_the_one_scored` | validation score of the restored checkpoint |
 

@@ -336,6 +336,35 @@ def test_export_reports_test_scores_without_a_record_of_their_read(workspace):
     ]
 
 
+def test_export_reports_a_final_run_that_read_test_data_twice(workspace):
+    """METHODS 11.6: the recount finds a second read, whose record and completion repeat the
+    first, though no other rule is broken."""
+    runs, data = workspace
+    cfg = _cfg()
+    run_mod.execute(cfg, runs, data, CPU, **QUIET)
+    run_mod.test_run(cfg, runs, data, CPU, **QUIET)
+    log = runs / "b" / cfg.run_id / "test_access.jsonl"
+    log.write_text(log.read_text(encoding="utf-8") * 2, encoding="utf-8")
+    assert export(runs, runs.parent / "out") == [
+        f"{cfg.run_id}: final run read test data more than once"
+    ]
+
+
+def test_export_reports_an_anchor_run_that_used_a_final_read(workspace):
+    """METHODS 11.5 and 11.6: an anchor run's reads are anchor reads; a completed final read in
+    its log is reported, though its anchor reads stay within the limit."""
+    runs, data = workspace
+    cfg = _cfg("anchor", tag="a")
+    run_mod.execute(cfg, runs, data, CPU, **QUIET)
+    run_mod.test_run(cfg, runs, data, CPU, **QUIET)
+    log = runs / "b" / cfg.run_id / "test_access.jsonl"
+    records = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+    final = [r | {"phase": "final"} if r.get("phase") == "anchor" else r for r in records]
+    log.write_text("".join(json.dumps(r) + "\n" for r in records + final), encoding="utf-8")
+    assert test_access.count_reads(log) == {"final": 1, "anchor": 1, "completed": 2}
+    assert export(runs, runs.parent / "out") == [f"{cfg.run_id}: anchor run used a final read"]
+
+
 def test_test_reader_rejects_other_phases(tmp_path):
     with pytest.raises(PermissionError):
         test_access.read_test(
