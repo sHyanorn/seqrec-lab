@@ -57,13 +57,22 @@ def test_targets_off_by_one(log, monkeypatch):
 
 
 def test_target_inside_its_input(log, monkeypatch):
-    original = splits_mod.select
+    """Each evaluation input ends with its own target; the training split is left as it is,
+    so the checks on the training rows pass and those on the evaluation inputs must fail."""
+    original = splits_mod.EvalSplit
 
-    def leaky(full, owner, keep, n_rows):  # every selection also takes the next item
-        return original(full, owner, keep | np.roll(keep, 1), n_rows)
+    def leaky(phase, n_items, inputs, targets, target_ts, target_pos, shuffled=False):
+        ends = inputs.indptr[1:]
+        inputs = Sequences(
+            inputs.indptr + np.arange(len(inputs.indptr)),
+            np.insert(inputs.items, ends, targets),
+            np.insert(inputs.ts, ends, target_ts),
+            np.insert(inputs.pos, ends, target_pos),
+        )
+        return original(phase, n_items, inputs, targets, target_ts, target_pos, shuffled)
 
-    monkeypatch.setattr(splits_mod, "select", leaky)
-    _caught(log, "train: no evaluation targets")
+    monkeypatch.setattr(splits_mod, "EvalSplit", leaky)
+    _caught(log, "validation: inputs precede target")
 
 
 def test_evaluation_input_drops_an_item(log, monkeypatch):
