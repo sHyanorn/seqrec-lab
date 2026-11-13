@@ -1,6 +1,6 @@
 # Results
 
-Confirmatory results per dataset, under the tests, families and thresholds of METHODS 7 and 8 and the reporting rules of D051. Every number below comes from the tables in `results/analysis/` (`tests.csv`, `conclusions.csv`, `arms.csv`, `times.csv`) or from the batch files in `results/runs/`.
+Confirmatory results per dataset, under the tests, families and thresholds of METHODS 7 and 8 and the reporting rules of D051. Every number below comes from the tables in `results/analysis/` (`tests.csv`, `conclusions.csv`, `arms.csv`, `times.csv` and the bootstrap tables `bootstrap-<batch>.csv`) or from the batch files in `results/runs/`.
 
 ## Reading the statuses
 
@@ -173,7 +173,21 @@ F1 and F2 repeated on log HR@10 (METHODS 7.6), leave-one-out, corrected within t
 - On HR@10 the comparison of SASRec-CE with BERT4Rec is pending where it is rejected on NDCG@10; the other seven statuses match the primary analysis.
 - The timing repeat without flagged runs is reported under RQ2.
 
+Two-level percentile bootstrap (METHODS 7.6, D056), leave-one-out, NDCG@10. Each of 10,000 resamples draws the 6,040 test users with replacement once for all arms, so arms are paired by user, and draws each arm's ten runs with replacement. It was computed on the volume from the per-user ranks that the leave-one-out final runs kept from their test reads (D051); the table is `results/analysis/bootstrap-m3-final-ml-1m.csv`. The estimates are those of the primary analysis. The intervals are descriptive; the tests of the primary analysis decide.
+
+| Family | Test | A | B | n | A − B, relative (95% bootstrap interval) |
+|---|---|---|---|---|---|
+| F1 | directional | SASRec-CE | SASRec-BCE | 10, 10 | +34.3% (+29.9% to +38.9%) |
+| F1 | directional | gSASRec | SASRec-BCE | 10, 10 | +28.8% (+25.0% to +32.9%) |
+| F1 | directional | BERT4Rec | SASRec-BCE | 10, 10 | +12.4% (+2.8% to +19.9%) |
+| F1 | directional | gSASRec | SASRec-CE | 10, 10 | -4.1% (-5.8% to -2.3%) |
+| F1 | directional | SASRec-CE | BERT4Rec | 10, 10 | +19.5% (+12.7% to +30.3%) |
+| F1 | directional | gSASRec | BERT4Rec | 10, 10 | +14.6% (+8.2% to +25.0%) |
+| F2 | equivalence | SASRec-SS | SASRec-CE | 10, 10 | -4.1% (-5.9% to -2.4%) |
+| F2 | equivalence | gSASRec | SASRec-CE | 10, 10 | -4.1% (-5.8% to -2.3%) |
+
+- The seed-level resampling understates uncertainty (METHODS 7.6, written for 5 seeds): with five to ten seeds per arm, here ten, drawing seeds with replacement understates the variation between runs (D056).
+
 ### Not reported yet
 
-- The two-level bootstrap of METHODS 7.6: every final run's per-user ranks are kept on the machine's volume (D051); the intervals have not been computed.
 - Peak memory and step time of plain against chunked cross-entropy (METHODS 8).

@@ -516,6 +516,7 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
   - Earlier exports are found only in directories directly under `results/`. A batch file in `results/` itself, in a nested directory, in `results/env` or `results/data`, or with another extension than `.csv` is not read. Deleting the files of `results/runs/` instead of moving them passes every check and shows only in the git history.
   - A job's read checks see `main` as it was when the job was triggered. A job that waits across a volume replacement can miss a read committed in between, so queued jobs are cancelled before a volume is replaced.
   - A test read that was never committed (a `test` job that failed after reading) is recorded on the volume only and is lost with it.
+- Amendment 2026-11-13: since 1ff0dad, `results/analysis` (the tables of `seqrec analyze` and `seqrec bootstrap`) is not read as an earlier export either. The list in the code is `NOT_EXPORTS` in `seqrec/runner/export.py`: `runs`, `data`, `env` and `analysis`.
 
 ## D046 A network volume and a new machine for every batch
 
@@ -802,6 +803,7 @@ Numbered decision records (range D001 to D099). Reference numbers point to [SPEC
 - Pending until the other datasets have run: H1b; gaps G1 and G2, each confirmed or inconclusive; the directional comparisons of BERT4Rec with SASRec-BCE and of gSASRec with BERT4Rec; the minimum-effect test of BERT4Rec against SASRec-BCE, on which H1b waits.
 - Kendall's τ of METHODS 7.4 is taken over the five neural arms, as `seqrec analyze` computed it before these runs; the floor baselines are left out.
 - Not reported yet: the bootstrap of METHODS 7.6; peak memory and step time of plain against chunked cross-entropy (METHODS 8).
+- Amendment 2026-11-13: the bootstrap of METHODS 7.6 for this batch was computed on the volume after this entry and committed in a722365 as `results/analysis/bootstrap-m3-final-ml-1m.csv`: the eight F1 and F2 differences, 10,000 resamples (D056). `docs/RESULTS.md` reports it with the note METHODS 7.6 requires.
 
 ## D055 Supplementary power per comparison
 
