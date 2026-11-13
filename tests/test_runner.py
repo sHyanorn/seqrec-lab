@@ -836,6 +836,60 @@ def test_slow_epochs_compares_only_runs_made_on_one_pod():
     assert [r["slow_epochs"] for r in rows] == [False, False, False, False, None]
 
 
+def _with_samples(run_dir, reasons):
+    """Give a run the NVML record a GPU run has: nvml.jsonl and its summary."""
+    import pynvml
+
+    from seqrec.telemetry import summarize_samples
+
+    samples = [{"t_s": float(i), "sm_mhz": 2000, "reasons": r} for i, r in enumerate(reasons)]
+    lines = "".join(json.dumps(s) + "\n" for s in samples)
+    (run_dir / "nvml.jsonl").write_text(lines, encoding="utf-8")
+    path = run_dir / "summary.json"
+    summary = json.loads(path.read_text(encoding="utf-8"))
+    path.write_text(json.dumps(summary | {"nvml": summarize_samples(pynvml, samples)}))
+
+
+@pytest.mark.parametrize(
+    ("samples", "flagged"),
+    [(None, False), (3000 * [0], False), (2999 * [0] + [8], True), (999 * [0] + [8], True)],
+    ids=["no NVML", "3000 quiet", "1 event in 3000", "1 event in 1000"],
+)
+def test_one_hardware_event_flags_a_run(workspace, samples, flagged):
+    """METHODS 8: a run is flagged when NVML reports a hardware slowdown event, however many
+    samples hold none. One event sample in 3,000 has a share that rounds to zero; in 1,000 it
+    does not. A run without NVML (a CPU run) has no event to report."""
+    import pynvml
+
+    assert pynvml.nvmlClocksEventReasonHwSlowdown == 8
+    runs, data = workspace
+    run_mod.execute(_cfg(), runs, data, CPU, **QUIET)
+    if samples is not None:
+        _with_samples(runs / "b" / _cfg().run_id, samples)
+    assert export(runs, runs.parent / "out") == []
+    [row] = _read_csv(runs.parent / "out" / "b.csv")
+    assert row["hardware_slowdown"] == str(flagged)
+
+
+@pytest.mark.parametrize("damage", ["missing", "unreadable"])
+def test_a_run_whose_samples_cannot_be_read_is_reported(workspace, damage):
+    """A run whose summary holds NVML samples is not reported free of hardware events when
+    nvml.jsonl is gone or damaged: the export lists it as a problem and leaves the flag empty."""
+    runs, data = workspace
+    run_mod.execute(_cfg(), runs, data, CPU, **QUIET)
+    run_dir = runs / "b" / _cfg().run_id
+    _with_samples(run_dir, 10 * [0])
+    if damage == "missing":
+        (run_dir / "nvml.jsonl").unlink()
+    else:
+        with (run_dir / "nvml.jsonl").open("a", encoding="utf-8") as f:
+            f.write('{"t_s": 10.0, "reasons"')
+    problems = export(runs, runs.parent / "out")
+    assert problems == [f"{_cfg().run_id}: NVML samples missing or unreadable"]
+    [row] = _read_csv(runs.parent / "out" / "b.csv")
+    assert row["hardware_slowdown"] == ""
+
+
 def test_patience_waits_until_a_run_beats_popularity(workspace):
     """D035: before validation NDCG@10 exceeds 1.5 x MostPop's, patience does not count."""
     import seqrec.models  # noqa: F401  registers mostpop

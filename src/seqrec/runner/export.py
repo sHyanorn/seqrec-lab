@@ -17,11 +17,18 @@ from collections import Counter, defaultdict
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 
+import pynvml
+
 from seqrec.data.stats import write_csv
 from seqrec.eval.test_access import MAX_ANCHOR_READS, TestRefused, count_reads
 from seqrec.runner.attempts import failures
 
-HARDWARE_EVENTS = ("hw_slowdown", "hw_thermal", "hw_power_brake")
+# The NVML clock-event reasons that flag a run (METHODS 8).
+HARDWARE_EVENTS = (
+    pynvml.nvmlClocksEventReasonHwSlowdown
+    | pynvml.nvmlClocksEventReasonHwThermalSlowdown
+    | pynvml.nvmlClocksEventReasonHwPowerBrakeSlowdown
+)
 TRIAL_TAG = re.compile(r"t\d+")
 STOPPED = ("patience", "max_epochs", "guard", "no_start")
 SLOW_FACTOR = 1.5  # D038
@@ -80,7 +87,6 @@ def run_row(run_dir: Path) -> dict:
     incomplete = reads["final"] + reads["anchor"] > reads["completed"]
     status = _status(summary, test, n_failures > 0, incomplete)
     nvml = summary.get("nvml") or {}
-    shares = nvml.get("share_of_samples_with_reason", {})
     row = {
         "run_id": run_dir.name,
         "batch": cfg["batch"],
@@ -118,7 +124,7 @@ def run_row(run_dir: Path) -> dict:
         "nvml_mem_used_mib_max": (nvml.get("mem_used_mib") or {}).get("max"),
         "torch_allocated_gib_max": summary.get("train_peak_memory_gib_max"),
         "torch_reserved_gib_max": summary.get("train_peak_reserved_gib_max"),
-        "hardware_slowdown": any(shares.get(k, 0) > 0 for k in HARDWARE_EVENTS),
+        "hardware_slowdown": _hardware_event(run_dir) if nvml else False,
         "reads_final": reads["final"],
         "reads_anchor": reads["anchor"],
         "reads_completed": reads["completed"],
@@ -127,6 +133,18 @@ def run_row(run_dir: Path) -> dict:
         if isinstance(values, dict):
             row |= {f"{part}_{k}": v for k, v in values.items() if k != "users"}
     return row
+
+
+def _hardware_event(run_dir: Path) -> bool | None:
+    """Whether any NVML sample of the run reports a hardware event, counted in nvml.jsonl:
+    the summary's shares are rounded, so one event in a long run reads as zero there. None
+    if the file cannot be read."""
+    try:
+        lines = (run_dir / "nvml.jsonl").read_text(encoding="utf-8").splitlines()
+        reasons = [json.loads(line).get("reasons") for line in lines]
+    except (OSError, ValueError):
+        return None
+    return any(isinstance(r, int) and r & HARDWARE_EVENTS for r in reasons)
 
 
 def flag_slow_epochs(rows: list[dict]) -> None:
@@ -370,12 +388,17 @@ def summarize(out_dir: Path, earlier: Sequence[Path] = ()) -> list[str]:
 def export(
     runs_dir: Path, out_dir: Path, earlier: Sequence[Path] = (), written: Path | None = None
 ) -> list[str]:
-    """Write one CSV per batch in `runs_dir`, then the summaries (`summarize`); return any
-    test-access problems. Nothing is written over batch files that record test reads made
-    elsewhere (`require_backed_reads`). `written` is a file to list the batch files in, one
-    name per line."""
+    """Write one CSV per batch in `runs_dir`, then the summaries (`summarize`); return the
+    runs whose NVML samples cannot be read and any test-access problems. Nothing is written
+    over batch files that record test reads made elsewhere (`require_backed_reads`).
+    `written` is a file to list the batch files in, one name per line."""
     require_backed_reads(out_dir, runs_dir)
     rows = [run_row(p.parent) for p in sorted(runs_dir.glob("*/*/config.json"))]
+    problems = [
+        f"{r['run_id']}: NVML samples missing or unreadable"
+        for r in rows
+        if r["hardware_slowdown"] is None
+    ]
     flag_slow_epochs(rows)
     batches = sorted({r["batch"] for r in rows})
     for batch in batches:
@@ -383,4 +406,4 @@ def export(
     out_dir.mkdir(parents=True, exist_ok=True)  # no run yet: nothing to summarise, no error
     if written:
         written.write_text("".join(f"{b}.csv\n" for b in batches), encoding="utf-8")
-    return summarize(out_dir, earlier)
+    return problems + summarize(out_dir, earlier)
