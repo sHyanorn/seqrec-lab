@@ -12,8 +12,9 @@ Run directory (runs/<batch>/<run_id>/):
     test_access.jsonl, test.json written by `test_run` (phases final and anchor only)
 
 Test data are read by `test_run`. `seqrec test` refuses a plan while any of its runs is
-untrained (METHODS 5.5); nothing checks that the seeds METHODS 7.5 adds are in the plan by
-then. `seqrec seeds` gives their number and `seqrec final-plan` writes them into the plan.
+untrained (METHODS 5.5), and a final plan unless its leave-one-out seeds are those of the
+committed estimate of METHODS 7.5 (D064). `seqrec seeds` gives their number and writes that
+estimate, and `seqrec final-plan` writes the seeds into the plan.
 """
 
 from __future__ import annotations

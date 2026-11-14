@@ -1,0 +1,166 @@
+{
+ "dataset": "video-games",
+ "seeds": [
+  1,
+  2,
+  3,
+  4,
+  5
+ ],
+ "sigma": 0.006378283475834146,
+ "n": 6,
+ "power_directional": 0.8429432764509724,
+ "power_equivalence": 0.9948619363105511,
+ "runs": [
+  {
+   "run_id": "sasrec-bce-video-games-loo-s1",
+   "arm": "sasrec-bce",
+   "seed": 1,
+   "validation_ndcg@10": 0.04910963797300663
+  },
+  {
+   "run_id": "sasrec-bce-video-games-loo-s2",
+   "arm": "sasrec-bce",
+   "seed": 2,
+   "validation_ndcg@10": 0.04922374278236274
+  },
+  {
+   "run_id": "sasrec-bce-video-games-loo-s3",
+   "arm": "sasrec-bce",
+   "seed": 3,
+   "validation_ndcg@10": 0.0493221853012034
+  },
+  {
+   "run_id": "sasrec-bce-video-games-loo-s4",
+   "arm": "sasrec-bce",
+   "seed": 4,
+   "validation_ndcg@10": 0.04932435750471858
+  },
+  {
+   "run_id": "sasrec-bce-video-games-loo-s5",
+   "arm": "sasrec-bce",
+   "seed": 5,
+   "validation_ndcg@10": 0.05007564476638475
+  },
+  {
+   "run_id": "sasrec-ce-video-games-loo-s1",
+   "arm": "sasrec-ce",
+   "seed": 1,
+   "validation_ndcg@10": 0.07052259739432784
+  },
+  {
+   "run_id": "sasrec-ce-video-games-loo-s2",
+   "arm": "sasrec-ce",
+   "seed": 2,
+   "validation_ndcg@10": 0.07045073083360315
+  },
+  {
+   "run_id": "sasrec-ce-video-games-loo-s3",
+   "arm": "sasrec-ce",
+   "seed": 3,
+   "validation_ndcg@10": 0.07019468289905942
+  },
+  {
+   "run_id": "sasrec-ce-video-games-loo-s4",
+   "arm": "sasrec-ce",
+   "seed": 4,
+   "validation_ndcg@10": 0.07053929100648117
+  },
+  {
+   "run_id": "sasrec-ce-video-games-loo-s5",
+   "arm": "sasrec-ce",
+   "seed": 5,
+   "validation_ndcg@10": 0.07081963880209585
+  },
+  {
+   "run_id": "sasrec-ss-video-games-loo-s1",
+   "arm": "sasrec-ss",
+   "seed": 1,
+   "validation_ndcg@10": 0.06759581496045712
+  },
+  {
+   "run_id": "sasrec-ss-video-games-loo-s2",
+   "arm": "sasrec-ss",
+   "seed": 2,
+   "validation_ndcg@10": 0.06735796654479956
+  },
+  {
+   "run_id": "sasrec-ss-video-games-loo-s3",
+   "arm": "sasrec-ss",
+   "seed": 3,
+   "validation_ndcg@10": 0.06753355478253331
+  },
+  {
+   "run_id": "sasrec-ss-video-games-loo-s4",
+   "arm": "sasrec-ss",
+   "seed": 4,
+   "validation_ndcg@10": 0.06734061196192821
+  },
+  {
+   "run_id": "sasrec-ss-video-games-loo-s5",
+   "arm": "sasrec-ss",
+   "seed": 5,
+   "validation_ndcg@10": 0.06692706761702581
+  },
+  {
+   "run_id": "gsasrec-video-games-loo-s1",
+   "arm": "gsasrec",
+   "seed": 1,
+   "validation_ndcg@10": 0.06488751035292988
+  },
+  {
+   "run_id": "gsasrec-video-games-loo-s2",
+   "arm": "gsasrec",
+   "seed": 2,
+   "validation_ndcg@10": 0.06490398292999373
+  },
+  {
+   "run_id": "gsasrec-video-games-loo-s3",
+   "arm": "gsasrec",
+   "seed": 3,
+   "validation_ndcg@10": 0.06500994694460091
+  },
+  {
+   "run_id": "gsasrec-video-games-loo-s4",
+   "arm": "gsasrec",
+   "seed": 4,
+   "validation_ndcg@10": 0.06507253625081225
+  },
+  {
+   "run_id": "gsasrec-video-games-loo-s5",
+   "arm": "gsasrec",
+   "seed": 5,
+   "validation_ndcg@10": 0.06518090782513535
+  },
+  {
+   "run_id": "bert4rec-video-games-loo-s1",
+   "arm": "bert4rec",
+   "seed": 1,
+   "validation_ndcg@10": 0.05837320254300579
+  },
+  {
+   "run_id": "bert4rec-video-games-loo-s2",
+   "arm": "bert4rec",
+   "seed": 2,
+   "validation_ndcg@10": 0.05717645276708727
+  },
+  {
+   "run_id": "bert4rec-video-games-loo-s3",
+   "arm": "bert4rec",
+   "seed": 3,
+   "validation_ndcg@10": 0.05850565467223833
+  },
+  {
+   "run_id": "bert4rec-video-games-loo-s4",
+   "arm": "bert4rec",
+   "seed": 4,
+   "validation_ndcg@10": 0.057701551840972164
+  },
+  {
+   "run_id": "bert4rec-video-games-loo-s5",
+   "arm": "bert4rec",
+   "seed": 5,
+   "validation_ndcg@10": 0.05723296189952913
+  }
+ ]
+}

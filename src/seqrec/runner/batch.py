@@ -9,6 +9,7 @@ from pathlib import Path
 
 import torch
 
+from seqrec.analysis.power import NEURAL_ARMS
 from seqrec.data.store import load_splits, log_path
 from seqrec.eval.test_access import TestRefused
 from seqrec.runner.attempts import (
@@ -53,6 +54,75 @@ def require_data(datasets, data_dir: Path) -> None:
         raise FileNotFoundError(
             f"not prepared in {data_dir}: {', '.join(missing)} (run `seqrec data prepare`)"
         )
+
+
+class SeedCountRefused(RuntimeError):
+    """A final plan whose seeds do not follow the committed estimate of METHODS 7.5 (D064)."""
+
+
+SEED_RECORD = "seeds-{dataset}.json"  # written by `seqrec seeds --write`
+
+
+def plan_seed_problems(plan: Plan, dataset: str, n: int) -> list[str]:
+    """Leave-one-out arms of a final plan whose seeds are not 1 to n: every neural arm, and
+    every shuffle control, which has the seeds of the unshuffled runs (METHODS 3.3, 7.5)."""
+    seeds: dict[tuple[str, str], set[int]] = {(arm, "none"): set() for arm in NEURAL_ARMS}
+    for r in plan.runs:
+        if (r.dataset, r.split, r.phase) == (dataset, "loo", "final") and r.arm in NEURAL_ARMS:
+            seeds.setdefault((r.arm, r.shuffle), set()).add(r.seed)
+    want = set(range(1, n + 1))
+    return [
+        f"{arm}{'' if shuffle == 'none' else f' ({shuffle})'}: seeds {sorted(have)}"
+        for (arm, shuffle), have in sorted(seeds.items())
+        if have != want
+    ]
+
+
+def require_seed_record(plan: Plan, runs_dir: Path, committed: Path | None) -> None:
+    """Before any test read of final runs (D064): each dataset's committed estimate of
+    METHODS 7.5 rests on 25 distinct runs of this plan, each with the arm and seed its entry
+    gives and the validation value it records on this volume, and the plan has seeds 1 to n
+    on leave-one-out. Raises before any read, so a refusal is not a read (D031)."""
+    finals = [r for r in plan.runs if r.phase == "final" and r.arm in NEURAL_ARMS]
+    by_id = {r.run_id: r for r in finals}
+    for dataset in sorted({r.dataset for r in finals}):
+        name = SEED_RECORD.format(dataset=dataset)
+        if committed is None or not (committed / name).exists():
+            raise SeedCountRefused(
+                f"{dataset}: no {name} among the committed batch files; write it with "
+                "`seqrec seeds --write` after the first five final seeds (METHODS 7.5)"
+            )
+        record = json.loads((committed / name).read_text(encoding="utf-8"))
+        if record.get("dataset") != dataset:
+            raise SeedCountRefused(f"{name} is the estimate for {record.get('dataset')}")
+        runs = record["runs"]
+        expected = {(arm, s) for arm in NEURAL_ARMS for s in range(1, 6)}
+        if sorted((r["arm"], r["seed"]) for r in runs) != sorted(expected):
+            raise SeedCountRefused(f"{name}: not one run for seeds 1 to 5 of every neural arm")
+        if len({r["run_id"] for r in runs}) != len(runs):
+            raise SeedCountRefused(f"{name}: a run is named twice")
+        for run in runs:
+            cfg = by_id.get(run["run_id"])
+            want = (dataset, "loo", "none", run["arm"], run["seed"])
+            if cfg is None or (cfg.dataset, cfg.split, cfg.shuffle, cfg.arm, cfg.seed) != want:
+                raise SeedCountRefused(
+                    f"{name}: {run['run_id']} is not a run of this plan with arm {run['arm']} "
+                    f"and seed {run['seed']} on leave-one-out without shuffle"
+                )
+            path = run_dir_of(cfg, runs_dir) / "summary.json"
+            summary = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+            value = (summary.get("validation") or {}).get("ndcg@10")
+            if summary.get("status") != "trained" or value != run["validation_ndcg@10"]:
+                raise SeedCountRefused(
+                    f"{name}: {run['run_id']} has validation NDCG@10 {value} on this volume, "
+                    f"{run['validation_ndcg@10']} in the record"
+                )
+        problems = plan_seed_problems(plan, dataset, record["n"])
+        if problems:
+            raise SeedCountRefused(
+                f"{dataset}: METHODS 7.5 gives n = {record['n']}, so leave-one-out needs seeds "
+                f"1 to {record['n']}; the plan has {'; '.join(problems)}"
+            )
 
 
 def _given_up(cfg, runs_dir: Path) -> bool:
@@ -148,7 +218,8 @@ def test_batch(
     `earlier` are directories of batch files exported from another machine; the anchor reads
     in them count toward the limit of METHODS 11.5. `committed` is the directory of batch
     files exported from this machine: a read recorded there and not made in `runs_dir` would
-    be in neither count, so it stops the task."""
+    be in neither count, so it stops the task. It also holds the seed record that final runs
+    need before their read (`require_seed_record`, D064)."""
     if committed:  # before any test data, as the earlier exports below
         require_backed_reads(committed, runs_dir)
     earlier_anchor, earlier_final = Counter(), Counter()
@@ -162,6 +233,7 @@ def test_batch(
     untrained = _untrained(plan, runs_dir)
     if untrained:
         raise RuntimeError(f"{len(untrained)} runs are not trained yet, e.g. {untrained[0]}")
+    require_seed_record(plan, runs_dir, committed)
     failed: list[str] = []
     for cfg in plan.runs:
         if cfg.phase not in ("final", "anchor"):

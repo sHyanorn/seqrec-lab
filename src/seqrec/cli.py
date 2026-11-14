@@ -41,7 +41,8 @@ def main(argv=None) -> int:
                 type=Path,
                 default=Path("results/runs"),
                 help="batch files exported from this machine; a test read recorded there and "
-                "not made in the runs directory stops the task",
+                "not made in the runs directory stops the task, and a final plan needs its "
+                "dataset's seeds-<dataset>.json there (D064)",
             )
 
     seeds = sub.add_parser("seeds", help="seed count from pilot validation scores (METHODS 7.5)")
@@ -60,6 +61,13 @@ def main(argv=None) -> int:
         nargs="+",
         help="use the runs with these seeds only and require them of every arm: 1 2 3 4 5 for "
         "the estimate after the first 5 final seeds (METHODS 7.5; final runs have --tag '')",
+    )
+    seeds.add_argument(
+        "--write",
+        type=Path,
+        help="with --tag '' and --seeds: also write the estimate and the runs it rests on, "
+        "which `seqrec test` requires before a final read, e.g. results/runs/seeds-steam.json "
+        "(D064)",
     )
 
     anchors = sub.add_parser("anchors", help="anchor runs against published bands (D032)")
@@ -130,6 +138,8 @@ def main(argv=None) -> int:
     _earlier_exports(exp)
 
     args = parser.parse_args(argv)
+    if args.command == "seeds" and args.write and (args.tag != "" or not args.seeds):
+        parser.error("--write needs --tag '' and --seeds: the estimate after the first final seeds")
     if args.command == "data":
         from seqrec.data.prepare import prepare
 
@@ -226,9 +236,15 @@ def _earlier(args) -> list[Path]:
 
 def _analysis(args) -> str:
     if args.command == "seeds":
-        from seqrec.analysis.power import report
+        import json
 
-        return report(args.csv, args.tag, args.dataset, args.seeds)
+        from seqrec.analysis.power import report, seed_record
+
+        text = report(args.csv, args.tag, args.dataset, args.seeds)
+        if args.write:
+            record = seed_record(args.csv, args.dataset, args.seeds)
+            args.write.write_text(json.dumps(record, indent=1) + "\n", encoding="utf-8")
+        return text
     if args.command == "anchors":
         from seqrec.analysis.anchors import report as anchor_report
 

@@ -1,6 +1,7 @@
 """Committed plans parse, and every run's hyperparameters are accepted by its arm."""
 
 import csv
+import json
 from pathlib import Path
 
 import pytest
@@ -8,8 +9,10 @@ import torch
 from conftest import random_frame
 
 from seqrec import models  # noqa: F401  registers the arms
+from seqrec.analysis import power
 from seqrec.data.preprocess import build_log
 from seqrec.data.store import build_splits
+from seqrec.runner.batch import SEED_RECORD, plan_seed_problems
 from seqrec.runner.config import default_limits, load_plan, read_plan
 from seqrec.runner.final_plan import final_plan
 from seqrec.runner.run import ARMS
@@ -106,3 +109,40 @@ def test_every_tuning_plan_has_the_registered_trial_budget():
         assert {(s.dataset, s.trials) for s in studies} <= set(TRIALS.items()), path.name
         checked.append(path.name)
     assert {"m3-tune-ml-1m.toml", "m3-tune-video-games.toml", "m3-tune-steam.toml"} <= set(checked)
+
+
+SEED_RECORDS = sorted((RESULTS / "runs").glob(SEED_RECORD.format(dataset="*")))
+
+
+def test_every_tested_dataset_has_its_seed_record():
+    """D064: `seqrec test` requires the record before a final read; MovieLens-1M and
+    Video_Games were read before the check existed and have theirs as well."""
+    names = {p.name for p in SEED_RECORDS}
+    assert {"seeds-ml-1m.json", "seeds-video-games.json"} <= names
+
+
+@pytest.mark.parametrize("path", SEED_RECORDS, ids=lambda p: p.name)
+def test_a_seed_record_is_its_batch_files_estimate_and_its_plans_seed_count(path):
+    """D064: on every push, so a record that disagrees fails here, before any test job."""
+    record = json.loads(path.read_text(encoding="utf-8"))
+    dataset = record["dataset"]
+    assert path.name == SEED_RECORD.format(dataset=dataset)
+    batch = RESULTS / "runs" / f"m3-final-{dataset}.csv"
+    expected = power.seed_record(batch, dataset, range(1, 6))
+    floats = ("sigma", "power_directional", "power_equivalence")
+    for key in floats:
+        assert record[key] == pytest.approx(expected[key], rel=1e-12, abs=1e-15), key
+    assert {k: v for k, v in record.items() if k not in floats} == {
+        k: v for k, v in expected.items() if k not in floats
+    }
+    assert record["n"] == power.seed_count(record["sigma"])
+    plan = load_plan(PLANS / f"m3-final-{dataset}.toml")
+    assert plan_seed_problems(plan, dataset, record["n"]) == []
+
+
+@pytest.mark.parametrize(
+    ("dataset", "sigma", "n"), [("ml-1m", 0.07703, 10), ("video-games", 0.00638, 6)]
+)
+def test_the_seed_records_give_the_counts_of_d053_and_d062(dataset, sigma, n):
+    record = json.loads((RESULTS / "runs" / SEED_RECORD.format(dataset=dataset)).read_text())
+    assert (round(record["sigma"], 5), record["n"]) == (sigma, n)

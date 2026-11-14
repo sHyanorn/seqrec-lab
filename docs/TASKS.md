@@ -83,6 +83,7 @@ Before M3 tuning starts
 - [x] Supplementary power per comparison, outside every decision (D055)
 - [ ] Two-level bootstrap of METHODS 7.6 per dataset, computed on the volume: code done (D056); MovieLens-1M done (`results/analysis/bootstrap-m3-final-ml-1m.csv`, D054); Video_Games done (`results/analysis/bootstrap-m3-final-video-games.csv`, D063)
 - [x] Leave-one-out rows compared with the source log (D060)
+- [x] Seed count checked against the committed estimate before a final test read (D064)
 - [ ] Silent-error review and whole-diff review
 - [ ] RQ4 go or no-go (D015)
 

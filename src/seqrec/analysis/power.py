@@ -124,9 +124,19 @@ def sigma_of(
     neural arm must have each of them once: the estimate after the first 5 final seeds
     (METHODS 7.5)."""
     groups: dict[str, list[float]] = defaultdict(list)
+    for row in _estimate_rows(rows, tag, dataset, split, seeds):
+        groups[row["arm"]].append(math.log(float(row["validation_ndcg@10"])))
+    sigma = pooled_sd([np.asarray(v) for v in groups.values()])
+    return sigma, dict(groups)
+
+
+def _estimate_rows(
+    rows: list[dict], tag: str, dataset: str, split: str, seeds: Sequence[int] | None
+) -> list[dict]:
+    """The runs `sigma_of` rests on."""
     found: dict[str, list[int]] = defaultdict(list)
+    used = []
     for row in rows:
-        value = row.get("validation_ndcg@10")
         if (
             row["tag"] == tag
             and row["dataset"] == dataset
@@ -134,18 +144,44 @@ def sigma_of(
             and row["shuffle"] == "none"
             and row["arm"] in NEURAL_ARMS
             and row["status"] in FINISHED
-            and value
+            and row.get("validation_ndcg@10")
             and (seeds is None or int(row["seed"]) in seeds)
         ):
-            groups[row["arm"]].append(math.log(float(value)))
+            used.append(row)
             found[row["arm"]].append(int(row.get("seed") or 0))
     if seeds is not None:
         for arm in NEURAL_ARMS:
             if sorted(found[arm]) != sorted(seeds):
                 have = ", ".join(map(str, sorted(found[arm])))
                 raise ValueError(f"{arm} on {dataset}: finished runs with seeds {have or 'none'}")
-    sigma = pooled_sd([np.asarray(v) for v in groups.values()])
-    return sigma, dict(groups)
+    return used
+
+
+def seed_record(paths: Exports, dataset: str, seeds: Sequence[int]) -> dict:
+    """The estimate after the first final seeds of a dataset (METHODS 7.5) and the runs it
+    rests on, which `seqrec test` compares with the volume and the plan before a final read
+    (D064). Values are the exported ones, so they equal those in each run's summary."""
+    rows = _estimate_rows(read_exports(paths), "", dataset, "loo", seeds)
+    sigma, _ = sigma_of(rows, "", dataset, "loo", seeds)
+    n = seed_count(sigma)
+    rows.sort(key=lambda r: (NEURAL_ARMS.index(r["arm"]), int(r["seed"])))
+    return {
+        "dataset": dataset,
+        "seeds": sorted(seeds),
+        "sigma": sigma,
+        "n": n,
+        "power_directional": directional_power(sigma, n),
+        "power_equivalence": equivalence_power(sigma, n),
+        "runs": [
+            {
+                "run_id": r["run_id"],
+                "arm": r["arm"],
+                "seed": int(r["seed"]),
+                "validation_ndcg@10": float(r["validation_ndcg@10"]),
+            }
+            for r in rows
+        ],
+    }
 
 
 def report(paths: Exports, tag: str, dataset: str, seeds: Sequence[int] | None = None) -> str:
