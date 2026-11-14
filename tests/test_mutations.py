@@ -351,6 +351,76 @@ def test_temporal_training_users_differ_from_the_registered_ones(mutate):
         check_split(mutate(splits, log), log, 5)
 
 
+def _neighbours_log():
+    """No two neighbouring users share an item, and each user's activity ends before the next
+    one's begins, so a user boundary can move by one row without breaking a check made on a
+    user's own rows. Every user has 10 interactions and every item 5 to 10."""
+    rows = [
+        (f"u{u:02d}", f"i{(u % 2) * 25 + (u // 2 + j) % 25:02d}", 20 * u + j)
+        for u in range(40)
+        for j in range(10)
+    ]
+    return build_log(frame(rows))
+
+
+def _boundary_moved(make, user, items, ts, n_items):
+    full = make(user, items, ts, n_items)
+    indptr = full.indptr.copy()
+    indptr[5] += 1  # user 4's last row becomes user 5's first
+    return preprocess_mod.Interactions(indptr, full.items, full.ts, full.n_items)
+
+
+def _times_one_unit_early(make, user, items, ts, n_items):
+    return make(user, items, ts - 1, n_items)
+
+
+def _items_against_key_order(make, user, items, ts, n_items):
+    return make(user, n_items + 1 - items, ts, n_items)
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [_boundary_moved, _times_one_unit_early, _items_against_key_order],
+    ids=["user boundary moved by one row", "times one unit early", "items against key order"],
+)
+def test_leave_one_out_rows_differ_from_the_log(monkeypatch, mutate):
+    """METHODS 2.5 and 2.6: the leave-one-out sequences are the rows of the whole log that
+    its 5-core keeps, users in order and items numbered 1..N in key order. Each fault keeps
+    every user's own rows consistent, so only a comparison with the log sees it."""
+    original = preprocess_mod.csr_from_sorted
+    monkeypatch.setattr(preprocess_mod, "csr_from_sorted", lambda *args: mutate(original, *args))
+    _caught(_neighbours_log(), "loo: sequence lengths")
+
+
+def _five_core_and_a_user_with_five():
+    """A dense core of users with 8 interactions, and user "five" with exactly 5: the
+    5-core keeps them all, a 6-core drops "five"."""
+    rows = [(f"u{u}", f"c{(u + j) % 12}", 10 * j + u % 10) for u in range(30) for j in range(8)]
+    rows += [("five", f"c{j}", 500 + j) for j in range(5)]
+    return build_log(frame(rows))
+
+
+def test_leave_one_out_rows_from_a_six_core(monkeypatch):
+    """A filter stricter than METHODS 2.5 leaves every user and item above five, so the
+    checks of the 5-core condition pass; the rows it drops are seen only against the log."""
+    log = _five_core_and_a_user_with_five()
+    correct, _ = build_splits(log, "loo")
+    original = preprocess_mod.kcore_mask
+    for module in (splits_mod, preprocess_mod):
+        monkeypatch.setattr(module, "kcore_mask", lambda u, i, k: original(u, i, k + 1))
+    assert preprocess_mod.leave_one_out_interactions(log).n_users == correct.full.n_users - 1
+    _caught(log, "loo: sequence lengths")
+
+
+def test_leave_one_out_rows_from_a_single_pass_filter(monkeypatch):
+    """A single pass leaves an item below five here, which the 5-core check of the
+    interactions catches. Whenever a single pass differs from the 5-core it leaves some user
+    or item below five, since the 5-core is the largest subgraph with none below five."""
+    for module in (splits_mod, preprocess_mod, invariants_mod):
+        monkeypatch.setattr(module, "kcore_mask", _single_pass, raising=False)
+    _caught(_chain_log(), "items meet 5-core")
+
+
 def _validation(log):
     splits, _ = build_splits(log, "loo")
     return splits.validation

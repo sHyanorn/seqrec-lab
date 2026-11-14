@@ -20,6 +20,9 @@ Each row is a silent bug injected by a test in `tests/test_mutations.py` (METHOD
 | Temporal split's times one unit early inside the training period, so an interaction of the validation period enters training | `test_temporal_split_times_one_unit_early_in_the_training_period` | gts: vocabulary is the 5-core of the training period, which compares the split's rows with the log's by user and time |
 | Temporal split's user boundary moved by one row between two users in no evaluation set | `test_temporal_split_rows_moved_between_two_training_users` | gts: vocabulary is the 5-core of the training period, which compares the split's rows with the log's by user and time |
 | Temporal training sequences missing half their users, or given a user with one vocabulary interaction | `test_temporal_training_users_differ_from_the_registered_ones` | gts: validation target is the last item up to the cutoff, which also compares the training sequences with those of METHODS 3.2 from the source log |
+| Leave-one-out user boundary moved by one row, times one unit early, or items numbered against key order | `test_leave_one_out_rows_differ_from_the_log` | loo: sequence lengths, which compares each user's sequence with the rows the 5-core of the whole log keeps |
+| Leave-one-out sequences from a 6-core | `test_leave_one_out_rows_from_a_six_core` | loo: sequence lengths, with the 5-core recomputed by the check's own code |
+| Leave-one-out sequences from a single-pass filter | `test_leave_one_out_rows_from_a_single_pass_filter` | items meet 5-core |
 | History masking removed | `test_history_masking_removed` | candidate count must equal N minus distinct history items |
 | History masking limited to the truncated input | `test_history_masking_limited_to_truncated_input` | candidate count must equal N minus distinct history items |
 | History masking applied to the target | `test_history_masking_applied_to_target` | target score must stay finite after masking |

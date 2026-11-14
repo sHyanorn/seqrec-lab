@@ -12,7 +12,12 @@ from conftest import frame, random_frame
 from seqrec.data import prepare as prepare_mod
 from seqrec.data import readers
 from seqrec.data import splits as splits_mod
-from seqrec.data.invariants import InvariantError, item_popularity, require_from_train
+from seqrec.data.invariants import (
+    InvariantError,
+    check_split,
+    item_popularity,
+    require_from_train,
+)
 from seqrec.data.preprocess import Log, build_log, kcore_mask, leave_one_out_interactions
 from seqrec.data.registry import DATASETS
 from seqrec.data.splits import Sequences, shuffle_eval_inputs, shuffle_order
@@ -52,6 +57,27 @@ def test_leave_one_out_passes_invariants(toy_frame):
     full = splits.full
     assert len(splits.validation) == len(splits.test.unseal("check")) == full.n_users
     assert splits.train.seqs.lengths().sum() == len(full.items) - 2 * full.n_users
+
+
+def test_leave_one_out_rows_are_those_the_whole_logs_5_core_keeps():
+    """A peeled chain: user p has four interactions, and item x loses its fifth user with
+    p. The split keeps the other rows, and the comparison with the log passes."""
+    rows = [(f"u{u}", f"c{(u + j) % 12}", 10 * j + u % 10) for u in range(30) for j in range(8)]
+    rows += [(f"u{u}", "x", 5 + u) for u in range(4)]
+    rows += [("p", f"c{j}", 1 + j) for j in range(3)] + [("p", "x", 4)]
+    log = build_log(frame(rows))
+    splits, checks = build_splits(log, "loo")
+    assert "loo: sequence lengths" in checks
+    assert (splits.full.n_users, splits.full.n_items) == (30, 12)
+    assert len(splits.full.items) == 30 * 8
+
+
+def test_the_split_checks_keep_their_number():
+    """`invariants_passed` in results/data/stats.csv is the count for each split (D049, D060)."""
+    log = build_log(random_frame())
+    loo, loo_checks = build_splits(log, "loo")
+    assert len(loo_checks) == len(build_splits(log, "gts")[1]) == 34
+    assert len(check_split(shuffle_order(loo, seed=1))) == 26
 
 
 def test_global_temporal_split_handles_ties_and_new_users():

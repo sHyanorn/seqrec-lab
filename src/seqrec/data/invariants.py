@@ -106,11 +106,12 @@ def _targets_from_log(
     return np.sort(last[has_after & has_input])
 
 
-def _core_items(user: np.ndarray, item: np.ndarray, k: int) -> np.ndarray:
-    """Item codes of the k-core of the user-item graph (METHODS 2.5), written apart from the
-    split builders' filter: users and items are removed in turn, each by its degree among the
-    survivors, until a round over both removes nothing. The k-core is the largest subgraph in
-    which every user and item has at least k interactions, so any order of removal ends there."""
+def _core(user: np.ndarray, item: np.ndarray, k: int) -> tuple[np.ndarray, np.ndarray]:
+    """Which user and item codes the k-core of the user-item graph keeps (METHODS 2.5), as
+    masks over the codes, written apart from the split builders' filter: users and items are
+    removed in turn, each by its degree among the survivors, until a round over both removes
+    nothing. The k-core is the largest subgraph in which every user and item has at least k
+    interactions, so any order of removal ends there."""
     user_alive = np.bincount(user) > 0
     item_alive = np.bincount(item) > 0
     while True:
@@ -123,7 +124,24 @@ def _core_items(user: np.ndarray, item: np.ndarray, k: int) -> np.ndarray:
         items_out = item_alive & (item_degree < k)
         item_alive &= ~items_out
         if not users_out.any() and not items_out.any():
-            return np.flatnonzero(item_alive)
+            return user_alive, item_alive
+
+
+def _loo_rows_from_log(full: Interactions, log: Log, k: int) -> bool:
+    """The leave-one-out sequences are the rows of the whole log that its k-core keeps, in
+    the log's order, with users numbered in order and items 1..N in key order (METHODS 2.5,
+    2.6); the k-core is recomputed here."""
+    user_alive, item_alive = _core(log.user, log.item, k)
+    keep = user_alive[log.user] & item_alive[log.item]
+    _, user = np.unique(log.user[keep], return_inverse=True)
+    item = np.searchsorted(np.flatnonzero(item_alive), log.item[keep]) + 1
+    return (
+        full.n_users == int(user_alive.sum())
+        and full.n_items == int(item_alive.sum())
+        and np.array_equal(owner_of(full), user)
+        and np.array_equal(full.ts, log.ts[keep])
+        and np.array_equal(full.items, item)
+    )
 
 
 def _training_from_log(
@@ -151,7 +169,8 @@ def _check_gts_against_log(
         "gts: cutoffs recomputed from log",
         passed,
     )
-    in_vocab = np.isin(log.item, _core_items(log.user[early], log.item[early], k))
+    _, items_alive = _core(log.user[early], log.item[early], k)
+    in_vocab = np.isin(log.item, np.flatnonzero(items_alive))
     # Row by row, the split's rows are the log's: the same user and time, and in the
     # vocabulary exactly where the recomputed 5-core puts them.
     _require(
@@ -183,7 +202,8 @@ def _check_gts_against_log(
 
 
 def check_split(splits: SplitSet, log: Log | None = None, k: int = 5) -> list[str]:
-    """Structural checks for a split set; the temporal split also needs the source log."""
+    """Structural checks for a split set. With the source log, both splits are also compared
+    with it; the temporal split's construction is checked only then."""
     full = splits.full
     test = splits.test.unseal("check")
     passed: list[str] = []
@@ -198,8 +218,10 @@ def check_split(splits: SplitSet, log: Log | None = None, k: int = 5) -> list[st
     if splits.kind == "loo":
         lengths = full.lengths()
         val = splits.validation
+        # With the log, each user's full sequence is also compared with the log's rows.
         _require(
-            (train.lengths() == lengths - 2).all()
+            (log is None or _loo_rows_from_log(full, log, k))
+            and (train.lengths() == lengths - 2).all()
             and (val.inputs.lengths() == lengths - 2).all()
             and (test.inputs.lengths() == lengths - 1).all(),
             "loo: sequence lengths",
