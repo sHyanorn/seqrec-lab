@@ -116,7 +116,7 @@ GPU work runs on a rented machine, a new one for every batch (D046). A batch is 
 
 ## 10. Compute budget
 
-The total cap is 500 GPU hours on the rented machine (D045; the hours in D012 and D034 were laptop hours). A cap in USD is set once the pilot rerun there has replaced the estimates; until then only M2 work runs, at most 15 GPU hours. METHODS section 12 has the breakdown before measurement and the descoping order.
+The total cap is 500 GPU hours on the rented machine (D045, D047). METHODS section 12 has the breakdown before measurement, under the earlier cap of 200 laptop hours, and the descoping order.
 
 ## 11. Deliverables
 
