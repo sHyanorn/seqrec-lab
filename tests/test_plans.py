@@ -77,7 +77,7 @@ def test_a_tuning_plan_follows_the_registered_procedure(dataset):
         assert (cfg.start_limit, cfg.guard_hours, cfg.max_len) == (300, 8.0, None)
 
 
-@pytest.mark.parametrize("dataset", ["ml-1m", "video-games"])
+@pytest.mark.parametrize("dataset", ["ml-1m", "video-games", "steam"])
 def test_a_final_plan_is_what_its_tuning_studies_generate(dataset, train):
     """METHODS 5.5: the plan is the output of `seqrec final-plan` on the committed studies,
     for its number of leave-one-out seeds, and every arm accepts its parameters."""
