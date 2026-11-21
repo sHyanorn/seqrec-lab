@@ -1,0 +1,166 @@
+{
+ "dataset": "steam",
+ "seeds": [
+  1,
+  2,
+  3,
+  4,
+  5
+ ],
+ "sigma": 0.002646387309290449,
+ "n": 5,
+ "power_directional": 0.9999988202997571,
+ "power_equivalence": 0.9999913319058418,
+ "runs": [
+  {
+   "run_id": "sasrec-bce-steam-loo-s1",
+   "arm": "sasrec-bce",
+   "seed": 1,
+   "validation_ndcg@10": 0.05984088636575657
+  },
+  {
+   "run_id": "sasrec-bce-steam-loo-s2",
+   "arm": "sasrec-bce",
+   "seed": 2,
+   "validation_ndcg@10": 0.05942576753934116
+  },
+  {
+   "run_id": "sasrec-bce-steam-loo-s3",
+   "arm": "sasrec-bce",
+   "seed": 3,
+   "validation_ndcg@10": 0.05989361396160096
+  },
+  {
+   "run_id": "sasrec-bce-steam-loo-s4",
+   "arm": "sasrec-bce",
+   "seed": 4,
+   "validation_ndcg@10": 0.059666472937004035
+  },
+  {
+   "run_id": "sasrec-bce-steam-loo-s5",
+   "arm": "sasrec-bce",
+   "seed": 5,
+   "validation_ndcg@10": 0.059807044597954974
+  },
+  {
+   "run_id": "sasrec-ce-steam-loo-s1",
+   "arm": "sasrec-ce",
+   "seed": 1,
+   "validation_ndcg@10": 0.0774849912768307
+  },
+  {
+   "run_id": "sasrec-ce-steam-loo-s2",
+   "arm": "sasrec-ce",
+   "seed": 2,
+   "validation_ndcg@10": 0.07740375344468016
+  },
+  {
+   "run_id": "sasrec-ce-steam-loo-s3",
+   "arm": "sasrec-ce",
+   "seed": 3,
+   "validation_ndcg@10": 0.07731317310801887
+  },
+  {
+   "run_id": "sasrec-ce-steam-loo-s4",
+   "arm": "sasrec-ce",
+   "seed": 4,
+   "validation_ndcg@10": 0.07786481870394413
+  },
+  {
+   "run_id": "sasrec-ce-steam-loo-s5",
+   "arm": "sasrec-ce",
+   "seed": 5,
+   "validation_ndcg@10": 0.07741536181998063
+  },
+  {
+   "run_id": "sasrec-ss-steam-loo-s1",
+   "arm": "sasrec-ss",
+   "seed": 1,
+   "validation_ndcg@10": 0.0763622909864246
+  },
+  {
+   "run_id": "sasrec-ss-steam-loo-s2",
+   "arm": "sasrec-ss",
+   "seed": 2,
+   "validation_ndcg@10": 0.07595414194727086
+  },
+  {
+   "run_id": "sasrec-ss-steam-loo-s3",
+   "arm": "sasrec-ss",
+   "seed": 3,
+   "validation_ndcg@10": 0.07598258060623066
+  },
+  {
+   "run_id": "sasrec-ss-steam-loo-s4",
+   "arm": "sasrec-ss",
+   "seed": 4,
+   "validation_ndcg@10": 0.075833447480182
+  },
+  {
+   "run_id": "sasrec-ss-steam-loo-s5",
+   "arm": "sasrec-ss",
+   "seed": 5,
+   "validation_ndcg@10": 0.07574824711877463
+  },
+  {
+   "run_id": "gsasrec-steam-loo-s1",
+   "arm": "gsasrec",
+   "seed": 1,
+   "validation_ndcg@10": 0.07649527383850144
+  },
+  {
+   "run_id": "gsasrec-steam-loo-s2",
+   "arm": "gsasrec",
+   "seed": 2,
+   "validation_ndcg@10": 0.07659603440649347
+  },
+  {
+   "run_id": "gsasrec-steam-loo-s3",
+   "arm": "gsasrec",
+   "seed": 3,
+   "validation_ndcg@10": 0.07654691787248602
+  },
+  {
+   "run_id": "gsasrec-steam-loo-s4",
+   "arm": "gsasrec",
+   "seed": 4,
+   "validation_ndcg@10": 0.07664363389448371
+  },
+  {
+   "run_id": "gsasrec-steam-loo-s5",
+   "arm": "gsasrec",
+   "seed": 5,
+   "validation_ndcg@10": 0.07676782809491131
+  },
+  {
+   "run_id": "bert4rec-steam-loo-s1",
+   "arm": "bert4rec",
+   "seed": 1,
+   "validation_ndcg@10": 0.0758662643052013
+  },
+  {
+   "run_id": "bert4rec-steam-loo-s2",
+   "arm": "bert4rec",
+   "seed": 2,
+   "validation_ndcg@10": 0.07598992238504204
+  },
+  {
+   "run_id": "bert4rec-steam-loo-s3",
+   "arm": "bert4rec",
+   "seed": 3,
+   "validation_ndcg@10": 0.07577585036788062
+  },
+  {
+   "run_id": "bert4rec-steam-loo-s4",
+   "arm": "bert4rec",
+   "seed": 4,
+   "validation_ndcg@10": 0.07549251827653194
+  },
+  {
+   "run_id": "bert4rec-steam-loo-s5",
+   "arm": "bert4rec",
+   "seed": 5,
+   "validation_ndcg@10": 0.0758417287371544
+  }
+ ]
+}
