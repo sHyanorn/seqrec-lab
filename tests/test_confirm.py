@@ -198,6 +198,31 @@ def test_the_timing_repeat_leaves_out_flagged_runs():
     assert len(by_name(outcomes, confirm.UNFLAGGED)) == 12
 
 
+def test_the_timing_repeat_is_not_run_where_every_run_of_an_arm_is_flagged():
+    """D068: with every A1 run on Steam flagged for its clock, the repeat has no A1 times
+    there. It is not made on that dataset and has no rows; the primary analysis and the
+    repeat on the other datasets stay as they are. The analysis used to stop on the empty
+    group."""
+    rows = [*final_rows(), *final_rows("steam")]
+    for r in rows:
+        if (r["dataset"], r["arm"], r["split"], r["shuffle"]) == ("steam", A1, "loo", "none"):
+            r["sm_mhz_median"] = "1899.0"
+    sigma = {"ml-1m": SIGMA, "steam": SIGMA}
+    assert confirm.unrun_repeats(rows, clock=2000.0) == {"steam": [A1]}
+    assert confirm.unrun_repeats(rows) == {}  # no clock to compare with
+    outcomes = confirm.analyze(rows, sigma, clock=2000.0)
+    repeat = by_name(outcomes, confirm.UNFLAGGED)
+    assert len(repeat) == 9 and {name.split()[1] for name in repeat} == {
+        "ml-1m", "ml-20m", "video-games",
+    }  # fmt: skip
+    assert by_name(outcomes)[f"F6 steam {A2} vs {A1}"].p == pytest.approx(1 / 252)
+    alone = by_name(
+        confirm.analyze(final_rows(), {"ml-1m": SIGMA}, clock=2000.0), confirm.UNFLAGGED
+    )
+    for name, o in repeat.items():
+        assert (o.p, o.status) == (alone[name].p, alone[name].status)
+
+
 def test_a_second_run_in_the_group_is_refused_not_taken_silently():
     """A group trained again (METHODS 9.4) must not replace the first by the order of files."""
     rows = final_rows()

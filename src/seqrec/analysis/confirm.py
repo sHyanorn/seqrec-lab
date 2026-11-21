@@ -184,6 +184,17 @@ def time_group(
     return target, times, flags
 
 
+def unrun_repeats(rows: list[dict], clock: float | None = None) -> dict[str, list[str]]:
+    """The datasets whose timing repeat without flagged runs cannot be made, with the arms
+    that have no unflagged run left (D068)."""
+    out = {}
+    for dataset in sorted({r["dataset"] for r in rows}):
+        _, _, flags = time_group(rows, dataset, clock)
+        if arms := [arm for arm, flagged in flags.items() if all(flagged)]:
+            out[dataset] = arms
+    return out
+
+
 def _time_outcome(variant: str, c: families.Comparison, times: Mapping[str, list]) -> Outcome:
     a, b = times[c.a], times[c.b]
     return Outcome(
@@ -205,7 +216,8 @@ def analyze(
     holds, per dataset and arm, the values that estimate pooled, and gives each comparison
     with a power function its supplementary power (D055). A run that is trained and not
     tested yet stops the analysis: it comes after the test reads. Runs that failed, or
-    diverged without a checkpoint (D031), stay out of their groups."""
+    diverged without a checkpoint (D031), stay out of their groups. The timing repeat is not
+    run, and has no rows, for a dataset where every run of an arm is flagged (D068)."""
     waiting = [r for r in rows if not r["tag"] and r["status"] in ("trained", "unfinished")]
     if waiting:
         raise ValueError(f"{waiting[0]['run_id']} is {waiting[0]['status']}, not tested")
@@ -218,14 +230,15 @@ def analyze(
             arm: [t for t, flag in zip(ts, flags[arm], strict=True) if not flag]
             for arm, ts in every.items()
         }
+    unrun = unrun_repeats(rows, clock)
     out: list[Outcome] = []
     for variant, split, metric, names in VARIANTS:
         groups = quality(rows, split, metric)
         for name in names:
             members = []
             for c in families.family(name):
-                if c.dataset not in present:
-                    members.append(Outcome(variant, c))
+                if c.dataset not in present or (variant == UNFLAGGED and c.dataset in unrun):
+                    members.append(Outcome(variant, c))  # no p-value, as for a dataset not run
                 elif c.kind == TIME:
                     members.append(_time_outcome(variant, c, times[variant][c.dataset]))
                 else:
@@ -241,7 +254,11 @@ def analyze(
                         pair = pooled_sd([validation[c.dataset][x] for x in (c.a, c.b)])
                     members.append(_quality_outcome(variant, c, a, b, sigma[c.dataset], pair))
             status = inference.holm({o.comparison.name: o.p for o in members})
-            out += [replace(o, status=status[o.comparison.name]) for o in members]
+            out += [
+                replace(o, status=status[o.comparison.name])
+                for o in members
+                if variant != UNFLAGGED or o.comparison.dataset not in unrun
+            ]  # a repeat that is not run has no rows
     return out
 
 
@@ -419,6 +436,10 @@ def report(paths: Sequence[Path], out_dir: Path) -> str:
         f"{d}: Kendall tau of arm rankings, leave-one-out and temporal split: "
         f"{rank_agreement(rows, d):.2f}"
         for d in datasets
+    ]
+    lines += [
+        f"timing repeat on {d} not run: every run of {' and '.join(arms)} is flagged"
+        for d, arms in unrun_repeats(rows, clock).items()
     ]
     for hypothesis in ("H1a", "H1b"):  # METHODS 7.4: the count of datasets supporting each
         results = [c["result"] for c in concluded if c["question"] == hypothesis]
