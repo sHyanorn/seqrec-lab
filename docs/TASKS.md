@@ -76,12 +76,12 @@ Before M3 tuning starts
 - [ ] Tuning batches per dataset (leave-one-out): MovieLens-1M (D052), Video_Games (D057) and Steam (D066) done
 - [x] After the first gSASRec study: read the share of trials that start, and decide whether `no_start` trials need another treatment in TPE (D044): 12 of 20 started on MovieLens-1M (D052); the owner kept the rule as it is (D044)
 - [ ] Truncation check per arm; doubled caps where required (METHODS 5.2): MovieLens-1M done, three arms doubled (D052); Video_Games done, three arms doubled (D057); Steam done, five arms doubled (D066)
-- [ ] Final runs on leave-one-out and the temporal split, seeds per METHODS 7.5: MovieLens-1M done, 99 runs with ten leave-one-out seeds, each tested once (D053, D054); Video_Games done, 65 runs with six leave-one-out seeds, each tested once (D058, D062, D063); Steam on the tuning Pod and a new Pod (D065), plan with five leave-one-out seeds
-- [ ] Re-estimate σ after 5 seeds per dataset and add seeds if the rule requires: MovieLens-1M done, n = 10 (D053); Video_Games done, n = 6 (D062)
-- [ ] Shuffled-order control runs (D017): MovieLens-1M done (D054); Video_Games done (D063)
-- [ ] Export and push aggregated results: MovieLens-1M done, with its confirmatory analysis (D054, docs/RESULTS.md); Video_Games done, with its confirmatory analysis (D063, docs/RESULTS.md)
+- [ ] Final runs on leave-one-out and the temporal split, seeds per METHODS 7.5: MovieLens-1M done, 99 runs with ten leave-one-out seeds, each tested once (D053, D054); Video_Games done, 65 runs with six leave-one-out seeds, each tested once (D058, D062, D063); Steam done, 59 runs with five leave-one-out seeds, each tested once (D065, D067, D069)
+- [ ] Re-estimate σ after 5 seeds per dataset and add seeds if the rule requires: MovieLens-1M done, n = 10 (D053); Video_Games done, n = 6 (D062); Steam done, n = 5 (D067)
+- [ ] Shuffled-order control runs (D017): MovieLens-1M done (D054); Video_Games done (D063); Steam done (D069)
+- [ ] Export and push aggregated results: MovieLens-1M done, with its confirmatory analysis (D054, docs/RESULTS.md); Video_Games done, with its confirmatory analysis (D063, docs/RESULTS.md); Steam done, with its confirmatory analysis (D069, docs/RESULTS.md)
 - [x] Supplementary power per comparison, outside every decision (D055)
-- [ ] Two-level bootstrap of METHODS 7.6 per dataset, computed on the volume: code done (D056); MovieLens-1M done (`results/analysis/bootstrap-m3-final-ml-1m.csv`, D054); Video_Games done (`results/analysis/bootstrap-m3-final-video-games.csv`, D063)
+- [ ] Two-level bootstrap of METHODS 7.6 per dataset, computed on the volume: code done (D056); MovieLens-1M done (`results/analysis/bootstrap-m3-final-ml-1m.csv`, D054); Video_Games done (`results/analysis/bootstrap-m3-final-video-games.csv`, D063); Steam done (`results/analysis/bootstrap-m3-final-steam.csv`, D069)
 - [x] Leave-one-out rows compared with the source log (D060)
 - [x] Seed count checked against the committed estimate before a final test read (D064)
 - [ ] Silent-error review and whole-diff review
