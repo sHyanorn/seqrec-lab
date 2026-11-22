@@ -1,40 +1,70 @@
 # Results
 
-Confirmatory results per dataset, under the tests, families and thresholds of METHODS 7 and 8 and the reporting rules of D051. Every number below comes from the tables in `results/analysis/` (`tests.csv`, `conclusions.csv`, `arms.csv`, `times.csv` and the bootstrap tables `bootstrap-<batch>.csv`) or from the batch files in `results/runs/`. The four tables are written by `seqrec analyze results/runs/m3-tune-ml-1m.csv results/runs/m3-final-ml-1m.csv results/runs/m3-tune-video-games.csv results/runs/m3-final-video-games.csv results/runs/m3-tune-steam.csv results/runs/m3-final-steam.csv --out-dir results/analysis`; the tuning files enter only the median SM clock that flags a run.
+## Summary
 
-## Reading the statuses
+Confirmatory results of milestone M3 on MovieLens-1M, Video_Games and Steam, under METHODS 7 and 8 and the reporting rules of D051. MovieLens-20M has not run: every registered test on it is pending.
 
-- Holm's correction uses the registered size of a family over all four datasets (METHODS 7.4). MovieLens-1M, Video_Games and Steam have final runs.
-- A comparison is **rejected** if Holm rejects it whatever the remaining datasets give, **not rejected** if Holm cannot reject it whatever they give, and **pending** otherwise (D051). A hypothesis or gap class is pending while a comparison it depends on can still change it. Nothing pending is a result.
-- A dataset's runs can decide a pending comparison on another dataset of the same family. With the Video_Games runs, one MovieLens-1M comparison went from pending to rejected (HR@10, under Robustness); no other MovieLens-1M status changed. With the Steam runs, four comparisons changed and no p-value did. On MovieLens-1M, the F1 comparison of gSASRec with BERT4Rec went from pending to rejected, so the published gap G2 went from pending to confirmed, and the HR@10 comparisons of BERT4Rec with SASRec-BCE and of gSASRec with BERT4Rec went from pending to not rejected (under Robustness). On Video_Games, the temporal-split comparison of gSASRec with SASRec-CE went from pending to not rejected. No other status or conclusion on these two datasets changed.
-- MovieLens-20M has no final runs, so every comparison, hypothesis and gap class on it is pending.
-- Counts required by METHODS 7.4: H1a is supported on 1 dataset and pending on 1 (MovieLens-20M); H1b is supported on 2 (Video_Games, Steam) and pending on 2.
+SASRec with full cross-entropy (SASRec-CE) is above SASRec-BCE in mean NDCG@10 by 34.3% on MovieLens-1M, 39.7% on Video_Games and 26.5% on Steam (smallest effect of interest, SESOI: 2%), and above BERT4Rec by 19.5%, 22.8% and 2.9%. The published gap G3, SASRec-CE ahead of BERT4Rec, is confirmed on MovieLens-1M. On Steam its published sign is negative, BERT4Rec ahead; the observed difference is +2.9% and the directional test rejects, so G3 is reversed there, and so is G2 (gSASRec against BERT4Rec, +1.5%). gSASRec is below SASRec-CE on all three datasets (-4.1%, -8.0%, -1.3%), and sampled softmax and gBCE are not shown equivalent to full cross-entropy on any. SASRec-CE reaches the validation target sooner than the other three arms on MovieLens-1M and Steam (H2a) and not on Video_Games (SASRec-SS, p = 0.210).
+
+The main limit is power on MovieLens-1M: one BERT4Rec run lies apart from the others, every directional and equivalence comparison there is underpowered, and a non-rejection does not show the absence of an effect (note 1). Other limits are under Limits.
+
+| Hypothesis | MovieLens-1M | Video_Games | Steam | MovieLens-20M |
+|---|---|---|---|---|
+| H1a: SASRec-CE not below BERT4Rec by more than the SESOI | supported | not registered | not registered | pending |
+| H1b: SASRec-CE, gSASRec, BERT4Rec each above SASRec-BCE by more than the SESOI | pending | supported | supported | pending |
+| H2a: SASRec-CE reaches the target before SASRec-BCE, SASRec-SS and gSASRec | supported | not supported | supported | pending |
+| H2b: sampled softmax equivalent to full cross-entropy within the SESOI | not supported | not supported | not supported | pending |
+| H2b: gBCE equivalent to full cross-entropy within the SESOI | not supported | not supported | not supported | pending |
+| H2b: BCE with one negative worse than full cross-entropy by more than the SESOI | supported | supported | supported | pending |
+| F4: shuffled order drops SASRec-CE by more than the SESOI | supported | supported | supported | pending |
+| F4: shuffled order drops BERT4Rec by more than the SESOI | supported | not registered | not registered | pending |
+| G1: BERT4Rec above SASRec-BCE | pending | not registered | confirmed | pending |
+| G2: gSASRec above BERT4Rec | confirmed | not registered | reversed | not registered |
+| G3: SASRec-CE above BERT4Rec | confirmed | not registered | reversed | pending |
+
+Not registered: METHODS 7.4 registers H1a on the two MovieLens datasets only, METHODS 3.3 the BERT4Rec shuffle control on the two MovieLens datasets only, and METHODS 7.3 lists a published sign for a gap only where its table gives one. H1a is supported on 1 dataset and pending on 1 (MovieLens-20M); H1b is supported on 2 (Video_Games, Steam) and pending on 2 (METHODS 7.4).
+
+## How to read
+
+**Statuses (D051).** Holm's step-down correction for multiple comparisons uses the registered size of each family over all four datasets (METHODS 7.4), so the missing p-values of MovieLens-20M leave some comparisons undecided. A comparison is **rejected** if Holm rejects it whatever the missing p-values are, **not rejected** if Holm cannot reject it whatever they are, and **pending** otherwise. A hypothesis or gap class is pending while a comparison it depends on is. The Holm steps section gives the borderline cases.
+
+**Tables.** Leave-one-out is the primary analysis. Differences are in mean log NDCG@10, shown as relative differences with a descriptive 95% Welch interval. The temporal split and the HR@10 repeats of F1 and F2 (METHODS 7.6) support no confirmatory claim (METHODS 7.4). Quality tables give means over seeds with standard deviations in brackets. `arms.csv` adds NDCG@20, HR@20, truncation shares (0 for every neural arm; none for MostPop and Transition, whose stop reason `converged` is outside the share, D061) and tie rates.
+
+**Time to target (F6).** The group of METHODS 9.4 is seeds 1 to 5 of the four SASRec-backbone arms on one Pod. The target is 0.95 times SASRec-CE's mean best validation NDCG@10; a run that never reaches it is censored.
+
+**Bootstrap.** The two-level percentile bootstrap (METHODS 7.6, D056) runs on leave-one-out NDCG@10 with 10,000 resamples, from the per-user ranks that the final runs kept from their test reads (D051). Each resample draws the test users once for all arms, pairing them by user, and each arm's runs with replacement. The estimates are those of the primary analysis; the intervals are descriptive.
+
+**Sources.** Every number comes from `results/analysis/` (`tests.csv`, `conclusions.csv`, `arms.csv`, `times.csv`, `bootstrap-<batch>.csv`) or from the batch files in `results/runs/`. `seqrec analyze results/runs/m3-tune-ml-1m.csv results/runs/m3-final-ml-1m.csv results/runs/m3-tune-video-games.csv results/runs/m3-final-video-games.csv results/runs/m3-tune-steam.csv results/runs/m3-final-steam.csv --out-dir results/analysis` writes the first four; the tuning files enter only the median SM clock that flags a run. `seqrec bootstrap` writes the bootstrap tables.
+
+## Notes
+
+1. **Power.** The registered power at the SESOI uses the dataset's pooled σ of log validation NDCG@10 (METHODS 7.5). A comparison with power below 0.8 is labelled **underpowered**. A non-rejection is never read as the absence of an effect. `tests.csv` also gives a supplementary power at the σ of each comparison's own two arms; it enters no status or label (D055).
+
+   | Dataset | Pooled σ | Leave-one-out seeds | Leave-one-out power, directional / equivalence | Temporal split power (5 seeds), directional / equivalence | Labelled underpowered |
+   |---|---|---|---|---|---|
+   | MovieLens-1M | 0.07703 | 10 | 0.005 / 0.000 | 0.003 / 0.000 | every directional and equivalence comparison |
+   | Video_Games | 0.00638 | 6 | 0.843 / 0.995 | 0.656 / 0.984 | temporal-split directional comparisons |
+   | Steam | 0.00265 | 5 | 1.000 / 1.000 | 1.000 / 1.000 | none |
+
+2. **Anchor reads.** Before the final runs, the anchor reads of METHODS 11.5 read the MovieLens-1M test targets twice for each of SASRec-CE, SASRec-BCE, BERT4Rec and gSASRec (D032). Every RQ1 conclusion on MovieLens-1M carries this note. No other dataset had anchor reads.
+3. **Tests without a power function.** METHODS 7.5 defines none for the non-inferiority and minimum-effect tests, and the time-to-target tests have none (D051).
+4. **Time to target.** D048 found that on small configurations time to target mostly measures launch overhead: the GPU was busy for 0.295 of a step in its configuration 1, SASRec with BCE on Steam. The configurations of this study were not measured: MovieLens-1M was not among them, the measurement stopped before the Video_Games configuration, and the Steam configurations used the pilot's hyperparameters, not those of D066, and stopped during the second. Medians and ratios of medians are descriptive (METHODS 8).
+5. **Flagged runs.** A run is flagged when its median SM clock is more than 5% below the median over all M3 runs (METHODS 8). That median covers the M3 runs exported so far, so the flags are provisional until all four datasets have run (D051). On MovieLens-1M and Video_Games no run of the time-to-target group is flagged. On Steam the five SASRec-BCE runs of the group are flagged, each with a median SM clock of 2550 MHz against the limit of 2650.5 MHz (0.95 × 2790 MHz, the median over the 523 M3 runs exported, D068), and the repeat without flagged runs is not run (D068).
 
 ## MovieLens-1M
 
 ### Runs
 
-- Batch `m3-final-ml-1m`: 99 final runs, all on Pod `mee79yy65ukfve` (RTX 4090, Ryzen 9 7950X), 2.88 GPU hours. Every run trained; none failed, none was truncated.
-- Leave-one-out has ten seeds per neural arm (D053), the temporal split five, and each floor baseline runs once per split.
-- Every run read test data once: 99 runs with one final read, one completion record and no anchor read. The 100 tuning runs of `m3-tune-ml-1m` read test data zero times (METHODS 11.6).
-
-### Notes carried by every statement on this dataset
-
-1. **Anchor reads.** Before these runs, the anchor reads of METHODS 11.5 read the MovieLens-1M test targets twice for each of SASRec-CE, SASRec-BCE, BERT4Rec and gSASRec (D032). Every RQ1 conclusion on MovieLens-1M carries this note.
-2. **Power.** At the σ of this dataset (below) and ten seeds, the registered power at the SESOI is 0.005 for a directional test and 0.000 for an equivalence test; with the five seeds of the temporal split it is 0.003 and 0.000. Every directional and equivalence comparison on this dataset is therefore labelled **underpowered** (METHODS 7.5). A non-rejection is never read as the absence of an effect; rejections count normally. `tests.csv` also gives each of these comparisons a supplementary power at the σ of its own two arms; it enters no status or label (D055).
-3. **One-sided tests.** METHODS 7.5 defines no power function for the non-inferiority and minimum-effect tests, so they report no power (D051). The time-to-target tests have none either.
-4. **Time to target.** D048 found that on small configurations time to target mostly measures launch overhead (the GPU was busy for 0.295 of a step in its configuration 1, SASRec with BCE on Steam). MovieLens-1M was not among the configurations measured there.
-5. **Flagged runs.** The repeat of the timing analysis without flagged runs uses the median SM clock of the M3 runs exported so far, so it is provisional until all four datasets have run (D051).
+- Batch `m3-final-ml-1m`: 99 final runs on Pod `mee79yy65ukfve` (RTX 4090, Ryzen 9 7950X), 2.88 GPU hours; none failed or was truncated. Neural arms have ten seeds on leave-one-out (D053) and five on the temporal split. Each run has one final read, one completion record and no anchor read; the 100 tuning runs read none (METHODS 11.6).
 
 ### Seed variance
 
 - Standard deviation of log validation NDCG@10 over seeds 1 to 5: BERT4Rec 0.17128, SASRec-SS 0.01298, gSASRec 0.00931, SASRec-CE 0.00814, SASRec-BCE 0.00359. Pooled σ = 0.07703 (D053).
-- BERT4Rec accounts for 98.9% of the pooled variance. Its five validation NDCG@10 values are 0.1692, 0.1174, 0.1724, 0.1729 and 0.1740: one seed, seed 2, lies apart from the other four.
-- On test data the same run has NDCG@10 0.1138; the other nine BERT4Rec runs lie between 0.1632 and 0.1695. The run is a finished run under METHODS 5.2 and enters every analysis (D053).
+- BERT4Rec accounts for 98.9% of the pooled variance. Its validation NDCG@10 is 0.1692, 0.1174, 0.1724, 0.1729 and 0.1740, so seed 2 lies apart. On test data that run has 0.1138 and the other nine BERT4Rec runs lie between 0.1632 and 0.1695. It is a finished run under METHODS 5.2 and enters every analysis (D053).
 
 ### Quality per arm
 
-Mean over seeds, standard deviation in brackets. Leave-one-out:
+Leave-one-out:
 
 | Arm | Runs | Test NDCG@10 | Test HR@10 | Validation NDCG@10 | GPU hours |
 |---|---|---|---|---|---|
@@ -65,11 +95,11 @@ Shuffled-order controls (train-and-evaluate shuffle, leave-one-out):
 | SASRec-CE | 10 | 0.0362 (0.0012) | 0.0751 (0.0024) | 0.0387 (0.0011) | 0.31 |
 | BERT4Rec | 10 | 0.0327 (0.0014) | 0.0683 (0.0029) | 0.0382 (0.0014) | 0.58 |
 
-`arms.csv` adds NDCG@20, HR@20, truncation shares (0 for every neural arm; none for MostPop and Transition, whose stop reason `converged` is outside the share, D061) and tie rates (at most 0.0001 for the neural arms; 0.30 to 0.67 for MostPop and Transition).
+Tie rates: at most 0.0001 for the neural arms, 0.30 to 0.67 for MostPop and Transition.
 
 ### RQ1: differences between arms
 
-Primary analysis, leave-one-out. Differences are in mean log NDCG@10, shown as relative differences; the 95% Welch interval is descriptive (D051). Notes 1 and 2 apply to every row and conclusion of this section.
+Primary analysis, leave-one-out. Notes 1 and 2 apply to every row and conclusion.
 
 | Family | Test | A | B | n | A − B, relative (95% interval) | p | Status |
 |---|---|---|---|---|---|---|---|
@@ -87,14 +117,10 @@ Primary analysis, leave-one-out. Differences are in mean log NDCG@10, shown as r
 | F5 | equivalence | gSASRec | BERT4Rec | 10, 10 | +14.6% (+5.1% to +24.9%) | 0.993 | not rejected |
 | F5 | equivalence | SASRec-CE | BERT4Rec | 10, 10 | +19.5% (+9.6% to +30.3%) | 0.999 | not rejected |
 
-- **F1.** Five of the six directional comparisons are rejected: SASRec-CE and gSASRec are above SASRec-BCE, SASRec-CE is above gSASRec, and SASRec-CE and gSASRec are above BERT4Rec. BERT4Rec against SASRec-BCE is pending. gSASRec against BERT4Rec (p = 0.0059) was pending until the Steam runs. With them in the family and every missing p-value set to 1, it is the 17th smallest of the 18 p-values present, and every Holm step up to it is passed, the 17th at 0.05/8 = 0.00625 (D051).
-- **H1a: supported on MovieLens-1M.** The non-inferiority test of SASRec-CE against BERT4Rec is rejected (p = 2.8e-04, below 0.05/2).
-- **H1b: pending on MovieLens-1M.** SASRec-BCE is below SASRec-CE and below gSASRec by more than the SESOI (both minimum-effect tests rejected). The test against BERT4Rec (p = 0.0158) is pending, so H1b can still end as supported or as not supported on this dataset.
-- **Published gaps** (METHODS 7.3; all three have a published + sign on MovieLens-1M, and all three observed differences have that sign):
-  - G1, BERT4Rec − SASRec-BCE: pending, confirmed or inconclusive.
-  - G2, gSASRec − BERT4Rec: **confirmed**.
-  - G3, SASRec-CE − BERT4Rec: **confirmed**.
-  - No equivalence test of F5 is rejected, so no gap is classed "below SESOI" or "equivalent" on this dataset.
+- **F1.** Five of the six directional comparisons are rejected. BERT4Rec against SASRec-BCE (p = 0.0134) is pending.
+- **H1a: supported.** The non-inferiority test of SASRec-CE against BERT4Rec is rejected (p = 2.8e-04, below 0.05/2).
+- **H1b: pending.** The minimum-effect tests of SASRec-CE and gSASRec against SASRec-BCE are rejected. BERT4Rec's (p = 0.0158) is pending, so H1b can still end as supported or as not supported.
+- **Published gaps** (METHODS 7.3). All three have a published + sign here, and all three observed differences are positive. G2 and G3 are **confirmed**; G1 is pending, confirmed or inconclusive. No F5 test is rejected, so no gap is classed "below SESOI" or "equivalent".
 
 ### RQ2: training objectives on the SASRec backbone
 
@@ -103,11 +129,9 @@ Primary analysis, leave-one-out. Differences are in mean log NDCG@10, shown as r
 | F2 | equivalence | SASRec-SS | SASRec-CE | 10, 10 | -4.1% (-5.2% to -3.1%) | 1.000 | not rejected |
 | F2 | equivalence | gSASRec | SASRec-CE | 10, 10 | -4.1% (-5.0% to -3.1%) | 1.000 | not rejected |
 
-- **H2b, sampled softmax: not supported on MovieLens-1M.** Equivalence with full cross-entropy within the SESOI is not shown (TOST not rejected). The comparison is underpowered (note 2), and the non-rejection alone does not establish a difference. Descriptively, the interval of the difference lies below −2%. No directional test is registered for this pair.
-- **H2b, gBCE: not supported on MovieLens-1M.** Equivalence is not shown (TOST not rejected, underpowered). The registered directional test of this pair in F1 is rejected: gSASRec is below SASRec-CE.
-- **H2b, BCE: supported on MovieLens-1M.** The minimum-effect test of SASRec-CE against SASRec-BCE is rejected: BCE with one negative is worse by more than the SESOI.
+- **H2b: sampled softmax and gBCE not supported, BCE supported.** Neither TOST is rejected, so equivalence with full cross-entropy is not shown; both are underpowered, so this does not establish a difference. The interval of SASRec-SS against SASRec-CE lies below −2%, and gSASRec is below SASRec-CE in F1. The minimum-effect test of SASRec-CE against SASRec-BCE is rejected.
 
-Time to target (F6), the group of METHODS 9.4: seeds 1 to 5 of the four arms, trained on one Pod. The target is validation NDCG@10 0.1960, 0.95 times SASRec-CE's mean best validation NDCG@10 of 0.2063.
+Time to target. The target is validation NDCG@10 0.1960, 0.95 times SASRec-CE's mean best validation NDCG@10 of 0.2063.
 
 | Arm | Runs reaching the target | Times to target (s) | Median (s) |
 |---|---|---|---|
@@ -116,10 +140,7 @@ Time to target (F6), the group of METHODS 9.4: seeds 1 to 5 of the four arms, tr
 | SASRec-SS | 0 of 5 | none | censored |
 | gSASRec | 1 of 5 | 63.5 | censored |
 
-- **H2a: supported on MovieLens-1M**, on this kind of host (Ryzen 9 7950X, 14 CPUs; METHODS 9.4). Each of the three one-sided Mann-Whitney tests of SASRec-CE against SASRec-BCE, SASRec-SS and gSASRec gives p = 1/252 = 0.0040, the smallest attainable value, and is rejected at the strictest Holm step (0.05/12).
-- The three rejections rest on censored runs: 14 of the 15 runs of the other arms never reach the target. Their mean best validation NDCG@10 over seeds 1 to 5 is below it (SASRec-BCE 0.1515, SASRec-SS 0.1921, gSASRec 0.1946). One time is measured outside SASRec-CE, 63.5 s for one gSASRec run against 30.9 to 38.2 s for SASRec-CE.
-- The other arms' medians are censored, so the ratio of medians is not finite. Note 4 applies.
-- No run of the group is flagged, so the repeat without flagged runs gives the same three results; it is provisional (note 5).
+- **H2a: supported.** The three one-sided Mann-Whitney tests of SASRec-CE against SASRec-BCE, SASRec-SS and gSASRec each give p = 1/252 = 0.0040, the smallest attainable value, and are rejected at the strictest Holm step (0.05/12). They rest on censored runs: 14 of the 15 runs of the other arms never reach the target, and their mean best validation NDCG@10 over seeds 1 to 5 is below it (SASRec-BCE 0.1515, SASRec-SS 0.1921, gSASRec 0.1946). One run reaches it, a gSASRec run at 63.5 s against 30.9 to 38.2 s for SASRec-CE. Notes 4 and 5 apply.
 
 ### Shuffled-order control (F4)
 
@@ -128,12 +149,11 @@ Time to target (F6), the group of METHODS 9.4: seeds 1 to 5 of the four arms, tr
 | F4 | minimum effect | SASRec-CE | shuffled SASRec-CE | 10, 10 | +428.2% (+415.4% to +441.3%) | 2.1e-20 | rejected |
 | F4 | minimum effect | BERT4Rec | shuffled BERT4Rec | 10, 10 | +390.4% (+348.7% to +435.9%) | 1.3e-13 | rejected |
 
-- Both controls show the expected drop larger than the SESOI (METHODS 3.3): the control is **supported** for SASRec-CE and for BERT4Rec.
-- Test-only shuffle (descriptive, METHODS 3.3): with shuffled test inputs the unshuffled runs' mean test NDCG@10 is 0.0380 for SASRec-BCE, 0.0415 for SASRec-CE, 0.0412 for SASRec-SS, 0.0412 for gSASRec and 0.0394 for BERT4Rec.
+- Both controls drop by more than the SESOI (METHODS 3.3): **supported** for SASRec-CE and for BERT4Rec. With shuffled test inputs (descriptive, METHODS 3.3) the unshuffled runs' mean test NDCG@10 is 0.0380 for SASRec-BCE, 0.0415 for SASRec-CE, 0.0412 for SASRec-SS, 0.0412 for gSASRec and 0.0394 for BERT4Rec.
 
 ### Secondary: temporal split
 
-Five seeds per arm. These results are secondary and support no confirmatory claim (METHODS 7.4); each family is corrected on its own, and every directional and equivalence comparison is underpowered (note 2).
+Every directional and equivalence comparison is underpowered (note 1).
 
 | Family | Test | A | B | n | A − B, relative (95% interval) | p | Status |
 |---|---|---|---|---|---|---|---|
@@ -153,11 +173,9 @@ Five seeds per arm. These results are secondary and support no confirmatory clai
 | F2 | equivalence | SASRec-SS | SASRec-CE | 5, 5 | +1.9% (-2.5% to +6.6%) | 0.480 | not rejected |
 | F2 | equivalence | gSASRec | SASRec-CE | 5, 5 | -2.3% (-7.3% to +2.9%) | 0.567 | not rejected |
 
-Kendall's τ between the arm rankings by mean log NDCG@10 on leave-one-out and on the temporal split, over the five neural arms, is 0.60. The rankings are SASRec-CE, gSASRec, SASRec-SS, BERT4Rec, SASRec-BCE on leave-one-out and SASRec-SS, SASRec-CE, gSASRec, BERT4Rec, SASRec-BCE on the temporal split.
+Kendall's τ between the arm rankings on leave-one-out and on the temporal split, over the five neural arms, is 0.60.
 
 ### Robustness
-
-F1 and F2 repeated on log HR@10 (METHODS 7.6), leave-one-out, corrected within their own families; no confirmatory claim:
 
 | Family | Test | A | B | n | A − B, relative (95% interval) | p | Status |
 |---|---|---|---|---|---|---|---|
@@ -170,11 +188,8 @@ F1 and F2 repeated on log HR@10 (METHODS 7.6), leave-one-out, corrected within t
 | F2 | equivalence | SASRec-SS | SASRec-CE | 10, 10 | -3.7% (-4.7% to -2.7%) | 0.999 | not rejected |
 | F2 | equivalence | gSASRec | SASRec-CE | 10, 10 | -2.8% (-3.7% to -1.9%) | 0.966 | not rejected |
 
-- Six of the eight statuses match the primary analysis. BERT4Rec against SASRec-BCE (p = 0.0172) is not rejected here and pending in the primary analysis; gSASRec against BERT4Rec (p = 0.0126) is not rejected here and rejected there. Both were pending until the Steam runs. A comparison is not rejected if Holm does not reject it with every missing p-value set to 0 (D051); the missing ones are the six of MovieLens-20M in F1. With them at 0, the 21st step of F1 is gSASRec against BERT4Rec on this dataset, p = 0.01256 (0.0126 in the table) against 0.05/4 = 0.0125. Holm stops there, so that comparison and every one with a larger p-value are not rejected: BERT4Rec against SASRec-BCE here, and gSASRec against BERT4Rec and against SASRec-CE on Steam.
-- The comparison of SASRec-CE with BERT4Rec was pending with the MovieLens-1M runs alone and has been rejected since the Video_Games runs; its p-value, 0.0031, is unchanged. A comparison is rejected if Holm rejects it with every missing p-value set to 1 (D051). With MovieLens-1M alone this p-value was the 4th smallest of the family's 24 registered tests, with threshold 0.05/21 = 0.0024. With the Video_Games and Steam p-values it is the 14th smallest of the 18 present, with threshold 0.05/11 = 0.0045, and every smaller p-value passes its step.
-- The timing repeat without flagged runs is reported under RQ2.
-
-Two-level percentile bootstrap (METHODS 7.6, D056), leave-one-out, NDCG@10. Each of 10,000 resamples draws the 6,040 test users with replacement once for all arms, so arms are paired by user, and draws each arm's ten runs with replacement. It was computed on the volume from the per-user ranks that the leave-one-out final runs kept from their test reads (D051); the table is `results/analysis/bootstrap-m3-final-ml-1m.csv`. The estimates are those of the primary analysis. The intervals are descriptive; the tests of the primary analysis decide.
+- Six of the eight statuses match the primary analysis. BERT4Rec against SASRec-BCE (p = 0.0172) is not rejected here and pending there; gSASRec against BERT4Rec (p = 0.0126) is not rejected here and rejected there (Holm steps).
+- Bootstrap: 6,040 test users and ten runs per arm, `results/analysis/bootstrap-m3-final-ml-1m.csv`.
 
 | Family | Test | A | B | n | A − B, relative (95% bootstrap interval) |
 |---|---|---|---|---|---|
@@ -187,26 +202,11 @@ Two-level percentile bootstrap (METHODS 7.6, D056), leave-one-out, NDCG@10. Each
 | F2 | equivalence | SASRec-SS | SASRec-CE | 10, 10 | -4.1% (-5.9% to -2.4%) |
 | F2 | equivalence | gSASRec | SASRec-CE | 10, 10 | -4.1% (-5.8% to -2.3%) |
 
-- The seed-level resampling understates uncertainty (METHODS 7.6, written for 5 seeds): with five to ten seeds per arm, here ten, drawing seeds with replacement understates the variation between runs (D056).
-
-### Not reported yet
-
-- Peak memory and step time of plain against chunked cross-entropy (METHODS 8).
-
 ## Video_Games
 
 ### Runs
 
-- Batch `m3-final-video-games`: 65 final runs, all on Pod `egop2ngfe0fk1i` (RTX 4090, Ryzen 9 7950X), the Pod of the tuning batch (D058), 28.50 GPU hours. Every run trained; none failed, none was truncated.
-- Leave-one-out has six seeds per neural arm (D062), the temporal split five, and each floor baseline runs once per split.
-- Every run read test data once: 65 runs with one final read, one completion record and no anchor read. The 100 tuning runs of `m3-tune-video-games` read test data zero times (METHODS 11.6). The anchor reads of METHODS 11.5 were made on MovieLens-1M only.
-
-### Notes carried by every statement on this dataset
-
-1. **Power.** At the σ of this dataset (below) and six seeds, the registered power at the SESOI is 0.843 for a directional test and 0.995 for an equivalence test, so no leave-one-out comparison on this dataset is labelled underpowered. With the five seeds of the temporal split it is 0.656 and 0.984: the directional comparisons of the temporal split are labelled **underpowered** (METHODS 7.5) and its equivalence comparisons are not. `tests.csv` also gives each of these comparisons a supplementary power at the σ of its own two arms; it enters no status or label (D055).
-2. **One-sided tests.** METHODS 7.5 defines no power function for the minimum-effect tests, so they report no power (D051). The time-to-target tests have none either.
-3. **Time to target.** D048 found that on small configurations time to target mostly measures launch overhead (the GPU was busy for 0.295 of a step in its configuration 1, SASRec with BCE on Steam). Its Video_Games configuration was not measured: the measurement stopped before it.
-4. **Flagged runs.** The repeat of the timing analysis without flagged runs uses the median SM clock of the M3 runs exported so far, so it is provisional until all four datasets have run (D051).
+- Batch `m3-final-video-games`: 65 final runs on Pod `egop2ngfe0fk1i` (RTX 4090, Ryzen 9 7950X), the Pod of the tuning batch (D058), 28.50 GPU hours; none failed or was truncated. Neural arms have six seeds on leave-one-out (D062) and five on the temporal split. Each run has one final read, one completion record and no anchor read; the 100 tuning runs read none (METHODS 11.6).
 
 ### Seed variance
 
@@ -214,7 +214,7 @@ Two-level percentile bootstrap (METHODS 7.6, D056), leave-one-out, NDCG@10. Each
 
 ### Quality per arm
 
-Mean over seeds, standard deviation in brackets. Leave-one-out:
+Leave-one-out:
 
 | Arm | Runs | Test NDCG@10 | Test HR@10 | Validation NDCG@10 | GPU hours |
 |---|---|---|---|---|---|
@@ -244,11 +244,11 @@ Shuffled-order control (train-and-evaluate shuffle, leave-one-out):
 |---|---|---|---|---|---|
 | SASRec-CE | 6 | 0.0366 (0.0002) | 0.0683 (0.0006) | 0.0460 (0.0002) | 0.35 |
 
-`arms.csv` adds NDCG@20, HR@20, truncation shares (0 for every neural arm; none for MostPop and Transition, whose stop reason `converged` is outside the share, D061) and tie rates (0.0181 for BERT4Rec on the temporal split and at most 0.0007 for the other neural arms; 0.43 to 0.89 for MostPop and Transition).
+Tie rates: 0.0181 for BERT4Rec on the temporal split and at most 0.0007 for the other neural arms, 0.43 to 0.89 for MostPop and Transition.
 
 ### RQ1: differences between arms
 
-Primary analysis, leave-one-out. Differences are in mean log NDCG@10, shown as relative differences; the 95% Welch interval is descriptive (D051). Notes 1 and 2 apply to every row and conclusion of this section.
+Primary analysis, leave-one-out. Note 1 applies to every row and conclusion.
 
 | Family | Test | A | B | n | A − B, relative (95% interval) | p | Status |
 |---|---|---|---|---|---|---|---|
@@ -262,10 +262,8 @@ Primary analysis, leave-one-out. Differences are in mean log NDCG@10, shown as r
 | F1-ME | minimum effect | gSASRec | SASRec-BCE | 6, 6 | +28.6% (+27.1% to +30.0%) | 4.7e-10 | rejected |
 | F1-ME | minimum effect | BERT4Rec | SASRec-BCE | 6, 6 | +13.8% (+12.2% to +15.5%) | 6.1e-09 | rejected |
 
-- **F1.** All six directional comparisons are rejected. Together they order the four arms, from highest to lowest, as SASRec-CE, gSASRec, BERT4Rec, SASRec-BCE.
-- **H1a** is registered on the two MovieLens datasets only (METHODS 7.4); Video_Games has no non-inferiority test.
-- **H1b: supported on Video_Games.** The three minimum-effect tests are rejected: SASRec-CE, gSASRec and BERT4Rec are each above SASRec-BCE by more than the SESOI.
-- **Published gaps:** METHODS 7.3 lists no published sign on Video_Games, so this dataset has no gap class and no F5 test.
+- **F1.** All six directional comparisons are rejected. They order the four arms, from highest to lowest, as SASRec-CE, gSASRec, BERT4Rec, SASRec-BCE.
+- **H1b: supported.** The three minimum-effect tests are rejected.
 
 ### RQ2: training objectives on the SASRec backbone
 
@@ -274,11 +272,9 @@ Primary analysis, leave-one-out. Differences are in mean log NDCG@10, shown as r
 | F2 | equivalence | SASRec-SS | SASRec-CE | 6, 6 | -4.8% (-5.7% to -4.0%) | 1.000 | not rejected |
 | F2 | equivalence | gSASRec | SASRec-CE | 6, 6 | -8.0% (-8.4% to -7.5%) | 1.000 | not rejected |
 
-- **H2b, sampled softmax: not supported on Video_Games.** Equivalence with full cross-entropy within the SESOI is not shown (TOST not rejected), and the test is not underpowered (note 1). Descriptively, the interval of the difference lies below −2%. No directional test is registered for this pair.
-- **H2b, gBCE: not supported on Video_Games.** Equivalence is not shown (TOST not rejected, not underpowered). The registered directional test of this pair in F1 is rejected: gSASRec is below SASRec-CE.
-- **H2b, BCE: supported on Video_Games.** The minimum-effect test of SASRec-CE against SASRec-BCE is rejected: BCE with one negative is worse by more than the SESOI.
+- **H2b: sampled softmax and gBCE not supported, BCE supported.** Neither TOST is rejected, so equivalence with full cross-entropy is not shown, and neither test is underpowered. The interval of SASRec-SS against SASRec-CE lies below −2%, and gSASRec is below SASRec-CE in F1. The minimum-effect test of SASRec-CE against SASRec-BCE is rejected.
 
-Time to target (F6), the group of METHODS 9.4: seeds 1 to 5 of the four arms, trained on one Pod. The target is validation NDCG@10 0.0670, 0.95 times SASRec-CE's mean best validation NDCG@10 of 0.0705.
+Time to target. The target is validation NDCG@10 0.0670, 0.95 times SASRec-CE's mean best validation NDCG@10 of 0.0705.
 
 | Arm | Runs reaching the target | Times to target (s) | Median (s) |
 |---|---|---|---|
@@ -287,10 +283,8 @@ Time to target (F6), the group of METHODS 9.4: seeds 1 to 5 of the four arms, tr
 | SASRec-SS | 4 of 5 | 25.5, 28.0, 33.9, 36.7 | 33.9 |
 | gSASRec | 0 of 5 | none | censored |
 
-- **H2a: not supported on Video_Games**, on this kind of host (Ryzen 9 7950X, 14 CPUs; METHODS 9.4). The one-sided Mann-Whitney tests of SASRec-CE against SASRec-BCE and against gSASRec each give p = 1/252 = 0.0040, below the strictest Holm step (0.05/12), and are rejected. The test against SASRec-SS gives p = 0.210, above 0.05, so no Holm step can reject it: it is not rejected.
-- No run of SASRec-BCE or gSASRec reaches the target: the best validation NDCG@10 of each of their runs with seeds 1 to 5 is below it (means 0.0494 and 0.0650). Their medians are therefore censored and their ratios of medians are not finite.
-- Four of the five SASRec-SS runs reach the target; its mean best validation NDCG@10 over seeds 1 to 5 is 0.0674. Its median time is 33.9 s against 29.7 s for SASRec-CE, a ratio of 1.14, outside the 6.84% within which METHODS 9.4 reports no difference measured. The medians and their ratio are descriptive (METHODS 8). Note 3 applies.
-- No run of the group is flagged, so the repeat without flagged runs gives the same three results; it is provisional (note 4).
+- **H2a: not supported.** The tests of SASRec-CE against SASRec-BCE and against gSASRec each give p = 1/252 = 0.0040, below the strictest Holm step (0.05/12), and are rejected. The test against SASRec-SS gives p = 0.210, above 0.05, so no Holm step can reject it.
+- No run of SASRec-BCE or gSASRec reaches the target (mean best validation NDCG@10 over seeds 1 to 5: 0.0494 and 0.0650), so their medians are censored. Four of five SASRec-SS runs reach it (mean 0.0674). Its median time is 33.9 s against 29.7 s for SASRec-CE, a ratio of 1.14, outside the 6.84% within which METHODS 9.4 reports no difference measured. Notes 4 and 5 apply.
 
 ### Shuffled-order control (F4)
 
@@ -298,12 +292,11 @@ Time to target (F6), the group of METHODS 9.4: seeds 1 to 5 of the four arms, tr
 |---|---|---|---|---|---|---|---|
 | F4 | minimum effect | SASRec-CE | shuffled SASRec-CE | 6, 6 | +67.8% (+66.7% to +68.9%) | 8.1e-16 | rejected |
 
-- The control shows the expected drop larger than the SESOI (METHODS 3.3): it is **supported** for SASRec-CE. METHODS 3.3 registers the BERT4Rec control on the two MovieLens datasets only.
-- Test-only shuffle (descriptive, METHODS 3.3): with shuffled test inputs the unshuffled runs' mean test NDCG@10 is 0.0288 for SASRec-BCE, 0.0414 for SASRec-CE, 0.0415 for SASRec-SS, 0.0402 for gSASRec and 0.0415 for BERT4Rec.
+- The control drops by more than the SESOI (METHODS 3.3): **supported** for SASRec-CE. With shuffled test inputs (descriptive, METHODS 3.3) the unshuffled runs' mean test NDCG@10 is 0.0288 for SASRec-BCE, 0.0414 for SASRec-CE, 0.0415 for SASRec-SS, 0.0402 for gSASRec and 0.0415 for BERT4Rec.
 
 ### Secondary: temporal split
 
-Five seeds per arm. These results are secondary and support no confirmatory claim (METHODS 7.4); each family is corrected on its own. Every directional comparison is underpowered and every equivalence comparison is not (note 1).
+Every directional comparison is underpowered and no equivalence comparison is (note 1).
 
 | Family | Test | A | B | n | A − B, relative (95% interval) | p | Status |
 |---|---|---|---|---|---|---|---|
@@ -319,13 +312,9 @@ Five seeds per arm. These results are secondary and support no confirmatory clai
 | F2 | equivalence | SASRec-SS | SASRec-CE | 5, 5 | -4.5% (-6.8% to -2.2%) | 0.983 | not rejected |
 | F2 | equivalence | gSASRec | SASRec-CE | 5, 5 | -4.2% (-6.7% to -1.5%) | 0.953 | not rejected |
 
-Kendall's τ between the arm rankings by mean log NDCG@10 on leave-one-out and on the temporal split, over the five neural arms, is 0.80. The rankings are SASRec-CE, SASRec-SS, gSASRec, BERT4Rec, SASRec-BCE on leave-one-out and SASRec-CE, gSASRec, SASRec-SS, BERT4Rec, SASRec-BCE on the temporal split.
-
-The F1 comparison of gSASRec with SASRec-CE (p = 0.0073) was pending until the Steam runs. A comparison is not rejected if Holm does not reject it with every missing p-value set to 0 (D051); the missing ones are the six of MovieLens-20M. With them at 0 it is the 17th step of F1, with threshold 0.05/8 = 0.00625, and its p-value is above it.
+Kendall's τ between the arm rankings on leave-one-out and on the temporal split, over the five neural arms, is 0.80. The F1 comparison of gSASRec with SASRec-CE (p = 0.0073) is not rejected (Holm steps).
 
 ### Robustness
-
-F1 and F2 repeated on log HR@10 (METHODS 7.6), leave-one-out, corrected within their own families; no confirmatory claim:
 
 | Family | Test | A | B | n | A − B, relative (95% interval) | p | Status |
 |---|---|---|---|---|---|---|---|
@@ -339,9 +328,7 @@ F1 and F2 repeated on log HR@10 (METHODS 7.6), leave-one-out, corrected within t
 | F2 | equivalence | gSASRec | SASRec-CE | 6, 6 | -6.5% (-7.1% to -5.8%) | 1.000 | not rejected |
 
 - All eight statuses match the primary analysis.
-- The timing repeat without flagged runs is reported under RQ2.
-
-Two-level percentile bootstrap (METHODS 7.6, D056), leave-one-out, NDCG@10. Each of 10,000 resamples draws the 94,762 test users with replacement once for all arms, so arms are paired by user, and draws each arm's six runs with replacement. It was computed on the volume from the per-user ranks that the leave-one-out final runs kept from their test reads (D051); the table is `results/analysis/bootstrap-m3-final-video-games.csv`. The estimates are those of the primary analysis. The intervals are descriptive; the tests of the primary analysis decide.
+- Bootstrap: 94,762 test users and six runs per arm, `results/analysis/bootstrap-m3-final-video-games.csv`.
 
 | Family | Test | A | B | n | A − B, relative (95% bootstrap interval) |
 |---|---|---|---|---|---|
@@ -354,26 +341,11 @@ Two-level percentile bootstrap (METHODS 7.6, D056), leave-one-out, NDCG@10. Each
 | F2 | equivalence | SASRec-SS | SASRec-CE | 6, 6 | -4.8% (-5.7% to -3.9%) |
 | F2 | equivalence | gSASRec | SASRec-CE | 6, 6 | -8.0% (-8.8% to -7.1%) |
 
-- The seed-level resampling understates uncertainty (METHODS 7.6, written for 5 seeds): with five to ten seeds per arm, here six, drawing seeds with replacement understates the variation between runs (D056).
-
-### Not reported yet
-
-- Peak memory and step time of plain against chunked cross-entropy (METHODS 8).
-
 ## Steam
 
 ### Runs
 
-- Batch `m3-final-steam`: 59 final runs on the Pods of D065, 50.56 GPU hours. 57 ran on Pod `nivy287l1lt3dn` (RTX 4090, Ryzen 9 7950X), the Pod of the tuning batch. `gsasrec-steam-gts-s4` ran on Pod `m27rj5roizxxv7`, and `bert4rec-steam-loo-s5` resumed there from its checkpoint at epoch 360 and lists both Pods (D067); the two Pods have the same host signature. Every run trained; none failed, none was truncated.
-- Leave-one-out has five seeds per neural arm (D067), the temporal split five, and each floor baseline runs once per split.
-- Every run read test data once: 59 runs with one final read, one completion record and no anchor read. The 100 tuning runs of `m3-tune-steam` read test data zero times (METHODS 11.6). The anchor reads of METHODS 11.5 were made on MovieLens-1M only.
-
-### Notes carried by every statement on this dataset
-
-1. **Power.** At the σ of this dataset (below) and five seeds, the registered power at the SESOI is 1.000 for a directional test and 1.000 for an equivalence test, on leave-one-out and on the temporal split, so no comparison on this dataset is labelled underpowered (METHODS 7.5). `tests.csv` also gives each of these comparisons a supplementary power at the σ of its own two arms; it enters no status or label (D055).
-2. **One-sided tests.** METHODS 7.5 defines no power function for the minimum-effect tests, so they report no power (D051). The time-to-target tests have none either.
-3. **Time to target.** D048 found that on small configurations time to target mostly measures launch overhead (the GPU was busy for 0.295 of a step in its configuration 1, SASRec with BCE on Steam). Its four Steam configurations used the hyperparameters of the pilot, not those tuned in D066, and the measurement stopped during the second: the configurations of this section were not measured.
-4. **Flagged runs.** The five SASRec-BCE runs of the time-to-target group are flagged: each has a median SM clock of 2550 MHz, below the limit of METHODS 8, 0.95 × 2790 MHz = 2650.5 MHz, where 2790 MHz is the median over the 523 M3 runs exported (D068). The other 15 runs of the group are not flagged. The repeat of the timing analysis without flagged runs is not run on Steam (D068). The median SM clock is taken over the M3 runs exported so far, so the flags are provisional until all four datasets have run (D051).
+- Batch `m3-final-steam`: 59 final runs on the Pods of D065, 50.56 GPU hours. 57 ran on Pod `nivy287l1lt3dn` (RTX 4090, Ryzen 9 7950X), the Pod of the tuning batch. `gsasrec-steam-gts-s4` ran on Pod `m27rj5roizxxv7`, and `bert4rec-steam-loo-s5` resumed there from its checkpoint at epoch 360 and lists both Pods (D067); the two Pods have the same host signature. None failed or was truncated. Neural arms have five seeds on leave-one-out (D067) and on the temporal split. Each run has one final read, one completion record and no anchor read; the 100 tuning runs read none (METHODS 11.6).
 
 ### Seed variance
 
@@ -381,7 +353,7 @@ Two-level percentile bootstrap (METHODS 7.6, D056), leave-one-out, NDCG@10. Each
 
 ### Quality per arm
 
-Mean over seeds, standard deviation in brackets. Leave-one-out:
+Leave-one-out:
 
 | Arm | Runs | Test NDCG@10 | Test HR@10 | Validation NDCG@10 | GPU hours |
 |---|---|---|---|---|---|
@@ -411,11 +383,11 @@ Shuffled-order control (train-and-evaluate shuffle, leave-one-out):
 |---|---|---|---|---|---|
 | SASRec-CE | 5 | 0.0421 (0.0003) | 0.0824 (0.0008) | 0.0492 (0.0002) | 1.43 |
 
-`arms.csv` adds NDCG@20, HR@20, truncation shares (0 for every neural arm; none for MostPop and Transition, whose stop reason `converged` is outside the share, D061) and tie rates (0.0043 for BERT4Rec on the temporal split and at most 0.0003 for the other neural arms; 0.28 to 0.45 for MostPop and Transition).
+Tie rates: 0.0043 for BERT4Rec on the temporal split and at most 0.0003 for the other neural arms, 0.28 to 0.45 for MostPop and Transition.
 
 ### RQ1: differences between arms
 
-Primary analysis, leave-one-out. Differences are in mean log NDCG@10, shown as relative differences; the 95% Welch interval is descriptive (D051). Notes 1 and 2 apply to every row and conclusion of this section.
+Primary analysis, leave-one-out. Note 1 applies to every row and conclusion.
 
 | Family | Test | A | B | n | A − B, relative (95% interval) | p | Status |
 |---|---|---|---|---|---|---|---|
@@ -432,14 +404,9 @@ Primary analysis, leave-one-out. Differences are in mean log NDCG@10, shown as r
 | F5 | equivalence | gSASRec | BERT4Rec | 5, 5 | +1.5% (+0.8% to +2.3%) | 0.100 | not rejected |
 | F5 | equivalence | SASRec-CE | BERT4Rec | 5, 5 | +2.9% (+2.1% to +3.7%) | 0.981 | not rejected |
 
-- **F1.** All six directional comparisons are rejected. Together they order the four arms, from highest to lowest, as SASRec-CE, gSASRec, BERT4Rec, SASRec-BCE.
-- **H1a** is registered on the two MovieLens datasets only (METHODS 7.4); Steam has no non-inferiority test.
-- **H1b: supported on Steam.** The three minimum-effect tests are rejected: SASRec-CE, gSASRec and BERT4Rec are each above SASRec-BCE by more than the SESOI.
-- **Published gaps** (METHODS 7.3; G1 has a published + sign on Steam, G2 and G3 a published − sign):
-  - G1, BERT4Rec − SASRec-BCE: **confirmed**. The observed difference has the published + sign and the directional test is rejected.
-  - G2, gSASRec − BERT4Rec: **reversed**. The observed difference is positive, against the published − sign, and the directional test is rejected (p = 0.0021).
-  - G3, SASRec-CE − BERT4Rec: **reversed**. The observed difference is positive, against the published − sign, and the directional test is rejected (p = 4.4e-05).
-  - No equivalence test of F5 is rejected, so no gap is classed "below SESOI" or "equivalent" on this dataset.
+- **F1.** All six directional comparisons are rejected. They order the four arms, from highest to lowest, as SASRec-CE, gSASRec, BERT4Rec, SASRec-BCE.
+- **H1b: supported.** The three minimum-effect tests are rejected.
+- **Published gaps** (METHODS 7.3). G1 has a published + sign here, G2 and G3 a published − sign. G1 is **confirmed**. G2 and G3 are **reversed**: both observed differences are positive, against the published − sign, and both directional tests are rejected (p = 0.0021 and 4.4e-05). No F5 test is rejected, so no gap is classed "below SESOI" or "equivalent".
 
 ### RQ2: training objectives on the SASRec backbone
 
@@ -448,11 +415,9 @@ Primary analysis, leave-one-out. Differences are in mean log NDCG@10, shown as r
 | F2 | equivalence | SASRec-SS | SASRec-CE | 5, 5 | -1.8% (-2.5% to -1.2%) | 0.321 | not rejected |
 | F2 | equivalence | gSASRec | SASRec-CE | 5, 5 | -1.3% (-2.0% to -0.7%) | 0.0258 | not rejected |
 
-- **H2b, sampled softmax: not supported on Steam.** Equivalence with full cross-entropy within the SESOI is not shown (TOST not rejected), and the test is not underpowered (note 1). Descriptively, the difference is −1.8% and its interval, −2.5% to −1.2%, extends below −2%. No directional test is registered for this pair.
-- **H2b, gBCE: not supported on Steam.** Equivalence is not shown (TOST not rejected, not underpowered). Its p-value, 0.0258, is below 0.05 but Holm does not reject it whatever the two F2 tests of MovieLens-20M, which have no p-value yet, give: set to 0, it is the third step, with threshold 0.05/6 = 0.00833; set to 1, it is the first, with threshold 0.05/8 = 0.00625 (D051). The registered directional test of this pair in F1 is rejected: gSASRec is below SASRec-CE.
-- **H2b, BCE: supported on Steam.** The minimum-effect test of SASRec-CE against SASRec-BCE is rejected: BCE with one negative is worse by more than the SESOI.
+- **H2b: sampled softmax and gBCE not supported, BCE supported.** Neither TOST is rejected, so equivalence with full cross-entropy is not shown, and neither test is underpowered. SASRec-SS is −1.8% against SASRec-CE and its interval, −2.5% to −1.2%, extends below −2%. The gBCE p-value, 0.0258, is below 0.05, and Holm does not reject it whatever the two F2 tests of MovieLens-20M give (Holm steps). gSASRec is below SASRec-CE in F1. The minimum-effect test of SASRec-CE against SASRec-BCE is rejected.
 
-Time to target (F6), the group of METHODS 9.4: seeds 1 to 5 of the four arms, trained on one Pod. The target is validation NDCG@10 0.0736, 0.95 times SASRec-CE's mean best validation NDCG@10 of 0.0775.
+Time to target. The target is validation NDCG@10 0.0736, 0.95 times SASRec-CE's mean best validation NDCG@10 of 0.0775.
 
 | Arm | Runs reaching the target | Times to target (s) | Median (s) |
 |---|---|---|---|
@@ -461,10 +426,8 @@ Time to target (F6), the group of METHODS 9.4: seeds 1 to 5 of the four arms, tr
 | SASRec-SS | 5 of 5 | 124.0, 125.2, 127.3, 129.0, 130.7 | 127.3 |
 | gSASRec | 5 of 5 | 164.8, 167.6, 168.1, 173.4, 174.5 | 168.1 |
 
-- **H2a: supported on Steam**, on this kind of host (Ryzen 9 7950X, 14 CPUs; METHODS 9.4). Each of the three one-sided Mann-Whitney tests of SASRec-CE against SASRec-BCE, SASRec-SS and gSASRec gives p = 1/252 = 0.0040, the smallest attainable value, and is rejected at the strictest Holm step (0.05/12).
-- The test against SASRec-BCE rests on censored runs: the best validation NDCG@10 of each of its runs with seeds 1 to 5 is below the target (mean 0.0597), so no run reaches it. The tests against SASRec-SS and gSASRec rest on measured times: all five SASRec-CE times, 54.6 s to 66.2 s, are below all five times of SASRec-SS (124.0 s to 130.7 s) and of gSASRec (164.8 s to 174.5 s).
-- The median of SASRec-BCE is censored, so its ratio of medians is not finite. SASRec-SS has a median of 127.3 s and gSASRec of 168.1 s against 56.8 s for SASRec-CE, ratios of 2.24 and 2.96, both outside the 6.84% within which METHODS 9.4 reports no difference measured. The medians and their ratios are descriptive (METHODS 8). Note 3 applies.
-- All five SASRec-BCE runs are flagged (note 4), so the repeat without flagged runs is not run on Steam (D068). It would add nothing: the other 15 runs are not flagged, so the repeat of SASRec-SS and gSASRec against SASRec-CE would use the same times, and the repeat of SASRec-BCE has no time left.
+- **H2a: supported.** The three one-sided Mann-Whitney tests of SASRec-CE against SASRec-BCE, SASRec-SS and gSASRec each give p = 1/252 = 0.0040, the smallest attainable value, and are rejected at the strictest Holm step (0.05/12). The test against SASRec-BCE rests on censored runs (mean best validation NDCG@10 over seeds 1 to 5: 0.0597, below the target). The other two rest on measured times: all five SASRec-CE times, 54.6 s to 66.2 s, are below all five of SASRec-SS (124.0 s to 130.7 s) and of gSASRec (164.8 s to 174.5 s).
+- The median of SASRec-BCE is censored. SASRec-SS has a median of 127.3 s and gSASRec of 168.1 s against 56.8 s for SASRec-CE, ratios of 2.24 and 2.96, both outside the 6.84% within which METHODS 9.4 reports no difference measured. Notes 4 and 5 apply.
 
 ### Shuffled-order control (F4)
 
@@ -472,12 +435,11 @@ Time to target (F6), the group of METHODS 9.4: seeds 1 to 5 of the four arms, tr
 |---|---|---|---|---|---|---|---|
 | F4 | minimum effect | SASRec-CE | shuffled SASRec-CE | 5, 5 | +75.4% (+73.7% to +77.2%) | 3.7e-13 | rejected |
 
-- The control shows the expected drop larger than the SESOI (METHODS 3.3): it is **supported** for SASRec-CE. METHODS 3.3 registers the BERT4Rec control on the two MovieLens datasets only.
-- Test-only shuffle (descriptive, METHODS 3.3): with shuffled test inputs the unshuffled runs' mean test NDCG@10 is 0.0540 for SASRec-BCE, 0.0634 for SASRec-CE, 0.0619 for SASRec-SS, 0.0631 for gSASRec and 0.0638 for BERT4Rec.
+- The control drops by more than the SESOI (METHODS 3.3): **supported** for SASRec-CE. With shuffled test inputs (descriptive, METHODS 3.3) the unshuffled runs' mean test NDCG@10 is 0.0540 for SASRec-BCE, 0.0634 for SASRec-CE, 0.0619 for SASRec-SS, 0.0631 for gSASRec and 0.0638 for BERT4Rec.
 
 ### Secondary: temporal split
 
-Five seeds per arm. These results are secondary and support no confirmatory claim (METHODS 7.4); each family is corrected on its own. No comparison is underpowered (note 1).
+No comparison is underpowered (note 1).
 
 | Family | Test | A | B | n | A − B, relative (95% interval) | p | Status |
 |---|---|---|---|---|---|---|---|
@@ -496,11 +458,9 @@ Five seeds per arm. These results are secondary and support no confirmatory clai
 | F2 | equivalence | SASRec-SS | SASRec-CE | 5, 5 | -1.4% (-4.7% to +2.1%) | 0.348 | not rejected |
 | F2 | equivalence | gSASRec | SASRec-CE | 5, 5 | -0.2% (-2.9% to +2.7%) | 0.0799 | not rejected |
 
-Kendall's τ between the arm rankings by mean log NDCG@10 on leave-one-out and on the temporal split, over the five neural arms, is 0.40. The rankings are SASRec-CE, gSASRec, SASRec-SS, BERT4Rec, SASRec-BCE on leave-one-out and BERT4Rec, SASRec-CE, gSASRec, SASRec-SS, SASRec-BCE on the temporal split. BERT4Rec is fourth on leave-one-out and first on the temporal split; there SASRec-CE and gSASRec differ from it by −1.7% and −1.9%, and both comparisons are not rejected.
+Kendall's τ between the arm rankings on leave-one-out and on the temporal split, over the five neural arms, is 0.40. BERT4Rec is fourth on leave-one-out and first on the temporal split; there SASRec-CE and gSASRec differ from it by −1.7% and −1.9%, and both comparisons are not rejected.
 
 ### Robustness
-
-F1 and F2 repeated on log HR@10 (METHODS 7.6), leave-one-out, corrected within their own families; no confirmatory claim:
 
 | Family | Test | A | B | n | A − B, relative (95% interval) | p | Status |
 |---|---|---|---|---|---|---|---|
@@ -513,11 +473,8 @@ F1 and F2 repeated on log HR@10 (METHODS 7.6), leave-one-out, corrected within t
 | F2 | equivalence | SASRec-SS | SASRec-CE | 5, 5 | -1.6% (-2.4% to -0.9%) | 0.157 | not rejected |
 | F2 | equivalence | gSASRec | SASRec-CE | 5, 5 | -1.0% (-1.7% to -0.2%) | 0.0083 | pending |
 
-- Five of the eight statuses match the primary analysis. In F1, gSASRec against SASRec-CE (p = 0.0181) and against BERT4Rec (p = 0.0139) are not rejected here and rejected in the primary analysis; in F2, gSASRec against SASRec-CE (p = 0.00827, 0.0083 in the table) is pending here and not rejected in the primary analysis.
-- The families have their registered sizes, 24 for F1 and 8 for F2, and the 6 and 2 tests of MovieLens-20M have no p-value (D051). A comparison is not rejected if Holm does not reject it with every missing p-value set to 0. In F1 the 21st step is then the MovieLens-1M comparison of gSASRec with BERT4Rec (p = 0.01256 against 0.05/4 = 0.0125); Holm stops there, so that comparison and every one with a larger p-value are not rejected, both Steam comparisons among them. In F2 the p-value 0.00827 is the third step with the missing ones at 0 and passes it (0.05/6 = 0.00833); with them at 1 it is the first step and fails it (0.05/8 = 0.00625). It is neither rejected nor not rejected: pending.
-- The timing repeat without flagged runs is not run on Steam (D068; see RQ2).
-
-Two-level percentile bootstrap (METHODS 7.6, D056), leave-one-out, NDCG@10. Each of 10,000 resamples draws the 281,210 test users with replacement once for all arms, so arms are paired by user, and draws each arm's five runs with replacement. It was computed on the volume from the per-user ranks that the leave-one-out final runs kept from their test reads (D051); the table is `results/analysis/bootstrap-m3-final-steam.csv`. The estimates are those of the primary analysis. The intervals are descriptive; the tests of the primary analysis decide.
+- Five of the eight statuses match the primary analysis. In F1, gSASRec against SASRec-CE (p = 0.0181) and against BERT4Rec (p = 0.0139) are not rejected here and rejected there. In F2, gSASRec against SASRec-CE (p = 0.00827, 0.0083 in the table) is pending here and not rejected there (Holm steps).
+- Bootstrap: 281,210 test users and five runs per arm, `results/analysis/bootstrap-m3-final-steam.csv`.
 
 | Family | Test | A | B | n | A − B, relative (95% bootstrap interval) |
 |---|---|---|---|---|---|
@@ -530,8 +487,29 @@ Two-level percentile bootstrap (METHODS 7.6, D056), leave-one-out, NDCG@10. Each
 | F2 | equivalence | SASRec-SS | SASRec-CE | 5, 5 | -1.8% (-2.4% to -1.3%) |
 | F2 | equivalence | gSASRec | SASRec-CE | 5, 5 | -1.3% (-1.9% to -0.7%) |
 
-- The seed-level resampling understates uncertainty (METHODS 7.6, written for 5 seeds): with five to ten seeds per arm, here five, drawing seeds with replacement understates the variation between runs (D056).
+## Holm steps
 
-### Not reported yet
+Step k of a family of registered size m (24 for F1, 12 for F1-ME, 8 for F2) compares the k-th smallest p-value with 0.05/(m − k + 1), and Holm stops at the first failure. The 6 F1, 3 F1-ME and 2 F2 tests of MovieLens-20M have no p-value (D051). The table sets them to 0 and to 1 for each borderline comparison. A comparison is rejected if it passes with them at 1, not rejected if it fails with them at 0, and pending otherwise.
 
-- Peak memory and step time of plain against chunked cross-entropy (METHODS 8).
+| Analysis | Dataset | Comparison | p | Missing at 0: step, threshold, Holm | Missing at 1: step, threshold, Holm | Status |
+|---|---|---|---|---|---|---|
+| Primary F1 | MovieLens-1M | gSASRec − BERT4Rec | 0.005901 | 23, 0.025, passes | 17, 0.00625, passes | rejected |
+| Primary F1 | MovieLens-1M | BERT4Rec − SASRec-BCE | 0.01345 | 24, 0.05, passes | 18, 0.00714, fails | pending |
+| Primary F1-ME | MovieLens-1M | BERT4Rec − SASRec-BCE | 0.01583 | 12, 0.05, passes | 9, 0.0125, fails | pending |
+| Primary F2 | Steam | gSASRec − SASRec-CE | 0.02584 | 3, 0.00833, fails | 1, 0.00625, fails | not rejected |
+| Temporal split F1 | Video_Games | gSASRec − SASRec-CE | 0.007335 | 17, 0.00625, fails | 11, 0.00357, fails | not rejected |
+| HR@10 F1 | MovieLens-1M | SASRec-CE − BERT4Rec | 0.003135 | 20, 0.01, passes | 14, 0.00455, passes | rejected |
+| HR@10 F1 | MovieLens-1M | gSASRec − BERT4Rec | 0.01256 | 21, 0.0125, fails | 15, 0.005, fails | not rejected |
+| HR@10 F1 | MovieLens-1M | BERT4Rec − SASRec-BCE | 0.01715 | 23, 0.025, fails | 17, 0.00625, fails | not rejected |
+| HR@10 F1 | Steam | gSASRec − SASRec-CE | 0.0181 | 24, 0.05, fails | 18, 0.00714, fails | not rejected |
+| HR@10 F1 | Steam | gSASRec − BERT4Rec | 0.01393 | 22, 0.0167, fails | 16, 0.00556, fails | not rejected |
+| HR@10 F2 | Steam | gSASRec − SASRec-CE | 0.008274 | 3, 0.00833, passes | 1, 0.00625, fails | pending |
+
+## Limits
+
+- MovieLens-20M has no final runs, so every registered comparison, hypothesis and gap class on it is pending, and a pending status can still change (D051).
+- MovieLens-1M: every directional and equivalence comparison is underpowered, and its test targets were read for anchor checks before the final runs (notes 1 and 2). On Video_Games only the temporal-split directional comparisons are underpowered.
+- Resampling seeds with replacement, with five to ten seeds per arm (ten, six and five here), understates the variation between runs (METHODS 7.6, D056).
+- Time to target mostly measures launch overhead on small configurations (note 4). Conclusions about time hold for this kind of host, a Ryzen 9 7950X with 14 CPUs (METHODS 9.4). The SM-clock flags are provisional (note 5).
+- The temporal split and the HR@10 repeats support no confirmatory claim and disagree with the primary analysis in places: two of eight HR@10 statuses on MovieLens-1M and three on Steam differ, and on Steam BERT4Rec is first on the temporal split.
+- Peak memory and step time of plain against chunked cross-entropy (METHODS 8) are not reported yet.
