@@ -133,7 +133,6 @@ def evaluate(
     max_len: int,
     device: torch.device | str = "cpu",
     batch_size: int = 1024,
-    ks=KS,
 ) -> EvalResult:
     device = torch.device(device)
     ds = DeviceSplit.of(split, device)
@@ -153,7 +152,7 @@ def evaluate(
     all_ranks = np.concatenate(ranks) if ranks else np.zeros(0, dtype=np.int64)
     all_ties = np.concatenate(ties) if ties else np.zeros(0, dtype=bool)
     return EvalResult(
-        metrics_from_ranks(all_ranks, ks),
+        metrics_from_ranks(all_ranks),
         float(all_ties.mean()) if len(all_ties) else 0.0,
         len(all_ranks),
         all_ranks,

@@ -111,7 +111,6 @@ class SplitSet:
     validation: EvalSplit
     test: TestHandle
     meta: dict
-    shuffled: bool = False
 
     @property
     def n_items(self) -> int:
@@ -282,4 +281,4 @@ def shuffle_order(splits: SplitSet, seed: int) -> SplitSet:
     test = TestHandle(
         replace(test_split, inputs=_shuffle_rows(test_split.inputs, keys), shuffled=True)
     )
-    return replace(splits, train=train, validation=validation, test=test, shuffled=True)
+    return replace(splits, train=train, validation=validation, test=test)

@@ -57,7 +57,6 @@ class _Baseline:
     def __init__(self, cfg: RunConfig, train: TrainSplit, device: torch.device):
         if cfg.params:
             raise ValueError("baselines take no hyperparameters")
-        self.device = device
         self.popularity = item_popularity(train)
         self.pop = device_array(self.popularity.counts, device)
 

@@ -16,7 +16,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-COLUMNS = ["user", "item", "ts", "row"]
 _EPOCH = dt.date(1970, 1, 1)
 
 

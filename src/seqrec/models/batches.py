@@ -26,8 +26,8 @@ def window_index(indptr: torch.Tensor, rows: torch.Tensor, length: int) -> torch
     return torch.where(idx >= starts[:, None], idx, -1)
 
 
-def gather(values: torch.Tensor, idx: torch.Tensor, fill: int = 0) -> torch.Tensor:
-    return torch.where(idx >= 0, values[idx.clamp(min=0)], fill)
+def gather(values: torch.Tensor, idx: torch.Tensor) -> torch.Tensor:
+    return torch.where(idx >= 0, values[idx.clamp(min=0)], 0)
 
 
 class TrainData:
@@ -39,7 +39,6 @@ class TrainData:
         seqs = train.seqs
         self.source = train.fingerprint
         self.n_items = train.n_items
-        self.device = device
         self.indptr = device_array(seqs.indptr, device)
         self.items = device_array(seqs.items, device)
         self.pos = device_array(seqs.pos, device)
@@ -155,7 +154,6 @@ class HistoryExcludingSampler:
         if (free < 1).any():
             raise ValueError("a user's training sequence covers every item")
         self.free = device_array(free, device)
-        self.n_items = n
 
     def require(self, train: TrainSplit) -> None:
         if train.fingerprint != self.source:
