@@ -10,6 +10,8 @@ Run directory (runs/<batch>/<run_id>/):
     nvml.jsonl                   GPU telemetry at 1 Hz
     summary.json                 written when training ends; marks the run as trained
     test_access.jsonl, test.json written by `test_run` (phases final and anchor only)
+    test_ranks.npz               every test user's rank, on the test inputs and on the shuffled
+                                 ones; written by `test_run` for final runs only
 
 Test data are read by `test_run`. `seqrec test` refuses a plan while any of its runs is
 untrained (METHODS 5.5), and a final plan unless its leave-one-out seeds are those of the
@@ -53,8 +55,8 @@ START_FACTOR = 1.5  # D035: a run starts once validation NDCG@10 exceeds this ti
 
 
 class Model(Protocol):
-    """state_dict returns a snapshot of everything training depends on: weights, optimizer,
-    scaler and any random generator the model owns. Optional attributes: `hparams` (resolved
+    """state_dict returns a snapshot of everything training depends on: weights, optimizer
+    and any random generator the model owns. Optional attributes: `hparams` (resolved
     hyperparameters, recorded in the manifest), `sample_positions()` (full-log positions
     used by one sampled training batch, checked against the splits) and `weights()` (a
     snapshot of what inference needs, used for the best checkpoint)."""

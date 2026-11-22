@@ -216,8 +216,10 @@ def analyze(
     holds, per dataset and arm, the values that estimate pooled, and gives each comparison
     with a power function its supplementary power (D055). A run that is trained and not
     tested yet stops the analysis: it comes after the test reads. Runs that failed, or
-    diverged without a checkpoint (D031), stay out of their groups. The timing repeat is not
-    run, and has no rows, for a dataset where every run of an arm is flagged (D068)."""
+    diverged without a checkpoint (D031), stay out of the quality groups, which take tested
+    runs only; the time-to-target group is chosen by arm, seed and split, not by status. The
+    timing repeat is not run, and has no rows, for a dataset where every run of an arm is
+    flagged (D068)."""
     waiting = [r for r in rows if not r["tag"] and r["status"] in ("trained", "unfinished")]
     if waiting:
         raise ValueError(f"{waiting[0]['run_id']} is {waiting[0]['status']}, not tested")

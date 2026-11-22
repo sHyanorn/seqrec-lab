@@ -1,4 +1,5 @@
-"""Batches: `run` trains every pending run of a plan; `test` scores the trained ones."""
+"""Batches: `run` trains every pending run of a plan; `test` scores the trained ones; `tune`
+runs the studies of a tuning plan."""
 
 from __future__ import annotations
 
