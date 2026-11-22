@@ -25,8 +25,8 @@ def log_stats(dataset: str, log: Log, read_info: dict) -> dict:
     return {
         "dataset": dataset,
         "split": "log",
-        "rows_read": read_info.get("rows_read"),
-        "rows_skipped": read_info.get("rows_skipped"),
+        "rows_read": read_info["rows_read"],
+        "rows_skipped": read_info["rows_skipped"],
         "users": len(log.user_keys),
         "items": len(log.item_keys),
         "interactions": len(log),

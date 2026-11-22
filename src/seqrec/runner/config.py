@@ -69,9 +69,9 @@ class RunConfig:
 
     def __post_init__(self) -> None:
         if self.phase not in PHASES:
-            raise ValueError(f"phase must be one of {PHASES}")
+            raise ValueError(f"phase must be one of {PHASES}, got {self.phase!r}")
         if self.shuffle not in SHUFFLES:
-            raise ValueError(f"shuffle must be one of {SHUFFLES}")
+            raise ValueError(f"shuffle must be one of {SHUFFLES}, got {self.shuffle!r}")
         if self.dataset not in DATASETS or self.split not in SPLITS:
             raise ValueError(f"unknown dataset {self.dataset!r} or split {self.split!r}")
         epochs, patience = default_limits(self.arm)
@@ -137,7 +137,8 @@ def load_plan(path: Path) -> Plan:
         runs += [RunConfig(batch=batch, seed=s, **entry) for s in seeds]
     ids = [r.run_id for r in runs]
     if len(set(ids)) != len(ids):
-        raise ValueError("plan contains duplicate run ids")
+        repeated = sorted({i for i in ids if ids.count(i) > 1})
+        raise ValueError(f"plan contains duplicate run ids: {', '.join(repeated)}")
     if raw.get("order", "listed") == "shuffled":
         random.Random(raw.get("order_seed", 0)).shuffle(runs)
     return Plan(batch, float(raw.get("warmup_s", 0)), runs)

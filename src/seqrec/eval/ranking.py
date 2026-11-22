@@ -94,12 +94,19 @@ def rank_targets(
     saw before its target. Out-of-vocabulary targets (id < 1) get rank N+1, a guaranteed miss.
     """
     if scores.dtype != torch.float32:
-        raise InvariantError("evaluation scores must be fp32")
+        raise InvariantError(f"evaluation scores must be fp32, found {scores.dtype}")
     if scores.dim() != 2 or scores.shape[1] < n_items + 1:
-        raise InvariantError("scores must cover item ids 0..N")
+        raise InvariantError(
+            "scores must cover item ids 0..N, expected 2 dimensions with at least "
+            f"{n_items + 1} columns, found shape {tuple(scores.shape)}"
+        )
     s = scores[:, : n_items + 1].clone()
-    if not torch.isfinite(s[:, 1:]).all():
-        raise NonFiniteScores("scores must be finite")
+    finite = torch.isfinite(s[:, 1:])
+    if not finite.all():
+        raise NonFiniteScores(
+            f"scores must be finite, found {int((~finite).sum())} non-finite of "
+            f"{finite.numel()} item scores"
+        )
     s[:, 0] = float("-inf")
     mask_history(s, *history)
 
@@ -108,8 +115,15 @@ def rank_targets(
     if not (torch.isfinite(target_scores) | oov).all():
         raise InvariantError("target score must stay finite after masking")
     candidates = torch.isfinite(s[:, 1:]).sum(1)
-    if not torch.equal(candidates, n_items - history_sizes):
-        raise InvariantError("candidate count must equal N minus distinct history items")
+    expected = n_items - history_sizes
+    if not torch.equal(candidates, expected):
+        wrong = (candidates != expected).nonzero().flatten()
+        row = int(wrong[0])
+        raise InvariantError(
+            "candidate count must equal N minus distinct history items, "
+            f"found {int(candidates[row])} candidates in row {row}, expected "
+            f"{int(expected[row])}; {len(wrong)} of {len(candidates)} rows differ"
+        )
 
     at_least = (s >= target_scores[:, None]).sum(1) - 1  # minus the target itself
     ranks = torch.where(oov, torch.full_like(at_least, n_items + 1), at_least + 1)

@@ -92,8 +92,10 @@ def load_tuning_plan(path: Path) -> tuple[str, float, list[Study]]:
     for s in studies:
         if s.arm not in SPACES:
             raise ValueError(f"no search space for arm {s.arm!r}")
-    if len({s.name for s in studies}) != len(studies):
-        raise ValueError("plan contains duplicate studies")
+    names = [s.name for s in studies]
+    if len(set(names)) != len(names):
+        repeated = sorted({n for n in names if names.count(n) > 1})
+        raise ValueError(f"plan contains duplicate studies: {', '.join(repeated)}")
     return batch, float(raw.get("warmup_s", 0)), studies
 
 
