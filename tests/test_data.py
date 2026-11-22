@@ -33,16 +33,6 @@ def test_build_log_sorts_stably_and_keeps_earliest_repeat():
     assert list(log.ts) == [3, 3, 5]
 
 
-def test_kcore_is_iterative():
-    # item z has 2 users; removing it drops user c below 2, which drops item w below 2
-    user = np.array([0, 0, 1, 1, 2, 2, 3, 3])
-    item = np.array([0, 1, 0, 1, 2, 3, 3, 2])
-    keep = kcore_mask(user, item, 2)
-    assert keep.all()
-    keep = kcore_mask(np.array([0, 0, 1, 1, 2]), np.array([0, 1, 0, 1, 1]), 2)
-    assert list(keep) == [True, True, True, True, False]
-
-
 def test_kcore_peels_a_chain_until_stable():
     """With k = 2, user 0 has one item; removing it drops item 1 below k, then user 1, item 2,
     user 2 and item 3 in turn. A single pass on the raw counts removes only user 0's row."""

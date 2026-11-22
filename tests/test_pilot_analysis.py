@@ -52,7 +52,6 @@ def test_band_edges_follow_the_methods_table():
 def test_gap_margin_is_three_bounded_standard_errors():
     expected = 3 * math.sqrt(2 * 0.18 * 0.82 / 6040)
     assert anchors.gap_margin(0.18, 0.18) == pytest.approx(expected)
-    assert 0.020 < expected < 0.022
 
 
 def test_anchor_table_bands_gaps_and_stop_conditions(tmp_path):

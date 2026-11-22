@@ -28,7 +28,7 @@ def test_power_is_finite_and_small_sigma_needs_five_seeds():
 def test_directional_power_matches_simulation():
     rng = np.random.default_rng(0)
     sigma, n = 0.008, 6
-    se, df = sigma * math.sqrt(2 / n), 2 * n - 2
+    df = 2 * n - 2
     from scipy import stats
 
     crit = stats.t.ppf(1 - 0.05 / 24 / 2, df)
@@ -37,7 +37,6 @@ def test_directional_power_matches_simulation():
     sp = np.sqrt((a.var(1, ddof=1) + b.var(1, ddof=1)) / 2)
     t = (a.mean(1) - b.mean(1)) / (sp * math.sqrt(2 / n))
     assert np.mean(np.abs(t) > crit) == pytest.approx(power.directional_power(sigma, n), abs=0.01)
-    assert se > 0
 
 
 def test_pooled_sd():

@@ -83,21 +83,23 @@ def test_each_comparison_reads_the_runs_of_its_two_arms(outcomes):
     assert o.estimate == pytest.approx(math.log(0.150 / 0.130))
     assert o.low < o.estimate < o.high
     y = {arm: np.log(mean) + 1e-4 * OFFSETS for arm, mean in LOO.items()}
-    assert o.p == pytest.approx(inference.p_two_sided(y[A2], y[A5]))
+    assert o.p == pytest.approx(inference.p_two_sided(y[A2], y[A5]), rel=1e-9, abs=0)
     w = inference.welch(y[A2], y[A5])
     from scipy import stats
 
     assert o.high - o.estimate == pytest.approx(stats.t.ppf(0.975, w.df) * w.se)
     assert primary[f"F1-NI ml-1m {A2} vs {A5}"].p == pytest.approx(
-        inference.p_above(y[A2], y[A5], -DELTA)
+        inference.p_above(y[A2], y[A5], -DELTA), rel=1e-9, abs=0
     )
     assert primary[f"F1-ME ml-1m {A5} vs {A1}"].p == pytest.approx(
-        inference.p_above(y[A5], y[A1], DELTA)
+        inference.p_above(y[A5], y[A1], DELTA), rel=1e-9, abs=0
     )
-    assert primary[f"F2 ml-1m {A3} vs {A2}"].p == pytest.approx(inference.p_tost(y[A3], y[A2]))
+    assert primary[f"F2 ml-1m {A3} vs {A2}"].p == pytest.approx(
+        inference.p_tost(y[A3], y[A2]), rel=1e-9, abs=0
+    )
     shuffled = np.log(0.05) + 1e-4 * OFFSETS
     assert primary[f"F4 ml-1m {A5} vs C1-{A5}"].p == pytest.approx(
-        inference.p_above(y[A5], shuffled, DELTA)
+        inference.p_above(y[A5], shuffled, DELTA), rel=1e-9, abs=0
     )
 
 
