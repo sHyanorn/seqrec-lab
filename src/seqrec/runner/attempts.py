@@ -56,11 +56,15 @@ def record_failure(run_dir: Path, step: str) -> None:
     """Record the exception being handled."""
     exc = sys.exception()
     message = str(exc).strip().splitlines()
+    try:
+        commit = git_commit()
+    except Exception:  # the failure being recorded must reach the caller, not this one
+        commit = None
     record = {
         "time_utc": dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "step": step,
         "error": f"{type(exc).__name__}: {message[0] if message else ''}",
-        "git_commit": git_commit(),
+        "git_commit": commit,
         "traceback": traceback.format_exc(),
     }
     run_dir.mkdir(parents=True, exist_ok=True)

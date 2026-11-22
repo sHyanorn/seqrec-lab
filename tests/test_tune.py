@@ -292,6 +292,30 @@ def test_a_config_conflict_in_one_study_is_reported_and_others_run(workspace):
     assert len(list((root / "runs" / "t").glob("sasrec-bce-*"))) == 6
 
 
+def test_tune_batch_stops_before_any_trial_when_the_git_commit_cannot_be_read(
+    workspace, monkeypatch
+):
+    """Otherwise every trial fails at its own read, is recorded twice and ends as FAIL."""
+    from seqrec.runner.batch import _given_up, tune_batch
+
+    root, plan = workspace
+    plan.write_text(plan.read_text().replace("trials = 6", "trials = 1"), encoding="utf-8")
+    _, _, studies = tune.load_tuning_plan(plan)
+    configs = [s.config(n, {}) for s in studies for n in range(s.trials)]
+    runs = root / "runs"
+    repository = run_mod.REPO_ROOT
+    # `git rev-parse HEAD` cannot start in a directory that is not there
+    monkeypatch.setattr(run_mod, "REPO_ROOT", root / "no-repository")
+    with pytest.raises(RuntimeError, match="cannot read the git commit"):
+        tune_batch(plan, runs, root / "data", CPU, **QUIET)
+    assert not any(runs.rglob("failures.jsonl"))
+    assert not runs.exists()  # no trial directory, no study database
+    assert not any(_given_up(cfg, runs) for cfg in configs)
+    monkeypatch.setattr(run_mod, "REPO_ROOT", repository)  # git can be read again
+    assert tune_batch(plan, runs, root / "data", CPU, **QUIET) == []
+    assert all((run_mod.run_dir_of(cfg, runs) / "summary.json").exists() for cfg in configs)
+
+
 def test_a_tuning_plan_with_runs_is_refused_not_half_run(workspace):
     """`seqrec tune` on a mixed plan would run the studies and drop the runs unnoticed."""
     _, plan = workspace

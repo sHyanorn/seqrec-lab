@@ -29,6 +29,7 @@ from seqrec.runner.run import (
     RunConflict,
     config_conflicts,
     execute,
+    git_commit,
     run_dir_of,
     test_run,
 )
@@ -178,6 +179,9 @@ def _warm_up(warmup_s: float, dataset: str, split: str, data_dir: Path, device, 
 
 
 def run_batch(plan_path: Path, runs_dir: Path, data_dir: Path, device: torch.device, log=print):
+    # First, before anything is read or recorded: with the commit unreadable every run would
+    # fail at its own read, be recorded as a failed attempt and be given up (D031).
+    git_commit()
     plan = load_plan(plan_path)
     _check_plan(plan, runs_dir)
     pending = [r for r in plan.runs if not (run_dir_of(r, runs_dir) / "summary.json").exists()]
@@ -221,6 +225,7 @@ def test_batch(
     files exported from this machine: a read recorded there and not made in `runs_dir` would
     be in neither count, so it stops the task. It also holds the seed record that final runs
     need before their read (`require_seed_record`, D064)."""
+    git_commit()  # first, as in `run_batch`: an unreadable commit would fail every read
     if committed:  # before any test data, as the earlier exports below
         require_backed_reads(committed, runs_dir)
     earlier_anchor, earlier_final = Counter(), Counter()
@@ -261,6 +266,7 @@ def test_batch(
 
 def tune_batch(plan_path: Path, runs_dir: Path, data_dir: Path, device: torch.device, log=print):
     """Run every study of a tuning plan to its trial budget; resumes after interruption."""
+    git_commit()  # first, as in `run_batch`: an unreadable commit would fail every trial
     batch, warmup_s, studies = load_tuning_plan(plan_path)
     require_data({s.dataset for s in studies}, data_dir)
     if studies:

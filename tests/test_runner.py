@@ -1,4 +1,6 @@
 import json
+import os
+import subprocess
 from dataclasses import replace
 
 import numpy as np
@@ -719,6 +721,189 @@ def test_a_new_failure_after_a_torn_record_is_kept(tmp_path):
     except RuntimeError:
         record_failure(tmp_path, "train")
     assert [f["step"] for f in failures(tmp_path)] == ["train", "train"]
+
+
+def _repository_without_commits(monkeypatch, tmp_path):
+    for name in [n for n in os.environ if n.startswith("GIT_")]:
+        monkeypatch.delenv(name)  # a git variable set outside would point `git init` elsewhere
+    repo = tmp_path / "empty"
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    monkeypatch.setattr(run_mod, "REPO_ROOT", repo)
+
+
+def _no_git_on_the_path(monkeypatch, tmp_path):
+    monkeypatch.setenv("PATH", str(tmp_path / "no-bin"))
+
+
+def _git_that_times_out(monkeypatch, tmp_path):
+    def slow(command, **kwargs):
+        raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+
+    monkeypatch.setattr(run_mod.subprocess, "run", slow)
+
+
+def _git_that_prints_nothing(monkeypatch, tmp_path):
+    def silent(command, **kwargs):
+        return subprocess.CompletedProcess(command, 0, "\n", "")
+
+    monkeypatch.setattr(run_mod.subprocess, "run", silent)
+
+
+@pytest.mark.parametrize(
+    ("break_git", "found"),
+    [
+        (_repository_without_commits, "return code 128"),  # prints HEAD and fails
+        (_no_git_on_the_path, "FileNotFoundError"),
+        (_git_that_times_out, "TimeoutExpired"),
+        (_git_that_prints_nothing, "stdout ''"),
+    ],
+    ids=["no commits", "no git", "timeout", "no output"],
+)
+def test_a_git_commit_that_cannot_be_read_raises(break_git, found, monkeypatch, tmp_path):
+    """METHODS 11.6: the records name the commit; a placeholder would pass for one."""
+    break_git(monkeypatch, tmp_path)
+    with pytest.raises(RuntimeError, match="cannot read the git commit") as err:
+        run_mod.git_commit()
+    assert found in str(err.value)
+
+
+def test_without_a_git_commit_no_run_starts_and_no_test_data_are_read(workspace, monkeypatch):
+    runs, data = workspace
+    trained, fresh = _cfg(), _cfg(seed=2)
+    run_mod.execute(trained, runs, data, CPU, **QUIET)
+    trained_dir = runs / "b" / trained.run_id
+    before = sorted(p.name for p in trained_dir.iterdir())
+    built, prepared = [], []
+    prepare = run_mod._prepare_splits
+
+    def watch_prepare(*args):
+        prepared.append(args)
+        return prepare(*args)
+
+    def watch_build(*args):
+        built.append(args)
+        return PopularityModel(*args)
+
+    def unreadable():
+        raise RuntimeError("cannot read the git commit")
+
+    monkeypatch.setattr(run_mod, "git_commit", unreadable)
+    monkeypatch.setattr(run_mod, "_prepare_splits", watch_prepare)
+    monkeypatch.setitem(run_mod.ARMS, "pop", watch_build)
+    with pytest.raises(RuntimeError, match="cannot read the git commit"):
+        run_mod.execute(fresh, runs, data, CPU, **QUIET)
+    assert not (runs / "b" / fresh.run_id).exists()  # no claim, so no metrics or checkpoint
+    with pytest.raises(RuntimeError, match="cannot read the git commit"):
+        run_mod.test_run(trained, runs, data, CPU, **QUIET)
+    after = sorted(p.name for p in trained_dir.iterdir())
+    assert after == before and "test_access.jsonl" not in after  # no read record, so no unsealing
+    assert built == [] and prepared == []  # no model, no training step, no data loaded
+
+
+def test_a_failure_is_recorded_when_the_git_commit_cannot_be_read(tmp_path, monkeypatch):
+    """The record counts as an attempt (D031) and the error being recorded still propagates."""
+    from seqrec.runner import attempts
+
+    def unreadable():
+        raise RuntimeError("cannot read the git commit")
+
+    monkeypatch.setattr(attempts, "git_commit", unreadable)
+    with pytest.raises(ValueError, match="boom"):
+        try:
+            raise ValueError("boom")
+        except ValueError:
+            attempts.record_failure(tmp_path, "train")
+            raise
+    records = attempts.failures(tmp_path)
+    assert [(r["step"], r["error"], r["git_commit"]) for r in records] == [
+        ("train", "ValueError: boom", None)
+    ]
+    error = (tmp_path / "error.txt").read_text(encoding="utf-8")
+    assert "ValueError: boom" in error and "RuntimeError" not in error
+    assert attempts.train_failures(tmp_path) == 1
+
+
+def test_a_failure_is_recorded_when_git_prints_bytes_that_are_not_text(tmp_path, monkeypatch):
+    """With text=True a stderr that is not valid UTF-8 raises UnicodeDecodeError in
+    `git_commit`; it must not replace the failure being recorded."""
+    from seqrec.runner import attempts
+
+    def undecodable(command, **kwargs):
+        raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+
+    monkeypatch.setattr(run_mod.subprocess, "run", undecodable)
+    with pytest.raises(ValueError, match="boom"):
+        try:
+            raise ValueError("boom")
+        except ValueError:
+            attempts.record_failure(tmp_path, "train")
+            raise
+    records = attempts.failures(tmp_path)
+    assert [(r["step"], r["error"], r["git_commit"]) for r in records] == [
+        ("train", "ValueError: boom", None)
+    ]
+    error = (tmp_path / "error.txt").read_text(encoding="utf-8")
+    assert "ValueError: boom" in error and "UnicodeDecodeError" not in error
+
+
+def _unreadable_git(monkeypatch, tmp_path):
+    """`git rev-parse HEAD` cannot start in a directory that is not there, so the commit is
+    unreadable at every read: the batch's, `execute`'s, `test_run`'s and `record_failure`'s.
+    Returns the root to put back when git can be read again."""
+    root = run_mod.REPO_ROOT
+    monkeypatch.setattr(run_mod, "REPO_ROOT", tmp_path / "no-repository")
+    return root
+
+
+def _tree(runs):
+    return sorted(p.relative_to(runs).as_posix() for p in runs.rglob("*"))
+
+
+def test_run_batch_stops_before_any_attempt_when_the_git_commit_cannot_be_read(
+    workspace, monkeypatch, tmp_path
+):
+    """Otherwise every run fails at its own read, is recorded twice and is given up for good."""
+    from seqrec.runner.batch import _given_up, _untrained, run_batch
+    from seqrec.runner.config import load_plan
+
+    runs, data = workspace
+    plan = _plan(runs.parent, seeds=(1, 2))
+    loaded = load_plan(plan)
+    root = _unreadable_git(monkeypatch, tmp_path)
+    with pytest.raises(RuntimeError, match="cannot read the git commit"):
+        run_batch(plan, runs, data, CPU, **QUIET)
+    assert not any(runs.rglob("failures.jsonl"))
+    assert not runs.exists()  # no run directory was claimed
+    assert not any(_given_up(cfg, runs) for cfg in loaded.runs)
+    monkeypatch.setattr(run_mod, "REPO_ROOT", root)  # git can be read again
+    assert _untrained(loaded, runs) == [cfg.run_id for cfg in loaded.runs]
+    assert run_batch(plan, runs, data, CPU, **QUIET) == []
+    assert _untrained(loaded, runs) == []
+    assert all((run_mod.run_dir_of(cfg, runs) / "summary.json").exists() for cfg in loaded.runs)
+
+
+def test_test_batch_stops_before_any_read_when_the_git_commit_cannot_be_read(
+    workspace, monkeypatch, tmp_path
+):
+    """Otherwise each test read is recorded as a failure of its run."""
+    from seqrec.runner.batch import _given_up, _untrained, run_batch, test_batch
+    from seqrec.runner.config import load_plan
+
+    runs, data = workspace
+    plan = _plan(runs.parent, seeds=(1, 2), phase="final")
+    loaded = load_plan(plan)
+    assert run_batch(plan, runs, data, CPU, **QUIET) == []
+    before = _tree(runs)
+    root = _unreadable_git(monkeypatch, tmp_path)
+    with pytest.raises(RuntimeError, match="cannot read the git commit"):
+        test_batch(plan, runs, data, CPU, **QUIET)
+    assert not any(runs.rglob("failures.jsonl"))
+    assert _tree(runs) == before  # no read record, no test result
+    assert not any(_given_up(cfg, runs) for cfg in loaded.runs)
+    monkeypatch.setattr(run_mod, "REPO_ROOT", root)  # git can be read again
+    assert _untrained(loaded, runs) == []
+    assert test_batch(plan, runs, data, CPU, **QUIET) == []
+    assert all((run_mod.run_dir_of(cfg, runs) / "test.json").exists() for cfg in loaded.runs)
 
 
 def test_a_missing_dataset_stops_the_batch_before_any_attempt(workspace):

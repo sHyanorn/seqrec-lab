@@ -87,13 +87,24 @@ class RunConflict(RuntimeError):
 
 
 def git_commit() -> str:
+    """The commit of the code, which every run record names (METHODS 11.6). Raises
+    RuntimeError when the commit cannot be read."""
     try:
         out = subprocess.run(
             ["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, capture_output=True, text=True, timeout=10
         )
-        return out.stdout.strip() or "unknown"
-    except (OSError, subprocess.SubprocessError):
-        return "unknown"
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise RuntimeError(
+            f"cannot read the git commit: `git rev-parse HEAD` in {REPO_ROOT} should print it, "
+            f"found {type(exc).__name__}: {exc}"
+        ) from exc
+    commit = out.stdout.strip()
+    if out.returncode != 0 or not commit:
+        raise RuntimeError(
+            f"cannot read the git commit: `git rev-parse HEAD` in {REPO_ROOT} should print it, "
+            f"found return code {out.returncode}, stdout {commit!r}, stderr {out.stderr.strip()!r}"
+        )
+    return commit
 
 
 def seed_everything(seed: int) -> None:
@@ -355,6 +366,7 @@ def execute(
     `report(step, validation NDCG@10)` is called after every epoch from the run's start
     epoch on, with the epochs since then as the step; returning True stops the run as
     pruned (tuning, METHODS 5.4, D044)."""
+    commit = git_commit()  # first: a run directory is not claimed for a run that cannot name it
     run_dir = run_dir_of(cfg, runs_dir)
     summary_path = run_dir / "summary.json"
     cfg = _claim(cfg, run_dir)
@@ -362,7 +374,6 @@ def execute(
         return json.loads(summary_path.read_text(encoding="utf-8"))
 
     release_device_memory(device)  # blocks an earlier run of this process left cached (D041)
-    commit = git_commit()
     seed_everything(cfg.seed)
     splits, checks = _prepare_splits(cfg, data_dir)
     if len(splits.validation) == 0:
@@ -551,6 +562,7 @@ def test_run(
     reads of this run made there; a final run reads test data once, wherever."""
     if cfg.phase not in ("final", "anchor"):
         raise TestRefused("only final and anchor runs are tested")
+    commit = git_commit()  # before any data or record: the read record names the commit
     run_dir = run_dir_of(cfg, runs_dir)
     _claim(cfg, run_dir)
     if (run_dir / "test.json").exists():
@@ -585,7 +597,7 @@ def test_run(
         phase=cfg.phase,
         log_path=access_log,
         run_id=cfg.run_id,
-        git_commit=git_commit(),
+        git_commit=commit,
         checkpoint_hash=checkpoint_hash,
         earlier_anchor_reads=earlier_anchor_reads,
     )
