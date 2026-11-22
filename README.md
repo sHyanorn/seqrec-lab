@@ -59,7 +59,7 @@ uv run seqrec budget results/runs/m2-pilot.csv   # GPU-hour projection (D034)
 
 ## Limits
 
-- MovieLens-20M has no final runs, so every comparison, hypothesis and gap class on it is pending.
+- MovieLens-20M has no final runs, so every registered comparison, hypothesis and gap class on it is pending.
 - Before the final runs, the anchor reads of METHODS 11.5 read the MovieLens-1M test targets twice for each of SASRec-CE, SASRec-BCE, BERT4Rec and gSASRec (D032).
 - Resampling seeds with replacement, with five to ten seeds per arm, understates the variation between runs (D056).
 - On small configurations, time to target mostly measures launch overhead (D048).
